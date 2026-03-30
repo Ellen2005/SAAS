@@ -1,0 +1,23 @@
+# Environments
+.env
+.env.local
+.env.*.local
+
+# Dependency directories
+node_modules/
+backend/venv/
+backend/__pycache__/
+backend/*.pyc
+
+# Distribution / Build
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
