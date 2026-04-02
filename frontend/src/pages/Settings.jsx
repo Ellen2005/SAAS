@@ -1,325 +1,624 @@
-import React, { useState, useEffect } from 'react';
-import { Database, Bell, Save, CheckCircle, RefreshCw, Info } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Bell, CheckCircle, Database, RefreshCw, Save, Workflow } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { apiFetch, apiJson } from '../lib/api';
+import { useAuth } from '../lib/authContext';
+import { useNavigate } from 'react-router-dom';
+
+const DEFAULT_CONNECTION_OPTIONS = {
+  tunnel_token: '',
+  ssh_host: '',
+  ssh_user: '',
+  remote_db_host: '',
+  docker_enabled: false,
+};
 
 const Settings = () => {
-  const [dbStatus, setDbStatus] = useState('untested');
-  const [theme, setTheme] = useState(localStorage.getItem('saas-theme') || 'dark');
-  const [syncTime, setSyncTime] = useState(localStorage.getItem('saas-sync-time') || '02:00');
+  const { user, departmentName } = useAuth();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [user, setUser] = useState(null);
-  
-  // Form State
+  const [dbStatus, setDbStatus] = useState('idle');
+  const [connectionMethod, setConnectionMethod] = useState('direct');
+  const [connectionOptions, setConnectionOptions] = useState(DEFAULT_CONNECTION_OPTIONS);
+
   const [dbType, setDbType] = useState('postgresql');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('5432');
   const [dbName, setDbName] = useState('');
   const [dbUser, setDbUser] = useState('');
   const [dbPass, setDbPass] = useState('');
+  const [directUri, setDirectUri] = useState('');
+
+  const [aiTone, setAiTone] = useState('insight-driven');
+  const [analysisInstruction, setAnalysisInstruction] = useState('');
+  const [recipients, setRecipients] = useState('');
+  const [syncTime, setSyncTime] = useState('06:00');
+  const [syncFreq, setSyncFreq] = useState('weekly');
+  const [yearlyDate, setYearlyDate] = useState('01-01');
+
+  const [templateData, setTemplateData] = useState({ template: null, fields: [], mappings: [], department: null });
+  const [mappingStatus, setMappingStatus] = useState({ valid: true, missing_required: [], missing_optional: [] });
+  const [mappingInputs, setMappingInputs] = useState({});
+  const [savingMapId, setSavingMapId] = useState(null);
+
+  const mappedFieldIds = useMemo(
+    () => new Map((templateData.mappings || []).map((mapping) => [mapping.template_field_id, mapping])),
+    [templateData.mappings]
+  );
+
+  const [themeMode, setThemeMode] = useState(() => {
+    try {
+      return localStorage.getItem('saas.theme') || 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
 
   useEffect(() => {
-    const fetchUserAndSettings = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        
-        // Fetch existing connection
-        const { data, error } = await supabase
+    try {
+      document.documentElement.classList.toggle('light-theme', themeMode === 'light');
+      localStorage.setItem('saas.theme', themeMode);
+    } catch {
+      // Ignore when localStorage is unavailable.
+    }
+  }, [themeMode]);
+
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [accountMessage, setAccountMessage] = useState(null);
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (!user) return;
+
+      try {
+        const { data: connectionData } = await supabase
           .from('database_connections')
           .select('*')
-          .eq('user_id', session.user.id)
-          .single();
-        
-        if (data) {
-          setDbType(data.db_type);
-          setHost(data.host);
-          setPort(data.port.toString());
-          setDbName(data.db_name);
-          // Note: We don't fetch password/credentials for security, 
-          // usually they are just re-entered or left blank to keep current
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (connectionData) {
+          setDbType(connectionData.db_type || 'postgresql');
+          setHost(connectionData.host || '');
+          setPort(String(connectionData.port || '5432'));
+          setDbName(connectionData.db_name || '');
+          setDirectUri(connectionData.credentials || '');
+          setConnectionMethod(connectionData.connection_method || 'direct');
+          setConnectionOptions({ ...DEFAULT_CONNECTION_OPTIONS, ...(connectionData.connection_options || {}) });
         }
+
+        const [{ data: recipientData }, preferenceData, semanticData, mappingValidation] = await Promise.all([
+          supabase.from('notification_recipients').select('email').eq('user_id', user.id),
+          apiJson('/api/settings/preferences'),
+          apiJson('/api/semantic/my-template'),
+          apiJson('/api/semantic/mappings/validate'),
+        ]);
+
+        setAiTone(preferenceData.ai_tone || 'insight-driven');
+        setSyncTime(preferenceData.sync_time || '06:00');
+        setSyncFreq(preferenceData.sync_frequency || 'weekly');
+        setYearlyDate(preferenceData.yearly_date || '01-01');
+        setAnalysisInstruction(preferenceData.analysis_instruction || '');
+        setRecipients((recipientData || []).map((row) => row.email).join('\n'));
+        setTemplateData(semanticData);
+        setMappingStatus(mappingValidation);
+
+        const nextInputs = {};
+        (semanticData.fields || []).forEach((field) => {
+          const currentMapping = (semanticData.mappings || []).find((mapping) => mapping.template_field_id === field.id);
+          nextInputs[field.id] = currentMapping?.local_column_name || '';
+        });
+        setMappingInputs(nextInputs);
+      } catch (error) {
+        console.error('Failed to load settings', error);
       }
     };
-    fetchUserAndSettings();
-  }, []);
 
-  const handleSyncTimeChange = (e) => {
-    const newTime = e.target.value;
-    setSyncTime(newTime);
-    localStorage.setItem('saas-sync-time', newTime);
-    console.log(`[API] Rescheduling nightly sync to ${newTime}`);
+    loadSettings();
+  }, [user]);
+
+  const buildCredentialString = () => {
+    if (directUri.trim()) return directUri.trim();
+    return `${dbType}+psycopg2://${dbUser.trim()}:${encodeURIComponent(dbPass.trim())}@${host.trim()}:${port.trim()}/${dbName.trim()}`;
   };
 
-  const toggleTheme = (newTheme) => {
-    setTheme(newTheme);
-    localStorage.setItem('saas-theme', newTheme);
-    if (newTheme === 'light') {
-      document.documentElement.classList.add('light-theme');
-    } else {
-      document.documentElement.classList.remove('light-theme');
-    }
-  };
-
-  const handleSaveSettings = async () => {
-    if (!user) return;
-    setLoading(true);
-    
-    // Construct credentials blob (Postgres URL format)
-    const credentials = `postgresql://${dbUser}:${dbPass}@${host}:${port}/${dbName}`;
-    
-    const { error } = await supabase
-      .from('database_connections')
-      .upsert({
-        user_id: user.id,
-        db_type: dbType,
-        host,
-        port: parseInt(port),
-        db_name: dbName,
-        credentials: credentials,
-        read_only: true
-      }, { onConflict: 'user_id' });
-
-    if (error) {
-      alert(`Error saving settings: ${error.message}`);
-    } else {
-      setDbStatus('success');
-      setTimeout(() => setDbStatus('untested'), 3000);
-    }
-    setLoading(false);
-  };
-
-  const handleTriggerManualRefresh = async () => {
-    if (!user) return;
+  const handleSaveConnection = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/etl/trigger?user_id=${user.id}`, {
-        method: 'POST'
-      });
-      const data = await response.json();
-      alert("Manual ETL batch triggered successfully! Your dashboard will update in a few moments.");
-    } catch (err) {
-      alert(`Failed to trigger ETL: ${err.message}`);
-    }
-    setLoading(false);
-  };
-
-  const testConnection = async (e) => {
-    e.preventDefault();
-    setDbStatus('testing');
-    
-    // Construct credentials blob (Postgres URL format)
-    const credentials = `postgresql://${dbUser}:${dbPass}@${host}:${port}/${dbName}`;
-    
-    try {
-      const response = await fetch('http://localhost:8000/api/test-connection', {
+      await apiFetch('/api/settings/connection', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentials })
+        body: JSON.stringify({
+          db_type: dbType,
+          host: host.trim(),
+          port: Number(port) || 5432,
+          db_name: dbName.trim(),
+          credentials: buildCredentialString(),
+          connection_method: connectionMethod,
+          connection_options: connectionOptions,
+        }),
       });
-      const data = await response.json();
-      
-      if (data.status === 'success') {
-        setDbStatus('success');
-      } else {
-        setDbStatus('error');
-        alert(`Connection test failed: ${data.message}`);
-      }
-    } catch (err) {
+      setDbStatus('saved');
+    } catch (error) {
+      alert(`Unable to save connection: ${error.message}`);
       setDbStatus('error');
-      alert(`Network error testing connection: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestConnection = async (event) => {
+    event.preventDefault();
+    setDbStatus('testing');
+    try {
+      const result = await apiJson('/api/test-connection', {
+        method: 'POST',
+        body: JSON.stringify({ credentials: buildCredentialString() }),
+      });
+      setDbStatus(result.status === 'success' ? 'success' : 'error');
+      if (result.status !== 'success') {
+        alert(result.message);
+      }
+    } catch (error) {
+      setDbStatus('error');
+      alert(`Connection test failed: ${error.message}`);
+    }
+  };
+
+  const handleSavePreferences = async () => {
+    setLoading(true);
+    try {
+      await apiFetch('/api/settings/preferences', {
+        method: 'POST',
+        body: JSON.stringify({
+          ai_tone: aiTone,
+          sync_time: syncTime,
+          sync_frequency: syncFreq,
+          yearly_date: yearlyDate,
+          analysis_instruction: analysisInstruction,
+        }),
+      });
+
+      await supabase.from('notification_recipients').delete().eq('user_id', user.id);
+      const emails = recipients
+        .split('\n')
+        .map((email) => email.trim())
+        .filter((email) => email.includes('@'));
+
+      if (emails.length > 0) {
+        await supabase.from('notification_recipients').insert(
+          emails.map((email) => ({ user_id: user.id, email }))
+        );
+      }
+
+      alert('Governed preferences updated.');
+    } catch (error) {
+      alert(`Unable to save preferences: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleManualSync = async () => {
+    setLoading(true);
+    try {
+      await apiFetch('/api/etl/trigger', { method: 'POST' });
+      alert('Department sync triggered. The dashboard will refresh after the ETL finishes.');
+    } catch (error) {
+      alert(`Unable to trigger sync: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveMapping = async (fieldId) => {
+    const localColumnName = (mappingInputs[fieldId] || '').trim();
+    if (!localColumnName) return;
+
+    setSavingMapId(fieldId);
+    try {
+      await apiFetch('/api/semantic/mappings', {
+        method: 'POST',
+        body: JSON.stringify({
+          template_field_id: fieldId,
+          local_column_name: localColumnName,
+        }),
+      });
+
+      const [semanticData, mappingValidation] = await Promise.all([
+        apiJson('/api/semantic/my-template'),
+        apiJson('/api/semantic/mappings/validate'),
+      ]);
+      setTemplateData(semanticData);
+      setMappingStatus(mappingValidation);
+    } catch (error) {
+      alert(`Unable to save mapping: ${error.message}`);
+    } finally {
+      setSavingMapId(null);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setAccountMessage(null);
+
+    if (!newPassword || newPassword.length < 6) {
+      setAccountMessage({ type: 'error', text: 'Password must be at least 6 characters.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setAccountMessage({ type: 'error', text: 'Passwords do not match.' });
+      return;
+    }
+
+    setAccountLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setAccountMessage({ type: 'success', text: 'Password updated successfully.' });
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (e) {
+      setAccountMessage({ type: 'error', text: e.message || 'Unable to update password.' });
+    } finally {
+      setAccountLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!confirm('Delete your account? This cannot be undone.')) return;
+    setAccountMessage(null);
+    setAccountLoading(true);
+    try {
+      try {
+        localStorage.removeItem('saas.dashboard.lastSummary.v1');
+        localStorage.removeItem('saas.validation.lastLogs.v1');
+      } catch {
+        // Ignore when storage is unavailable.
+      }
+      await apiFetch('/api/account', { method: 'DELETE' });
+      await supabase.auth.signOut();
+      navigate('/login', { replace: true });
+    } catch (e) {
+      setAccountMessage({ type: 'error', text: e.message || 'Unable to delete account.' });
+    } finally {
+      setAccountLoading(false);
     }
   };
 
   return (
-    <div className="settings dashboard-grid" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
-      
-      {/* Database Settings Section */}
-      <section className="glass-panel">
-        <h2 style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-          <Database color="var(--primary-color)" /> Database Connection
-        </h2>
-        
-        <div style={{ background: 'rgba(79, 70, 229, 0.1)', padding: '15px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.85rem', borderLeft: '4px solid var(--primary-color)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px', fontWeight: 'bold' }}>
-            <Info size={16} /> Connection Tip
-          </div>
-          To connect another Supabase DB (like <strong>Analytix360</strong>), go to your Supabase Project Settings &gt; Database &gt; Connection String and copy the <strong>URI</strong>.
-        </div>
+    <div style={{ display: 'grid', gap: '24px' }}>
+      <header>
+        <h1>Department Settings</h1>
+        <p style={{ color: 'var(--text-secondary)' }}>
+          Governed configuration for {departmentName || templateData.department?.name || 'your department'}.
+        </p>
+      </header>
 
-        <form onSubmit={testConnection}>
+      <section className="glass-panel">
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+          <Database size={20} color="var(--primary-color)" /> Source Connectivity
+        </h2>
+        <form onSubmit={handleTestConnection}>
           <div className="form-group">
-            <label>Database Type</label>
-            <select value={dbType} onChange={(e) => setDbType(e.target.value)}>
-              <option value="postgresql">PostgreSQL</option>
-              <option value="mysql">MySQL / MariaDB</option>
-              <option value="sqlite">SQLite</option>
-              <option value="sqlserver">Microsoft SQL Server</option>
+            <label>Connection Method</label>
+            <select value={connectionMethod} onChange={(event) => setConnectionMethod(event.target.value)}>
+              <option value="direct">Direct Connection</option>
+              <option value="cloudflare_tunnel">Cloudflare Tunnel</option>
+              <option value="ssh_tunnel">SSH Tunnel</option>
+              <option value="docker_vpn">Docker behind VPN</option>
             </select>
           </div>
-          
+
+          {connectionMethod === 'cloudflare_tunnel' && (
+            <div className="form-group">
+              <label>Tunnel Token</label>
+              <input
+                value={connectionOptions.tunnel_token}
+                onChange={(event) => setConnectionOptions({ ...connectionOptions, tunnel_token: event.target.value })}
+                placeholder="Generated Cloudflare tunnel token"
+              />
+            </div>
+          )}
+
+          {connectionMethod === 'ssh_tunnel' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div className="form-group">
+                <label>SSH Host</label>
+                <input
+                  value={connectionOptions.ssh_host}
+                  onChange={(event) => setConnectionOptions({ ...connectionOptions, ssh_host: event.target.value })}
+                  placeholder="bastion.company.com"
+                />
+              </div>
+              <div className="form-group">
+                <label>SSH User</label>
+                <input
+                  value={connectionOptions.ssh_user}
+                  onChange={(event) => setConnectionOptions({ ...connectionOptions, ssh_user: event.target.value })}
+                  placeholder="analytics"
+                />
+              </div>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label>Remote DB Host</label>
+                <input
+                  value={connectionOptions.remote_db_host}
+                  onChange={(event) => setConnectionOptions({ ...connectionOptions, remote_db_host: event.target.value })}
+                  placeholder="db.internal"
+                />
+              </div>
+            </div>
+          )}
+
+          {connectionMethod === 'docker_vpn' && (
+            <div style={{ marginBottom: '16px', padding: '14px 16px', borderRadius: '12px', background: 'rgba(59,130,246,0.08)' }}>
+              Docker mode is stored with this department profile so you can deliver the full stack behind VPN later.
+            </div>
+          )}
+
           <div className="form-group">
-            <label>Host URL or IP</label>
-            <input 
-              type="text" 
-              placeholder="e.g. db.jtbyxbdkhmbzivzuaekz.supabase.co" 
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
+            <label>Direct URI</label>
+            <textarea
+              value={directUri}
+              onChange={(event) => setDirectUri(event.target.value)}
+              rows={3}
+              placeholder="postgresql://postgres:[password]@db.project.supabase.co:5432/postgres"
             />
           </div>
-          
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <div className="form-group" style={{ flex: 1 }}>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="form-group">
+              <label>Database Type</label>
+              <select value={dbType} onChange={(event) => setDbType(event.target.value)}>
+                <option value="postgresql">PostgreSQL</option>
+                <option value="mysql">MySQL</option>
+                <option value="sqlite">SQLite</option>
+                <option value="sqlserver">SQL Server</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Host</label>
+              <input value={host} onChange={(event) => setHost(event.target.value)} placeholder="db.company.com" />
+            </div>
+            <div className="form-group">
               <label>Port</label>
-              <input 
-                type="number" 
-                placeholder="5432" 
-                value={port}
-                onChange={(e) => setPort(e.target.value)}
-              />
+              <input value={port} onChange={(event) => setPort(event.target.value)} placeholder="5432" />
             </div>
-            <div className="form-group" style={{ flex: 2 }}>
+            <div className="form-group">
               <label>Database Name</label>
-              <input 
-                type="text" 
-                placeholder="e.g. postgres" 
-                value={dbName}
-                onChange={(e) => setDbName(e.target.value)}
-              />
+              <input value={dbName} onChange={(event) => setDbName(event.target.value)} placeholder="analytics" />
             </div>
-          </div>
-          
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <div className="form-group" style={{ flex: 1 }}>
+            <div className="form-group">
               <label>User</label>
-              <input 
-                type="text" 
-                placeholder="postgres" 
-                value={dbUser}
-                onChange={(e) => setDbUser(e.target.value)}
-              />
+              <input value={dbUser} onChange={(event) => setDbUser(event.target.value)} placeholder="postgres" />
             </div>
-            <div className="form-group" style={{ flex: 1 }}>
+            <div className="form-group">
               <label>Password</label>
-              <input 
-                type="password" 
-                placeholder="••••••••" 
-                value={dbPass}
-                onChange={(e) => setDbPass(e.target.value)}
-              />
+              <input type="password" value={dbPass} onChange={(event) => setDbPass(event.target.value)} placeholder="password" />
             </div>
           </div>
-          
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px' }}>
-            <button type="submit" className="btn btn-outline" style={{ display: 'flex', gap: '8px' }}>
-              Test Connection
+
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <button className="btn btn-outline" type="submit">Test Connection</button>
+            <button className="btn btn-primary" type="button" onClick={handleSaveConnection} disabled={loading}>
+              <Save size={16} /> Save Connection
             </button>
-            <button 
-              type="button" 
-              className="btn btn-primary" 
-              style={{ display: 'flex', gap: '8px' }}
-              onClick={handleSaveSettings}
-              disabled={loading}
-            >
-              <Save size={18} /> {loading ? 'Saving...' : 'Save credentials'}
-            </button>
+            {dbStatus === 'success' && <span style={{ color: 'var(--status-normal)' }}>Connection verified.</span>}
+            {dbStatus === 'saved' && <span style={{ color: 'var(--primary-color)' }}>Configuration saved.</span>}
           </div>
-          
-          {dbStatus === 'testing' && (
-            <div style={{ marginTop: '16px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Testing connection to host...</div>
-          )}
-          {dbStatus === 'success' && (
-            <div style={{ marginTop: '16px', color: 'var(--status-normal)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <CheckCircle size={16} /> Settings saved and connection verified!
-            </div>
-          )}
         </form>
       </section>
 
-      {/* Notification Preferences Section */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        <section className="glass-panel">
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-            <Bell color="var(--primary-color)" /> Notification Preferences
-          </h2>
-          
+      <section className="glass-panel">
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+          <Workflow size={20} color="var(--primary-color)" /> Semantic Mapping
+        </h2>
+        <p style={{ marginBottom: '16px' }}>
+          Template: <strong>{templateData.template?.name || 'No semantic template assigned yet'}</strong>
+        </p>
+
+        {mappingStatus.valid ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', color: 'var(--status-normal)' }}>
+            <CheckCircle size={16} /> Required mappings are complete.
+          </div>
+        ) : (
+          <div style={{ marginBottom: '16px', color: 'var(--status-warning)' }}>
+            Missing required mappings: {mappingStatus.missing_required.map((item) => item.name).join(', ')}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gap: '12px' }}>
+          {(templateData.fields || []).map((field) => {
+            const currentMapping = mappedFieldIds.get(field.id);
+            return (
+              <div
+                key={field.id}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1.4fr 1fr auto',
+                  gap: '12px',
+                  alignItems: 'end',
+                  padding: '14px',
+                  borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.03)',
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600 }}>
+                    {field.global_field_name}
+                    {field.required && <span style={{ color: 'var(--status-critical)', marginLeft: '6px' }}>*</span>}
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{field.description || field.data_type}</div>
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Local Column</label>
+                  <input
+                    value={mappingInputs[field.id] || ''}
+                    onChange={(event) => setMappingInputs({ ...mappingInputs, [field.id]: event.target.value })}
+                    placeholder={currentMapping?.local_column_name || 'e.g. total_sales'}
+                  />
+                </div>
+                <button className="btn btn-outline" onClick={() => handleSaveMapping(field.id)} disabled={savingMapId === field.id}>
+                  {savingMapId === field.id ? 'Saving...' : currentMapping ? 'Update' : 'Map'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="glass-panel">
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+          <Bell size={20} color="var(--primary-color)" /> AI Narrative and Delivery
+        </h2>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div className="form-group">
-            <label>Daily Briefing Delivery Time</label>
-            <select defaultValue="07:00">
-              <option value="06:00">6:00 AM Local Time</option>
-              <option value="07:00">7:00 AM Local Time</option>
-              <option value="08:00">8:00 AM Local Time</option>
-              <option value="09:00">9:00 AM Local Time</option>
+            <label>AI Tone</label>
+            <select value={aiTone} onChange={(event) => setAiTone(event.target.value)}>
+              <option value="insight-driven">Insight-driven</option>
+              <option value="formal">Formal</option>
             </select>
           </div>
-          
           <div className="form-group">
-            <label>Additional Email Recipients</label>
-            <textarea 
-              rows={3} 
-              placeholder="Enter one email per line (e.g. vp@company.com)"
-              defaultValue=""
-            ></textarea>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>These users will receive the daily AI briefing.</span>
+            <label>Sync Frequency</label>
+            <select value={syncFreq} onChange={(event) => setSyncFreq(event.target.value)}>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
           </div>
-          
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-            <button className="btn btn-primary">Update Preferences</button>
+          <div className="form-group">
+            <label>Sync Time</label>
+            <input type="time" value={syncTime} onChange={(event) => setSyncTime(event.target.value)} />
           </div>
-        </section>
+          <div className="form-group">
+            <label>Yearly Date</label>
+            <input value={yearlyDate} onChange={(event) => setYearlyDate(event.target.value)} placeholder="01-01" />
+          </div>
+        </div>
 
-        {/* Sync Controls */}
-        <section className="glass-panel">
-          <h3 style={{ marginBottom: '16px' }}>System Controls</h3>
-          <div className="form-group">
-            <label>Automated Sync Time (Nightly)</label>
-            <input 
-              type="time" 
-              value={syncTime} 
-              onChange={handleSyncTimeChange}
-              style={{ padding: '8px 12px' }}
-            />
-          </div>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-            The ETL pipeline will process your data at this time every night.
-          </p>
-          <button 
-            className="btn btn-outline" 
-            style={{width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px'}}
-            onClick={handleTriggerManualRefresh}
-            disabled={loading}
-          >
-            <RefreshCw size={18} className={loading ? 'spin' : ''} />
-            {loading ? 'Processing...' : 'Trigger Manual Refresh Batch'}
+        <div className="form-group">
+          <label>Analysis Focus</label>
+          <textarea
+            rows={3}
+            value={analysisInstruction}
+            onChange={(event) => setAnalysisInstruction(event.target.value)}
+            placeholder="Focus on revenue quality, margin risk, and missing data patterns."
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Email Recipients</label>
+          <textarea
+            rows={3}
+            value={recipients}
+            onChange={(event) => setRecipients(event.target.value)}
+            placeholder="dept-head@company.com"
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn btn-primary" onClick={handleSavePreferences} disabled={loading}>
+            <Save size={16} /> Save Preferences
           </button>
-        </section>
+          <button className="btn btn-outline" onClick={handleManualSync} disabled={loading}>
+            <RefreshCw size={16} /> Trigger Sync Now
+          </button>
+        </div>
+      </section>
 
-        {/* Appearance Settings Section */}
-        <section className="glass-panel" style={{ marginBottom: '50px' }}>
-          <h3 style={{ marginBottom: '16px' }}>App Appearance</h3>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-            Toggle between Dark Mode (Default) and Light Mode.
-          </p>
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <button 
-              type="button" 
-              className={`btn ${theme === 'dark' ? 'btn-primary' : 'btn-outline'}`}
-              style={{ flex: 1 }}
-              onClick={() => toggleTheme('dark')}
+      <section className="glass-panel">
+        <h2 style={{ marginBottom: '16px' }}>Account Management</h2>
+
+        <div style={{ display: 'grid', gap: '16px' }}>
+          <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'rgba(255,255,255,0.03)' }}>
+            <h3 style={{ fontSize: '1rem', marginBottom: '12px' }}>Appearance</h3>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setThemeMode('light')}
+                disabled={accountLoading}
+                style={{ borderColor: themeMode === 'light' ? 'var(--primary-color)' : undefined }}
+              >
+                Light
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setThemeMode('dark')}
+                disabled={accountLoading}
+                style={{ borderColor: themeMode === 'dark' ? 'var(--primary-color)' : undefined }}
+              >
+                Dark
+              </button>
+            </div>
+          </div>
+
+          <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'rgba(255,255,255,0.03)' }}>
+            <h3 style={{ fontSize: '1rem', marginBottom: '12px' }}>Change Password</h3>
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>New Password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  placeholder="••••••••"
+                  disabled={!user || accountLoading}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Confirm Password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="••••••••"
+                  disabled={!user || accountLoading}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="btn btn-primary" type="button" onClick={handleChangePassword} disabled={!user || accountLoading}>
+                  {accountLoading ? 'Updating...' : 'Update Password'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: '12px', padding: '16px', border: '1px solid rgba(239,68,68,0.35)', borderRadius: '12px', background: 'rgba(239,68,68,0.06)' }}>
+            <h3 style={{ fontSize: '1rem', color: 'var(--status-critical)' }}>Delete Account</h3>
+            <p style={{ color: 'var(--text-secondary)', marginTop: -6 }}>
+              Deletes your Supabase user and all governed data tied to your account.
+            </p>
+            <button
+              className="btn btn-outline"
+              type="button"
+              onClick={handleDeleteAccount}
+              disabled={!user || accountLoading}
+              style={{ borderColor: 'var(--status-critical)', color: 'var(--status-critical)' }}
             >
-              Dark Mode
-            </button>
-            <button 
-              type="button" 
-              className={`btn ${theme === 'light' ? 'btn-primary' : 'btn-outline'}`}
-              style={{ flex: 1 }}
-              onClick={() => toggleTheme('light')}
-            >
-              Light Mode
+              {accountLoading ? 'Deleting...' : 'Delete My Account'}
             </button>
           </div>
-        </section>
-      </div>
 
+          {accountMessage && (
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '12px',
+                border: `1px solid ${accountMessage.type === 'success' ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                background: accountMessage.type === 'success' ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)',
+                color: accountMessage.type === 'success' ? 'var(--status-normal)' : 'var(--status-critical)',
+              }}
+            >
+              {accountMessage.text}
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 };

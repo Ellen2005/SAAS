@@ -7,19 +7,26 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      includeAssets: ['favicon.svg', 'logo.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}']
       },
       manifest: {
-        name: 'SAAS',
-        short_name: 'SAAS',
+        name: 'Smart Automated Analytics System',
+        short_name: 'SAAS-PWA',
         description: 'Decentralized Analytics Dashboard for Department Managers',
-        theme_color: '#ffffff',
+        theme_color: '#4f46e5',
+        background_color: '#0a0a0b',
+        display: 'standalone',
         icons: [
           {
             src: 'pwa-192x192.png',
             sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
             type: 'image/png'
           },
           {

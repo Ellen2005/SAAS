@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS public.database_connections (
     port INTEGER NOT NULL,
     db_name VARCHAR(255) NOT NULL,
     credentials VARCHAR(512) NOT NULL, -- AES-256 encrypted connection string
+    connection_method VARCHAR(50) DEFAULT 'direct',
+    connection_options JSONB,
     read_only BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -107,3 +109,31 @@ INSERT INTO public.source_revenue (amount) VALUES (150000.00), (145000.00), (160
 INSERT INTO public.source_inventory (stock_value) VALUES (450000.00), (455000.00);
 INSERT INTO public.source_tickets (ticket_count) VALUES (85), (92), (110);
 */
+
+-- 6. User Preferences & Advanced Scheduling
+CREATE TABLE IF NOT EXISTS public.user_preferences (
+    user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    ai_tone VARCHAR(50) DEFAULT 'insight-driven',
+    sync_time VARCHAR(10) DEFAULT '09:00',
+    sync_frequency VARCHAR(20) DEFAULT 'daily', -- daily, weekly, monthly, yearly
+    yearly_date VARCHAR(10) DEFAULT '01-01', -- MM-DD format
+    analysis_instruction TEXT, -- Plain-English focus for AI
+    last_sync_status VARCHAR(50) DEFAULT 'IDLE',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 7. Strategic Analysis History
+CREATE TABLE IF NOT EXISTS public.analysis_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    instruction TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- RLS for new tables
+ALTER TABLE public.user_preferences ENABLE ROW LEVEL SECURITY;
+CREATE POLICY user_isolation_prefs ON public.user_preferences FOR ALL USING (user_id = auth.uid());
+
+ALTER TABLE public.analysis_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY user_isolation_analysis_hist ON public.analysis_history FOR ALL USING (user_id = auth.uid());
