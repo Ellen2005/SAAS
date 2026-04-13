@@ -16,6 +16,7 @@ import AdminValidation from './pages/AdminValidation';
 import AdminUsers from './pages/AdminUsers';
 import AdminTemplates from './pages/AdminTemplates';
 import ValidationHistory from './pages/ValidationHistory';
+import ReportsHistory from './pages/ReportsHistory';
 import RoleGuard from './components/RoleGuard';
 import ReloadPrompt from './components/ReloadPrompt';
 import OfflineBanner from './components/OfflineBanner';
@@ -123,6 +124,9 @@ function AppContent() {
                     <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}>
                       Dashboard
                     </NavLink>
+                    <NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}>
+                      Reports
+                    </NavLink>
                     {isManager && (
                       <>
                         <NavLink to="/validation" className={({ isActive }) => isActive ? 'active' : ''}>
@@ -147,6 +151,7 @@ function AppContent() {
                   {isAdmin && <AdminSubNav />}
                   <Routes>
                     <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/reports" element={<ReportsHistory />} />
                     <Route path="/validation" element={
                       <RoleGuard allowedRoles={['manager']} fallback="/dashboard">
                         <ValidationHistory />

@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
@@ -82,11 +81,17 @@ class DashboardSummary(BaseModel):
     validation: List[dict] = []
 
 
-# ── Favicon (fixes 404 noise in logs) ─────────────────────────────────────────
+# ── Keepalive ping (prevents cold-start on free-tier hosts) ───────────────────
+
+@app.get("/api/ping", include_in_schema=False)
+def ping():
+    return {"ok": True}
+
+
+# ── Favicon (suppresses 404 log noise) ────────────────────────────────────────
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    # Return 204 No Content — browser stops requesting it, no 404 logged
     from fastapi.responses import Response
     return Response(status_code=204)
 
@@ -126,7 +131,7 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                     deviation=float(item["deviation"]), context=item["context"], detected_at=item["detected_at"],
                 ))
 
-        narrative = "No analytics report generated yet. Please trigger a manual sync in Settings."
+        narrative = "No analytics report generated yet. Go to Dashboard and click Sync Now to generate your first report."
         last_refreshed = "Never"
         if hasattr(report_resp, "data") and report_resp.data:
             narrative = report_resp.data[0]["narrative"]
@@ -142,6 +147,83 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
         fallback_dict = fallback.model_dump()
         fallback_dict["validation"] = []
         return fallback_dict
+
+
+# ── Report History ────────────────────────────────────────────────────────────
+
+@app.get("/api/reports/history")
+def get_reports_history(limit: int = 50, user_id: str = Depends(resolve_user_id)):
+    """Returns all past daily reports for the user, newest first."""
+    supabase = get_supabase()
+    try:
+        rows = (
+            supabase.table("daily_reports")
+            .select("id, report_date, narrative, department_id")
+            .eq("user_id", user_id)
+            .order("report_date", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return {"reports": rows.data if hasattr(rows, "data") and rows.data else []}
+    except Exception as e:
+        return {"reports": [], "error": str(e)}
+
+
+# ── Report Edit & Resend ─────────────────────────────────────────────────────
+
+@app.patch("/api/reports/{report_id}")
+def edit_report_narrative(
+    report_id: str,
+    body: dict,
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    """Save an edited narrative back to the daily_reports record."""
+    narrative = body.get("narrative", "").strip()
+    if not narrative:
+        raise HTTPException(status_code=400, detail="Narrative cannot be empty.")
+    supabase = get_supabase()
+    try:
+        supabase.table("daily_reports").update({"narrative": narrative}).eq("id", report_id).eq("user_id", context["user_id"]).execute()
+        log_config_change(supabase, context["user_id"], "update", "report_narrative", {"report_id": report_id})
+        return {"status": "updated", "report_id": report_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/reports/{report_id}/send")
+def resend_report(
+    report_id: str,
+    background_tasks: BackgroundTasks,
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    """Resend a stored report (with any edits) to all notification recipients."""
+    supabase = get_supabase()
+    try:
+        rows = supabase.table("daily_reports").select("*").eq("id", report_id).eq("user_id", context["user_id"]).limit(1).execute()
+        if not rows.data:
+            raise HTTPException(status_code=404, detail="Report not found.")
+        report = rows.data[0]
+
+        kpi_rows = supabase.table("kpi_results").select("*").eq("user_id", context["user_id"]).order("recorded_at", desc=True).limit(5).execute()
+        anomaly_rows = supabase.table("anomaly_records").select("*").eq("user_id", context["user_id"]).order("detected_at", desc=True).limit(10).execute()
+        kpis = kpi_rows.data if hasattr(kpi_rows, "data") and kpi_rows.data else []
+        anomalies = anomaly_rows.data if hasattr(anomaly_rows, "data") and anomaly_rows.data else []
+
+        import pandas as pd
+        from .services.email_service import send_automated_briefing
+        background_tasks.add_task(
+            send_automated_briefing,
+            context["user_id"], kpis, anomalies,
+            report["narrative"],
+            pd.DataFrame(),
+            "Daily",
+            str(report["report_date"]),
+        )
+        return {"status": "queued", "report_id": report_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── ETL ───────────────────────────────────────────────────────────────────────
@@ -165,7 +247,6 @@ def get_etl_status(user_id: str = Depends(resolve_user_id)):
 
 @app.get("/api/forecasts")
 def get_forecasts(user_id: str = Depends(resolve_user_id)):
-    """Returns the latest 7-day forecasts for the user's KPIs."""
     supabase = get_supabase()
     try:
         rows = supabase.table("kpi_forecasts").select("*").eq("user_id", user_id).order("forecast_date").execute()
@@ -308,13 +389,8 @@ def save_db_connection(conn_data: dict, context: dict = Depends(require_role(["m
 
 @app.get("/api/unsubscribe")
 def unsubscribe(email: str, token: str):
-    """
-    GDPR/CAN-SPAM compliant opt-out. Removes the email from notification_recipients.
-    Linked from every outgoing email footer.
-    """
     if not verify_unsubscribe_token(email, token):
         raise HTTPException(status_code=400, detail="Invalid or expired unsubscribe link.")
-
     supabase = get_supabase()
     try:
         supabase.table("notification_recipients").delete().eq("email", email).execute()
@@ -326,21 +402,10 @@ def unsubscribe(email: str, token: str):
 # ── Audit Log ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/audit-log")
-def get_audit_log(
-    limit: int = 50,
-    context: dict = Depends(require_role(["manager", "admin"])),
-):
-    """Returns the configuration change audit log for the current user."""
+def get_audit_log(limit: int = 50, context: dict = Depends(require_role(["manager", "admin"]))):
     supabase = get_supabase()
     try:
-        rows = (
-            supabase.table("audit_logs")
-            .select("*")
-            .eq("user_id", context["user_id"])
-            .order("created_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
+        rows = supabase.table("audit_logs").select("*").eq("user_id", context["user_id"]).order("created_at", desc=True).limit(limit).execute()
         return {"logs": rows.data if hasattr(rows, "data") and rows.data else []}
     except Exception as e:
         return {"logs": [], "error": str(e)}

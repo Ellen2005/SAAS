@@ -1,13 +1,18 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { FileText, RefreshCcw, ChevronDown, ChevronRight } from 'lucide-react';
-import { apiJson } from '../lib/api';
+import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X } from 'lucide-react';
+import { apiJson, apiFetch } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 
 const ReportsHistory = () => {
-  const { user } = useAuth();
+  const { user, isManager } = useAuth();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(null);
+  const [sentId, setSentId] = useState(null);
 
   const fetchReports = useCallback(async () => {
     if (!user) return;
@@ -23,6 +28,41 @@ const ReportsHistory = () => {
 
   useEffect(() => { fetchReports(); }, [fetchReports]);
 
+  const handleStartEdit = (report) => {
+    setEditingId(report.id);
+    setEditText(report.narrative || '');
+    setExpanded(report.id);
+  };
+
+  const handleSaveEdit = async (reportId) => {
+    setSaving(true);
+    try {
+      await apiFetch(`/api/reports/${reportId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ narrative: editText }),
+      });
+      setReports((prev) => prev.map((r) => r.id === reportId ? { ...r, narrative: editText } : r));
+      setEditingId(null);
+    } catch (err) {
+      alert(`Failed to save: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleResend = async (reportId) => {
+    setSending(reportId);
+    try {
+      await apiFetch(`/api/reports/${reportId}/send`, { method: 'POST' });
+      setSentId(reportId);
+      setTimeout(() => setSentId(null), 3000);
+    } catch (err) {
+      alert(`Failed to send: ${err.message}`);
+    } finally {
+      setSending(null);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--text-secondary)' }}>
@@ -35,13 +75,13 @@ const ReportsHistory = () => {
 
   return (
     <div style={{ display: 'grid', gap: '24px' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <FileText color="var(--primary-color)" /> Report History
           </h1>
           <p style={{ color: 'var(--text-secondary)' }}>
-            Every AI-generated report your department has produced. Click any report to read the full narrative.
+            All AI-generated reports. Click to read, edit the narrative, or resend to email recipients.
           </p>
         </div>
         <button className="btn btn-outline" onClick={fetchReports} style={{ display: 'flex', gap: '8px' }}>
@@ -54,52 +94,97 @@ const ReportsHistory = () => {
           <FileText size={48} color="var(--text-secondary)" style={{ marginBottom: '16px' }} />
           <h3 style={{ marginBottom: '8px' }}>No reports yet</h3>
           <p style={{ color: 'var(--text-secondary)' }}>
-            Go to the Dashboard and click <strong>Sync Now</strong> to generate your first report.
+            Go to the Dashboard and click <strong>Generate Report</strong> to create your first report.
           </p>
         </div>
       ) : (
         <div style={{ display: 'grid', gap: '12px' }}>
-          {reports.map((report) => (
-            <div key={report.id} className="glass-panel" style={{ padding: '0', overflow: 'hidden' }}>
-              <button
-                onClick={() => setExpanded(expanded === report.id ? null : report.id)}
-                style={{
-                  width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-                  padding: '20px 24px', display: 'flex', justifyContent: 'space-between',
-                  alignItems: 'center', color: 'var(--text-primary)', textAlign: 'left',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  {expanded === report.id ? <ChevronDown size={18} color="var(--primary-color)" /> : <ChevronRight size={18} color="var(--text-secondary)" />}
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Report — {report.report_date}
-                    </div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      {report.narrative ? report.narrative.slice(0, 100) + (report.narrative.length > 100 ? '…' : '') : 'No narrative'}
-                    </div>
-                  </div>
-                </div>
-                <span style={{
-                  fontSize: '0.75rem', padding: '3px 10px', borderRadius: '999px',
-                  background: 'rgba(59,130,246,0.12)', color: 'var(--primary-color)', whiteSpace: 'nowrap',
-                }}>
-                  {report.report_date}
-                </span>
-              </button>
+          {reports.map((report) => {
+            const isExpanded = expanded === report.id;
+            const isEditing = editingId === report.id;
+            const wasSent = sentId === report.id;
 
-              {expanded === report.id && (
-                <div style={{ padding: '0 24px 24px', borderTop: '1px solid var(--border-color)' }}>
-                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', margin: '16px 0 8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Full AI Narrative
-                  </h3>
-                  <p style={{ lineHeight: '1.7', color: 'var(--text-primary)', fontSize: '1rem' }}>
-                    {report.narrative || 'No narrative was generated for this report.'}
-                  </p>
+            return (
+              <div key={report.id} className="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
+                {/* Row header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px' }}>
+                  <button
+                    onClick={() => setExpanded(isExpanded ? null : report.id)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', color: 'var(--text-primary)', textAlign: 'left', flex: 1 }}
+                  >
+                    {isExpanded ? <ChevronDown size={18} color="var(--primary-color)" /> : <ChevronRight size={18} color="var(--text-secondary)" />}
+                    <div>
+                      <div style={{ fontWeight: 600 }}>Report — {report.report_date}</div>
+                      <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        {report.narrative ? report.narrative.slice(0, 90) + '…' : 'No narrative'}
+                      </div>
+                    </div>
+                  </button>
+
+                  {isManager && (
+                    <div style={{ display: 'flex', gap: '8px', marginLeft: '16px', flexShrink: 0 }}>
+                      <button
+                        className="btn btn-outline"
+                        onClick={() => handleStartEdit(report)}
+                        style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}
+                        title="Edit narrative before sending"
+                      >
+                        <Edit3 size={14} /> Edit
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => handleResend(report.id)}
+                        disabled={sending === report.id}
+                        style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}
+                        title="Send this report to email recipients"
+                      >
+                        {wasSent ? <><Check size={14} /> Sent!</> : sending === report.id ? 'Sending…' : <><Send size={14} /> Send</>}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+
+                {/* Expanded body */}
+                {isExpanded && (
+                  <div style={{ borderTop: '1px solid var(--border-color)', padding: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <h3 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Full Report Narrative
+                      </h3>
+                      {isEditing && (
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button className="btn btn-primary" onClick={() => handleSaveEdit(report.id)} disabled={saving} style={{ padding: '5px 14px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
+                            <Check size={14} /> {saving ? 'Saving…' : 'Save'}
+                          </button>
+                          <button className="btn btn-outline" onClick={() => setEditingId(null)} style={{ padding: '5px 14px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
+                            <X size={14} /> Cancel
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {isEditing ? (
+                      <>
+                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                          Edit the narrative below. Changes are saved to the report record. Click <strong>Send</strong> after saving to email the updated version.
+                        </p>
+                        <textarea
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          rows={16}
+                          style={{ width: '100%', fontFamily: 'inherit', fontSize: '0.95rem', lineHeight: '1.7', resize: 'vertical' }}
+                        />
+                      </>
+                    ) : (
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8', color: 'var(--text-primary)', fontSize: '0.95rem' }}>
+                        {report.narrative || 'No narrative was generated for this report.'}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
