@@ -1,30 +1,18 @@
 /* eslint react-refresh/only-export-components: off */
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { apiJson } from './api';
 
 const AuthContext = createContext(null);
-const AUTH_INIT_TIMEOUT_MS = 8000;
-
-function withTimeout(promise, timeoutMs, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
-    ),
-  ]);
-}
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(null);
   const [departmentId, setDepartmentId] = useState(null);
   const [departmentName, setDepartmentName] = useState(null);
   const [loading, setLoading] = useState(true);
+  const resolvedRef = useRef(false);
 
   const resetAuthState = useCallback(() => {
-    // Clear app-specific cached data when the user is signed out.
-    // This prevents offline-stored sensitive data from being shown after logout/expiry.
     try {
       localStorage.removeItem('saas.dashboard.lastSummary.v1');
       localStorage.removeItem('saas.validation.lastLogs.v1');
@@ -44,36 +32,15 @@ export function AuthProvider({ children }) {
       setDepartmentId(data.department_id);
       setDepartmentName(data.department_name);
     } catch (err) {
-      console.error("Error fetching user role:", err);
-      setRole('manager'); // Default fallback
+      console.error('Error fetching user role:', err);
+      setRole('manager');
     }
   }, []);
 
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        const { data: { session } } = await withTimeout(
-          supabase.auth.getSession(),
-          AUTH_INIT_TIMEOUT_MS,
-          'Supabase session lookup'
-        );
-
-        if (session?.user) {
-          setUser(session.user);
-          await fetchUserRole();
-        } else {
-          resetAuthState();
-        }
-      } catch (err) {
-        console.error('Auth initialisation failed:', err);
-        resetAuthState();
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initAuth();
-
+    // Single source of truth: onAuthStateChange fires for both initial session
+    // restore and subsequent sign-in/sign-out events, preventing the double
+    // fetchUserRole call that occurred when initAuth + onAuthStateChange both ran.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         try {
@@ -87,10 +54,28 @@ export function AuthProvider({ children }) {
           console.error('Auth state change handling failed:', err);
           resetAuthState();
         } finally {
-          setLoading(false);
+          if (!resolvedRef.current) {
+            resolvedRef.current = true;
+            setLoading(false);
+          }
         }
       }
     );
+
+    // Safety net: if no session exists onAuthStateChange may not fire — clear loading.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session && !resolvedRef.current) {
+        resolvedRef.current = true;
+        resetAuthState();
+        setLoading(false);
+      }
+    }).catch(() => {
+      if (!resolvedRef.current) {
+        resolvedRef.current = true;
+        resetAuthState();
+        setLoading(false);
+      }
+    });
 
     return () => subscription?.unsubscribe();
   }, [fetchUserRole, resetAuthState]);

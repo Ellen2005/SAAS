@@ -3,10 +3,12 @@ import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation 
 import { LogOut, Shield } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { AuthProvider, useAuth } from './lib/authContext.jsx';
+import { useInactivityTimeout } from './hooks/useInactivityTimeout';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Landing from './pages/Landing';
+import Unsubscribe from './pages/Unsubscribe';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminDepartments from './pages/AdminDepartments';
 import AdminSemantic from './pages/AdminSemantic';
@@ -17,7 +19,7 @@ import ValidationHistory from './pages/ValidationHistory';
 import RoleGuard from './components/RoleGuard';
 import ReloadPrompt from './components/ReloadPrompt';
 import OfflineBanner from './components/OfflineBanner';
-import './index.css';
+import InactivityWarning from './components/InactivityWarning';
 
 function AdminSubNav() {
   const location = useLocation();
@@ -47,7 +49,7 @@ function AdminSubNav() {
             textDecoration: 'none', fontWeight: 500,
             background: isActive ? 'var(--primary-color)' : 'transparent',
             color: isActive ? 'white' : 'var(--text-secondary)',
-            transition: 'all 0.2s ease'
+            transition: 'all 0.2s ease',
           })}
         >
           {link.label}
@@ -60,13 +62,15 @@ function AdminSubNav() {
 function AppContent() {
   const { user, departmentName, loading, isAdmin, isManager } = useAuth();
 
+  // Session inactivity timeout — 60 min idle → auto sign-out, warn at 55 min
+  useInactivityTimeout(!!user);
+
   const handleLogout = async () => {
     try {
-      // Clear app-specific cached data on logout (prevents showing stale/sensitive content).
       localStorage.removeItem('saas.dashboard.lastSummary.v1');
       localStorage.removeItem('saas.validation.lastLogs.v1');
     } catch {
-      // Ignore when storage is unavailable.
+      // ignore
     }
     await supabase.auth.signOut();
   };
@@ -83,14 +87,13 @@ function AppContent() {
     <Router>
       <ReloadPrompt />
       <OfflineBanner />
+      <InactivityWarning />
       <Routes>
-        {/* Public Landing Page */}
         <Route path="/" element={user ? <Navigate to="/dashboard" /> : <Landing />} />
-
-        {/* Auth Route */}
         <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Login />} />
+        {/* Public unsubscribe — no auth required */}
+        <Route path="/unsubscribe" element={<Unsubscribe />} />
 
-        {/* Protected Shell */}
         <Route
           path="/*"
           element={
@@ -113,19 +116,19 @@ function AppContent() {
                   </div>
                   <div className="nav-links" style={{ display: 'flex', alignItems: 'center' }}>
                     {isAdmin && (
-                      <NavLink to="/admin" className={({ isActive }) => isActive ? "active" : ""} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <NavLink to="/admin" className={({ isActive }) => isActive ? 'active' : ''} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <Shield size={14} /> Admin
                       </NavLink>
                     )}
-                    <NavLink to="/dashboard" className={({ isActive }) => isActive ? "active" : ""}>
+                    <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}>
                       Dashboard
                     </NavLink>
                     {isManager && (
                       <>
-                        <NavLink to="/validation" className={({ isActive }) => isActive ? "active" : ""}>
+                        <NavLink to="/validation" className={({ isActive }) => isActive ? 'active' : ''}>
                           Validation
                         </NavLink>
-                        <NavLink to="/settings" className={({ isActive }) => isActive ? "active" : ""}>
+                        <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}>
                           Settings
                         </NavLink>
                       </>

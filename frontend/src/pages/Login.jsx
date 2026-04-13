@@ -17,23 +17,6 @@ const Login = () => {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState(null);
 
-  const handleOAuth = async (provider) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: `${window.location.origin}/dashboard`,
-        },
-      });
-      if (oauthError) throw oauthError;
-    } catch (err) {
-      setError(err.message);
-      setLoading(false);
-    }
-  };
-
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -125,16 +108,7 @@ const Login = () => {
           </div>
         )}
 
-        <div style={{ display: 'grid', gap: '10px', marginBottom: '22px' }}>
-          <button type="button" className="btn btn-outline" onClick={() => handleOAuth('google')} disabled={loading}>
-            Sign in with Google
-          </button>
-          <button type="button" className="btn btn-outline" onClick={() => handleOAuth('azure')} disabled={loading}>
-            Sign in with Microsoft
-          </button>
-        </div>
-
-        <div style={{ marginBottom: '18px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>or continue with email and password</div>
+        <div style={{ marginBottom: '18px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Continue with email and password</div>
 
         <form onSubmit={handleAuth}>
           {isSignUp && (

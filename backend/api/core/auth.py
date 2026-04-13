@@ -6,8 +6,6 @@ from ..core.supabase_client import get_supabase
 def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     """
     Extracts user from Supabase JWT token passed in Authorization header.
-    Returns user dict with id, email, role, department_id.
-    Falls back to user_id query param for backward compat during transition.
     """
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
@@ -39,20 +37,13 @@ def resolve_user_id(
     if authorization:
         try:
             user = get_current_user(authorization)
-
-            # Supabase client may return user as either an object with `.id`
-            # or a plain dict (depending on SDK version / mocking).
             if isinstance(user, dict):
                 resolved = user.get("id") or user.get("user_id")
-                if resolved:
-                    return str(resolved)
             else:
                 resolved = getattr(user, "id", None) or getattr(user, "user_id", None)
-                if resolved:
-                    return str(resolved)
+            if resolved:
+                return str(resolved)
         except HTTPException:
-            # Graceful local-dev fallback: if the client also supplies a user id,
-            # continue with that identity when token verification is temporarily unavailable.
             if x_user_id:
                 return x_user_id
             if user_id:
@@ -68,7 +59,7 @@ def resolve_user_id(
 
 
 def get_user_role(user_id: str) -> Optional[str]:
-    """Returns the user's highest role: admin > manager > viewer, or None if no role."""
+    """Returns the user's highest role: admin > manager > viewer, or None."""
     supabase = get_supabase()
     try:
         resp = (
@@ -83,7 +74,7 @@ def get_user_role(user_id: str) -> Optional[str]:
             if "viewer" in roles:
                 return "viewer"
     except Exception:
-        pass  # user_roles table may not exist yet
+        pass
     return None
 
 
@@ -107,7 +98,7 @@ def get_user_department(user_id: str) -> Optional[str]:
 
 
 def get_user_info(user_id: str) -> dict:
-    """Returns full user role info: role, department_id, department_name."""
+    """Returns full user role info: role, department_id, department_name. Single DB call."""
     supabase = get_supabase()
     info = {
         "user_id": user_id,
@@ -119,27 +110,19 @@ def get_user_info(user_id: str) -> dict:
     try:
         resp = (
             supabase.table("user_roles")
-            .select("role, department_id")
+            .select("role, department_id, departments(name)")
             .eq("user_id", user_id)
             .execute()
         )
         if hasattr(resp, "data") and resp.data:
             roles = resp.data
-            # Find highest role
             role_order = {"admin": 0, "manager": 1, "viewer": 2}
             best = min(roles, key=lambda r: role_order.get(r["role"], 99))
             info["role"] = best["role"]
             info["department_id"] = best.get("department_id")
-
-            if info["department_id"]:
-                dept_resp = (
-                    supabase.table("departments")
-                    .select("name")
-                    .eq("id", info["department_id"])
-                    .execute()
-                )
-                if hasattr(dept_resp, "data") and dept_resp.data:
-                    info["department_name"] = dept_resp.data[0]["name"]
+            # department name resolved via join — no extra query needed
+            if best.get("departments"):
+                info["department_name"] = best["departments"].get("name")
     except Exception:
         pass
 
@@ -158,20 +141,19 @@ def is_manager_or_above(user_id: str) -> bool:
 def require_role(allowed_roles: list):
     """
     FastAPI dependency that checks if the current user has one of the allowed roles.
-    Usage: Depends(require_role(['admin'])) or Depends(require_role(['admin', 'manager']))
+    Uses a single get_user_info call instead of separate get_user_role + get_user_info.
     """
 
     def role_checker(resolved_user_id: str = Depends(resolve_user_id)):
-        effective_user_id = resolved_user_id
-        role = get_user_role(effective_user_id)
-        user_info = get_user_info(effective_user_id)
+        user_info = get_user_info(resolved_user_id)
+        role = user_info.get("role")
         if role not in allowed_roles:
             raise HTTPException(
                 status_code=403,
                 detail=f"Insufficient permissions. Required: {allowed_roles}, got: {role}",
             )
         return {
-            "user_id": effective_user_id,
+            "user_id": resolved_user_id,
             "role": role,
             "department_id": user_info.get("department_id"),
             "department_name": user_info.get("department_name"),

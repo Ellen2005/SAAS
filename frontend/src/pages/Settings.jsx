@@ -16,7 +16,10 @@ const DEFAULT_CONNECTION_OPTIONS = {
 const Settings = () => {
   const { user, departmentName } = useAuth();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [savingConnection, setSavingConnection] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [savingPreferences, setSavingPreferences] = useState(false);
+  const [triggeringSync, setTriggeringSync] = useState(false);
   const [dbStatus, setDbStatus] = useState('idle');
   const [connectionMethod, setConnectionMethod] = useState('direct');
   const [connectionOptions, setConnectionOptions] = useState(DEFAULT_CONNECTION_OPTIONS);
@@ -73,11 +76,17 @@ const Settings = () => {
       if (!user) return;
 
       try {
-        const { data: connectionData } = await supabase
-          .from('database_connections')
-          .select('*')
-          .eq('user_id', user.id)
-          .maybeSingle();
+        // Batch all database queries in parallel instead of sequential
+        const [connResp, recResp, preferenceData, semanticData, mappingValidation] = await Promise.all([
+          supabase.from('database_connections').select('*').eq('user_id', user.id).maybeSingle(),
+          supabase.from('notification_recipients').select('email').eq('user_id', user.id),
+          apiJson('/api/settings/preferences'),
+          apiJson('/api/semantic/my-template'),
+          apiJson('/api/semantic/mappings/validate'),
+        ]);
+
+        const connectionData = connResp.data;
+        const recipientData = recResp.data;
 
         if (connectionData) {
           setDbType(connectionData.db_type || 'postgresql');
@@ -88,13 +97,6 @@ const Settings = () => {
           setConnectionMethod(connectionData.connection_method || 'direct');
           setConnectionOptions({ ...DEFAULT_CONNECTION_OPTIONS, ...(connectionData.connection_options || {}) });
         }
-
-        const [{ data: recipientData }, preferenceData, semanticData, mappingValidation] = await Promise.all([
-          supabase.from('notification_recipients').select('email').eq('user_id', user.id),
-          apiJson('/api/settings/preferences'),
-          apiJson('/api/semantic/my-template'),
-          apiJson('/api/semantic/mappings/validate'),
-        ]);
 
         setAiTone(preferenceData.ai_tone || 'insight-driven');
         setSyncTime(preferenceData.sync_time || '06:00');
@@ -111,6 +113,7 @@ const Settings = () => {
           nextInputs[field.id] = currentMapping?.local_column_name || '';
         });
         setMappingInputs(nextInputs);
+
       } catch (error) {
         console.error('Failed to load settings', error);
       }
@@ -125,7 +128,7 @@ const Settings = () => {
   };
 
   const handleSaveConnection = async () => {
-    setLoading(true);
+    setSavingConnection(true);
     try {
       await apiFetch('/api/settings/connection', {
         method: 'POST',
@@ -144,17 +147,24 @@ const Settings = () => {
       alert(`Unable to save connection: ${error.message}`);
       setDbStatus('error');
     } finally {
-      setLoading(false);
+      setSavingConnection(false);
     }
   };
 
   const handleTestConnection = async (event) => {
     event.preventDefault();
     setDbStatus('testing');
+    setTestingConnection(true);
     try {
       const result = await apiJson('/api/test-connection', {
         method: 'POST',
-        body: JSON.stringify({ credentials: buildCredentialString() }),
+        body: JSON.stringify({
+          credentials: buildCredentialString(),
+          connection_method: connectionMethod,
+          connection_options: connectionOptions,
+          host: host.trim(),
+          port: Number(port) || 5432,
+        }),
       });
       setDbStatus(result.status === 'success' ? 'success' : 'error');
       if (result.status !== 'success') {
@@ -163,11 +173,13 @@ const Settings = () => {
     } catch (error) {
       setDbStatus('error');
       alert(`Connection test failed: ${error.message}`);
+    } finally {
+      setTestingConnection(false);
     }
   };
 
   const handleSavePreferences = async () => {
-    setLoading(true);
+    setSavingPreferences(true);
     try {
       await apiFetch('/api/settings/preferences', {
         method: 'POST',
@@ -196,19 +208,19 @@ const Settings = () => {
     } catch (error) {
       alert(`Unable to save preferences: ${error.message}`);
     } finally {
-      setLoading(false);
+      setSavingPreferences(false);
     }
   };
 
   const handleManualSync = async () => {
-    setLoading(true);
+    setTriggeringSync(true);
     try {
       await apiFetch('/api/etl/trigger', { method: 'POST' });
-      alert('Department sync triggered. The dashboard will refresh after the ETL finishes.');
+      alert('Department sync triggered. Please check the Dashboard for live progress.');
     } catch (error) {
       alert(`Unable to trigger sync: ${error.message}`);
     } finally {
-      setLoading(false);
+      setTriggeringSync(false);
     }
   };
 
@@ -399,12 +411,16 @@ const Settings = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <button className="btn btn-outline" type="submit">Test Connection</button>
-            <button className="btn btn-primary" type="button" onClick={handleSaveConnection} disabled={loading}>
-              <Save size={16} /> Save Connection
+            <button className="btn btn-outline" type="submit" disabled={testingConnection}>
+              {testingConnection ? 'Testing...' : 'Test Connection'}
             </button>
+            <button className="btn btn-primary" type="button" onClick={handleSaveConnection} disabled={savingConnection}>
+              <Save size={16} /> {savingConnection ? 'Saving...' : 'Save Connection'}
+            </button>
+            {dbStatus === 'testing' && <span style={{ color: 'var(--text-secondary)' }}>Checking database reachability...</span>}
             {dbStatus === 'success' && <span style={{ color: 'var(--status-normal)' }}>Connection verified.</span>}
             {dbStatus === 'saved' && <span style={{ color: 'var(--primary-color)' }}>Configuration saved.</span>}
+            {dbStatus === 'error' && <span style={{ color: 'var(--status-critical)' }}>Connection failed. Review the values and try again.</span>}
           </div>
         </form>
       </section>
@@ -458,7 +474,7 @@ const Settings = () => {
                     placeholder={currentMapping?.local_column_name || 'e.g. total_sales'}
                   />
                 </div>
-                <button className="btn btn-outline" onClick={() => handleSaveMapping(field.id)} disabled={savingMapId === field.id}>
+                <button type="button" className="btn btn-outline" onClick={() => handleSaveMapping(field.id)} disabled={savingMapId === field.id}>
                   {savingMapId === field.id ? 'Saving...' : currentMapping ? 'Update' : 'Map'}
                 </button>
               </div>
@@ -520,11 +536,11 @@ const Settings = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn btn-primary" onClick={handleSavePreferences} disabled={loading}>
-            <Save size={16} /> Save Preferences
+          <button type="button" className="btn btn-primary" onClick={handleSavePreferences} disabled={savingPreferences}>
+            <Save size={16} /> {savingPreferences ? 'Saving...' : 'Save Preferences'}
           </button>
-          <button className="btn btn-outline" onClick={handleManualSync} disabled={loading}>
-            <RefreshCw size={16} /> Trigger Sync Now
+          <button type="button" className="btn btn-outline" onClick={handleManualSync} disabled={triggeringSync}>
+            <RefreshCw size={16} /> {triggeringSync ? 'Triggering...' : 'Trigger Sync Now'}
           </button>
         </div>
       </section>
