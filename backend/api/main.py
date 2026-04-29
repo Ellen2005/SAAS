@@ -15,10 +15,12 @@ from .core.supabase_client import get_supabase
 from .core.auth import require_role, resolve_user_id
 from .services.email_service import send_automated_briefing, verify_unsubscribe_token
 from .core.scheduler import start_scheduler, shutdown_scheduler
-from .services.etl_service import run_user_etl_pipeline, _get_free_local_port, _replace_db_url_host_port, _start_ssh_tunnel
+from .services.etl_service import run_user_etl_pipeline, _get_free_local_port, _replace_db_url_host_port, _start_ssh_tunnel, update_sync_status
 from .services.audit_service import log_config_change
 
-from .routers import departments, users, semantic, validation, admin, heartbeat, templates
+from .routers import departments, users, semantic, validation, admin, heartbeat, templates, introspect
+from .services.nlq_service import run_nlq
+from .services.custom_report_service import generate_custom_report
 
 
 @asynccontextmanager
@@ -49,6 +51,7 @@ app.include_router(validation.router)
 app.include_router(admin.router)
 app.include_router(heartbeat.router)
 app.include_router(templates.router)
+app.include_router(introspect.router)
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -230,6 +233,7 @@ def resend_report(
 
 @app.post("/api/etl/trigger")
 def trigger_etl(background_tasks: BackgroundTasks, context: dict = Depends(require_role(["manager", "admin"]))):
+    update_sync_status(context["user_id"], "FETCHING_DATA")
     background_tasks.add_task(run_user_etl_pipeline, context["user_id"])
     return {"status": "Manual ETL trigger started in the background", "user_id": context["user_id"]}
 
@@ -301,8 +305,21 @@ def test_db_connection(connection_data: dict):
     db_url = connection_data.get("credentials")
     connection_method = connection_data.get("connection_method") or "direct"
     connection_options = connection_data.get("connection_options") or {}
+    db_type = (connection_data.get("db_type") or "").lower()
     if not db_url:
         raise HTTPException(status_code=400, detail="Missing connection string (credentials)")
+
+    # MongoDB test
+    if db_type == "mongodb":
+        try:
+            import pymongo
+            client = pymongo.MongoClient(db_url, serverSelectionTimeoutMS=8000)
+            client.admin.command("ping")
+            return {"status": "success", "message": "MongoDB connection verified!"}
+        except ImportError:
+            return {"status": "error", "message": "pymongo not installed. Run: pip install pymongo"}
+        except Exception as e:
+            return {"status": "error", "message": f"MongoDB Error: {str(e)}"}
 
     engine = None
     tunnel_proc = None
@@ -397,6 +414,83 @@ def unsubscribe(email: str, token: str):
         return {"status": "unsubscribed", "email": email}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to unsubscribe: {str(e)}")
+
+
+# ── Natural Language Query ───────────────────────────────────────────────────
+
+class NLQRequest(BaseModel):
+    question: str
+
+
+@app.post("/api/nlq")
+def natural_language_query(
+    body: NLQRequest,
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    """Execute a natural language question against the user's connected database."""
+    if not body.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+    supabase = get_supabase()
+    result = run_nlq(context["user_id"], body.question.strip(), supabase)
+    return result
+
+
+# ── Custom Report Generation ──────────────────────────────────────────────────
+
+class CustomReportRequest(BaseModel):
+    instruction: str
+    report_scope: str = "my_department"  # my_department | all_departments | specific_departments
+    format_type: str = "narrative"       # narrative | table | bullet_points | executive_brief | detailed
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    department_ids: Optional[List[str]] = None
+    kpi_names: Optional[List[str]] = None
+
+
+@app.post("/api/reports/custom")
+def create_custom_report(
+    body: CustomReportRequest,
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    """Generate a custom report based on user-specified parameters."""
+    if not body.instruction.strip():
+        raise HTTPException(status_code=400, detail="Instruction cannot be empty.")
+    supabase = get_supabase()
+    result = generate_custom_report(
+        user_id=context["user_id"],
+        instruction=body.instruction.strip(),
+        report_scope=body.report_scope,
+        format_type=body.format_type,
+        date_from=body.date_from,
+        date_to=body.date_to,
+        department_ids=body.department_ids,
+        kpi_names=body.kpi_names,
+        supabase=supabase,
+        role=context.get("role", "manager"),
+    )
+    return result
+
+
+@app.post("/api/reports/custom/save")
+def save_custom_report(
+    body: dict,
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    """Save a custom-generated report to daily_reports history."""
+    narrative = body.get("narrative", "").strip()
+    instruction = body.get("instruction", "Custom report")
+    if not narrative:
+        raise HTTPException(status_code=400, detail="Narrative cannot be empty.")
+    supabase = get_supabase()
+    try:
+        supabase.table("daily_reports").insert({
+            "user_id": context["user_id"],
+            "narrative": f"[Custom: {instruction[:80]}]\n\n{narrative}",
+            "report_date": datetime.now().date().isoformat(),
+        }).execute()
+        return {"status": "saved"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Audit Log ─────────────────────────────────────────────────────────────────

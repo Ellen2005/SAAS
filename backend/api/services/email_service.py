@@ -8,10 +8,17 @@ from .chart_service import generate_trend_chart_url
 
 UNSUBSCRIBE_SECRET = os.getenv("UNSUBSCRIBE_SECRET", "saas-unsubscribe-secret")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+# Use a real verified sender — set these in your .env
+SENDER_NAME = os.getenv("EMAIL_SENDER_NAME", "SAAS Analytics")
+SENDER_EMAIL = os.getenv("EMAIL_SENDER_ADDRESS", "noreply@saas-analytics.com")
 
 
 def _make_unsubscribe_token(email: str) -> str:
-    return hmac.new(UNSUBSCRIBE_SECRET.encode(), email.encode(), hashlib.sha256).hexdigest()
+    return hmac.new(
+        UNSUBSCRIBE_SECRET.encode(),
+        email.encode(),
+        hashlib.sha256
+    ).hexdigest()
 
 
 def _unsubscribe_url(email: str) -> str:
@@ -33,7 +40,6 @@ def get_brevo_client():
 
 
 def _rag_badge(kpis: list) -> tuple:
-    """Returns (color_hex, label) for the RAG status badge."""
     statuses = [k.get("status", "NORMAL") for k in kpis]
     if any(s == "CRITICAL" for s in statuses):
         return "#ef4444", "RED — Immediate Attention Required"
@@ -60,8 +66,8 @@ def generate_professional_html_email(
     rag_color, rag_label = _rag_badge(kpis)
     dashboard_url = f"{FRONTEND_URL}/reports"
     unsubscribe = _unsubscribe_url(recipient_email) if recipient_email else "#"
+    rag_emoji = "🔴" if "RED" in rag_label else "🟡" if "AMBER" in rag_label else "🟢"
 
-    # ── Section 3: KPI table rows ──────────────────────────────────────────
     kpi_rows = ""
     for k in kpis:
         name = k.get("kpi_name", "").replace("_", " ").title()
@@ -75,7 +81,7 @@ def generate_professional_html_email(
         kpi_rows += f"""
         <tr style="border-bottom:1px solid #f3f4f6;">
           <td style="padding:10px 12px;font-weight:600;color:#111827;">{name}</td>
-          <td style="padding:10px 12px;font-size:1.1rem;font-weight:700;color:#111827;">{val}</td>
+          <td style="padding:10px 12px;font-size:1.05rem;font-weight:700;color:#111827;">{val}</td>
           <td style="padding:10px 12px;color:{dod_color};font-weight:600;">{dod:+.1f}%</td>
           <td style="padding:10px 12px;color:{wow_color};font-weight:600;">{wow:+.1f}%</td>
           <td style="padding:10px 12px;">
@@ -83,7 +89,6 @@ def generate_professional_html_email(
           </td>
         </tr>"""
 
-    # ── Section 4: Anomalies ───────────────────────────────────────────────
     anomaly_rows = ""
     if anomalies:
         for a in anomalies:
@@ -99,46 +104,50 @@ def generate_professional_html_email(
               </td>
               <td style="padding:10px 12px;font-weight:600;color:#111827;">{name}</td>
               <td style="padding:10px 12px;color:#6b7280;font-size:0.9rem;">{reason}</td>
-              <td style="padding:10px 12px;color:#374151;font-weight:600;">{dev:.1f}σ</td>
+              <td style="padding:10px 12px;color:#374151;font-weight:600;">{dev:.1f}&#963;</td>
             </tr>"""
     else:
         anomaly_rows = '<tr><td colspan="4" style="padding:16px;color:#6b7280;text-align:center;">No anomalies detected in this period.</td></tr>'
 
-    # ── Narrative: split into paragraphs ──────────────────────────────────
     narrative_html = "".join(
         f'<p style="margin:0 0 12px 0;line-height:1.7;color:#374151;">{p.strip()}</p>'
-        for p in narrative_text.split("\n") if p.strip()
+        for p in (narrative_text or "").split("\n") if p.strip()
     )
+
+    chart_section = ""
+    if chart_url:
+        chart_section = f"""
+    <div style="margin-bottom:32px;">
+      <h2 style="margin:0 0 16px 0;font-size:1rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;border-bottom:2px solid #f3f4f6;padding-bottom:8px;">Performance Trend</h2>
+      <img src="{chart_url}" alt="KPI Trend Chart" style="width:100%;height:auto;border-radius:8px;border:1px solid #e5e7eb;"/>
+    </div>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
-<body style="margin:0;padding:0;background:#f9fafb;font-family:Helvetica,Arial,sans-serif;">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>{report_type} Report</title></head>
+<body style="margin:0;padding:20px 0;background:#f3f4f6;font-family:Helvetica,Arial,sans-serif;">
 <div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
-  <!-- HEADER -->
   <div style="background:linear-gradient(135deg,#4f46e5,#3b82f6);padding:32px 40px;">
-    <div style="color:rgba(255,255,255,0.7);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Smart Automated Analytics System</div>
-    <h1 style="margin:0;color:#ffffff;font-size:1.6rem;font-weight:700;">{report_type} Performance Report{dept_label}</h1>
-    <div style="margin-top:12px;display:flex;gap:24px;flex-wrap:wrap;">
-      <span style="color:rgba(255,255,255,0.85);font-size:0.85rem;">📅 Period: {report_period}</span>
-      <span style="color:rgba(255,255,255,0.85);font-size:0.85rem;">📤 Submitted: {today}</span>
+    <div style="color:rgba(255,255,255,0.7);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Smart Automated Analytics System</div>
+    <h1 style="margin:0;color:#ffffff;font-size:1.5rem;font-weight:700;">{report_type} Performance Report{dept_label}</h1>
+    <div style="margin-top:12px;color:rgba(255,255,255,0.85);font-size:0.85rem;">
+      &#128197; Period: {report_period} &nbsp;&nbsp; &#128228; Submitted: {today}
     </div>
   </div>
 
   <div style="padding:32px 40px;">
 
-    <!-- SECTION 2: EXECUTIVE SUMMARY -->
     <div style="margin-bottom:32px;">
       <h2 style="margin:0 0 16px 0;font-size:1rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;border-bottom:2px solid #f3f4f6;padding-bottom:8px;">Executive Summary</h2>
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px 16px;border-radius:8px;background:{rag_color}11;border-left:4px solid {rag_color};">
-        <span style="font-size:1.2rem;">{'🔴' if 'RED' in rag_label else '🟡' if 'AMBER' in rag_label else '🟢'}</span>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px 16px;border-radius:8px;background:{rag_color}18;border-left:4px solid {rag_color};">
+        <span style="font-size:1.1rem;">{rag_emoji}</span>
         <span style="font-weight:700;color:{rag_color};">Overall Status: {rag_label}</span>
       </div>
       {narrative_html}
     </div>
 
-    <!-- SECTION 3: KPI TABLE -->
     <div style="margin-bottom:32px;">
       <h2 style="margin:0 0 16px 0;font-size:1rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;border-bottom:2px solid #f3f4f6;padding-bottom:8px;">Key Performance Indicators</h2>
       <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
@@ -155,15 +164,10 @@ def generate_professional_html_email(
       </table>
     </div>
 
-    <!-- SECTION 3b: TREND CHART -->
-    <div style="margin-bottom:32px;">
-      <h2 style="margin:0 0 16px 0;font-size:1rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;border-bottom:2px solid #f3f4f6;padding-bottom:8px;">Performance Trend</h2>
-      <img src="{chart_url}" alt="KPI Trend Chart" style="width:100%;height:auto;border-radius:8px;border:1px solid #e5e7eb;"/>
-    </div>
+    {chart_section}
 
-    <!-- SECTION 4: ANOMALIES -->
     <div style="margin-bottom:32px;">
-      <h2 style="margin:0 0 16px 0;font-size:1rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;border-bottom:2px solid #f3f4f6;padding-bottom:8px;">Anomalies & Alerts</h2>
+      <h2 style="margin:0 0 16px 0;font-size:1rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;border-bottom:2px solid #f3f4f6;padding-bottom:8px;">Anomalies &amp; Alerts</h2>
       <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
         <thead>
           <tr style="background:#f9fafb;">
@@ -177,19 +181,17 @@ def generate_professional_html_email(
       </table>
     </div>
 
-    <!-- SECTION 6: APPENDIX / CTA -->
     <div style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:24px;text-align:center;">
-      <p style="margin:0 0 12px 0;color:#6b7280;font-size:0.9rem;">Full raw data, historical trends, and interactive charts are available in your dashboard.</p>
-      <a href="{dashboard_url}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#3b82f6);color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.9rem;">View Full Report in Dashboard →</a>
+      <p style="margin:0 0 12px 0;color:#6b7280;font-size:0.9rem;">Full data, historical trends, and interactive charts are available in your dashboard.</p>
+      <a href="{dashboard_url}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#3b82f6);color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.9rem;">View Full Report in Dashboard &#8594;</a>
     </div>
 
   </div>
 
-  <!-- FOOTER -->
   <div style="background:#f9fafb;padding:20px 40px;border-top:1px solid #e5e7eb;text-align:center;">
     <p style="margin:0 0 6px 0;font-size:0.75rem;color:#9ca3af;">This report was automatically generated by the SAAS Analytics System.</p>
     <p style="margin:0;font-size:0.75rem;color:#9ca3af;">
-      <a href="{unsubscribe}" style="color:#9ca3af;">Unsubscribe from these reports</a>
+      <a href="{unsubscribe}" style="color:#9ca3af;text-decoration:underline;">Unsubscribe from these reports</a>
     </p>
   </div>
 
@@ -214,7 +216,7 @@ def send_automated_briefing(
     recipients = [row["email"] for row in response.data] if hasattr(response, "data") and response.data else []
 
     if not recipients:
-        print(f"[{datetime.now().isoformat()}] WARNING: No recipients for user {user_id}. Briefing skipped.")
+        print(f"[{datetime.now().isoformat()}] WARNING: No recipients for user {user_id}. Add email recipients in Settings.")
         return {"status": "skipped", "reason": "no_recipients"}
 
     department_name = None
@@ -235,8 +237,9 @@ def send_automated_briefing(
     subject = f"{report_type} Analytics Report{dept_subject} | {report_period}"
 
     if not client:
-        print(f"[{datetime.now().isoformat()}] INFO: Brevo missing. Simulation mode for {len(recipients)} recipients.")
-        return {"status": "success", "mock": True, "recipients": recipients, "critical_alerts": len(critical_anomalies)}
+        print(f"[{datetime.now().isoformat()}] INFO: BREVO_API_KEY not set. Email simulation for {len(recipients)} recipient(s).")
+        print(f"[{datetime.now().isoformat()}] Would send to: {recipients}")
+        return {"status": "simulated", "recipients": recipients, "critical_alerts": len(critical_anomalies)}
 
     results = []
     for email in recipients:
@@ -248,27 +251,29 @@ def send_automated_briefing(
         try:
             api_response = client.send_transac_email(sib_api_v3_sdk.SendSmtpEmail(
                 to=[{"email": email}],
-                sender={"name": "SAAS Analytics", "email": "reports@saas-pwa.local"},
-                subject=subject, html_content=html_content,
+                sender={"name": SENDER_NAME, "email": SENDER_EMAIL},
+                subject=subject,
+                html_content=html_content,
             ))
             results.append({"email": email, "type": "digest", "message_id": api_response.message_id})
+            print(f"[{datetime.now().isoformat()}] Email sent to {email}: {api_response.message_id}")
         except ApiException as e:
+            print(f"[{datetime.now().isoformat()}] Email failed for {email}: {e}")
             results.append({"email": email, "type": "digest", "status": "failed", "error": str(e)})
 
-    # Separate CRITICAL alert emails
     for anomaly in critical_anomalies:
         for email in recipients:
             sc = "#ef4444"
-            alert_html = f"""<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;background:#f9fafb;padding:32px;">
-            <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+            alert_html = f"""<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;background:#f3f4f6;padding:20px;">
+            <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
               <div style="background:{sc};padding:24px 32px;">
-                <h1 style="margin:0;color:#fff;font-size:1.3rem;">🚨 CRITICAL Anomaly Alert{dept_subject}</h1>
+                <h1 style="margin:0;color:#fff;font-size:1.2rem;">&#128680; CRITICAL Anomaly Alert{dept_subject}</h1>
               </div>
               <div style="padding:24px 32px;">
                 <p><strong>{anomaly.get('kpi_name','').replace('_',' ').title()}</strong> has triggered a critical anomaly.</p>
-                <p style="color:#6b7280;">{anomaly.get('context',{{}}).get('reason','Requires immediate investigation.')}</p>
-                <p>Deviation: <strong>{anomaly.get('deviation',0):.1f}σ</strong></p>
-                <a href="{FRONTEND_URL}/dashboard" style="display:inline-block;background:{sc};color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:12px;">View Dashboard →</a>
+                <p style="color:#6b7280;">{anomaly.get('context',{}).get('reason','Requires immediate investigation.')}</p>
+                <p>Deviation: <strong>{anomaly.get('deviation',0):.1f}&#963;</strong></p>
+                <a href="{FRONTEND_URL}/dashboard" style="display:inline-block;background:{sc};color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:12px;">View Dashboard &#8594;</a>
               </div>
               <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:0.75rem;color:#9ca3af;">
                 <a href="{_unsubscribe_url(email)}" style="color:#9ca3af;">Unsubscribe</a>
@@ -277,8 +282,8 @@ def send_automated_briefing(
             try:
                 api_response = client.send_transac_email(sib_api_v3_sdk.SendSmtpEmail(
                     to=[{"email": email}],
-                    sender={"name": "SAAS Alert", "email": "alerts@saas-pwa.local"},
-                    subject=f"🚨 CRITICAL: {anomaly.get('kpi_name','').replace('_',' ').title()}{dept_subject}",
+                    sender={"name": SENDER_NAME, "email": SENDER_EMAIL},
+                    subject=f"CRITICAL ALERT: {anomaly.get('kpi_name','').replace('_',' ').title()}{dept_subject}",
                     html_content=alert_html,
                 ))
                 results.append({"email": email, "type": "critical_alert", "message_id": api_response.message_id})
@@ -322,7 +327,7 @@ def send_admin_onboarding_notification(new_user_id: str):
     if not recipients:
         return {"status": "skipped", "reason": "no_admin_emails_resolved"}
 
-    html_content = f"""<div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111827;">
+    html_content = f"""<div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111827;padding:24px;">
       <h2 style="color:#4f46e5;">SAAS: New User Onboarded</h2>
       <p>A new user was provisioned into the default department after their first sign-in.</p>
       <ul><li><strong>User ID:</strong> {new_user_id}</li><li><strong>Email:</strong> {new_user_email or '(not found)'}</li></ul>
@@ -334,8 +339,9 @@ def send_admin_onboarding_notification(new_user_id: str):
         try:
             api_response = client.send_transac_email(sib_api_v3_sdk.SendSmtpEmail(
                 to=[{"email": email}],
-                sender={"name": "SAAS System", "email": "reports@saas-pwa.local"},
-                subject="SAAS: New user onboarded", html_content=html_content,
+                sender={"name": SENDER_NAME, "email": SENDER_EMAIL},
+                subject="SAAS: New user onboarded",
+                html_content=html_content,
             ))
             results.append({"email": email, "message_id": api_response.message_id})
         except ApiException as e:

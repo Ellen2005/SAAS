@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bell, CheckCircle, Database, RefreshCw, Save, Workflow } from 'lucide-react';
+import { Bell, CheckCircle, Database, RefreshCw, Save, Workflow, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { apiFetch, apiJson } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 import { useNavigate } from 'react-router-dom';
+import { useLang } from '../lib/i18n';
 
 const DEFAULT_CONNECTION_OPTIONS = {
   tunnel_token: '',
@@ -15,6 +16,7 @@ const DEFAULT_CONNECTION_OPTIONS = {
 
 const Settings = () => {
   const { user, departmentName } = useAuth();
+  const { t, lang, setLang } = useLang();
   const navigate = useNavigate();
   const [savingConnection, setSavingConnection] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
@@ -301,7 +303,7 @@ const Settings = () => {
   return (
     <div style={{ display: 'grid', gap: '24px' }}>
       <header>
-        <h1>Department Settings</h1>
+        <h1>{t('settings_title')}</h1>
         <p style={{ color: 'var(--text-secondary)' }}>
           Governed configuration for {departmentName || templateData.department?.name || 'your department'}.
         </p>
@@ -309,16 +311,32 @@ const Settings = () => {
 
       <section className="glass-panel">
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-          <Database size={20} color="var(--primary-color)" /> Source Connectivity
+          <Globe size={20} color="var(--primary-color)" /> {t('settings_language')}
+        </h2>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn btn-outline" onClick={() => setLang('en')}
+            style={{ borderColor: lang === 'en' ? 'var(--primary-color)' : undefined, color: lang === 'en' ? 'var(--primary-color)' : undefined }}>
+            🇬🇧 {t('lang_en')}
+          </button>
+          <button className="btn btn-outline" onClick={() => setLang('fr')}
+            style={{ borderColor: lang === 'fr' ? 'var(--primary-color)' : undefined, color: lang === 'fr' ? 'var(--primary-color)' : undefined }}>
+            🇫🇷 {t('lang_fr')}
+          </button>
+        </div>
+      </section>
+
+      <section className="glass-panel">
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+          <Database size={20} color="var(--primary-color)" /> {t('settings_connection')}
         </h2>
         <form onSubmit={handleTestConnection}>
           <div className="form-group">
-            <label>Connection Method</label>
+            <label>{t('settings_connection_method')}</label>
             <select value={connectionMethod} onChange={(event) => setConnectionMethod(event.target.value)}>
-              <option value="direct">Direct Connection</option>
-              <option value="cloudflare_tunnel">Cloudflare Tunnel</option>
-              <option value="ssh_tunnel">SSH Tunnel</option>
-              <option value="docker_vpn">Docker behind VPN</option>
+              <option value="direct">{t('settings_direct')}</option>
+              <option value="cloudflare_tunnel">{t('settings_cloudflare')}</option>
+              <option value="ssh_tunnel">{t('settings_ssh')}</option>
+              <option value="docker_vpn">{t('settings_docker')}</option>
             </select>
           </div>
 
@@ -380,10 +398,11 @@ const Settings = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             <div className="form-group">
-              <label>Database Type</label>
+              <label>{t('settings_db_type')}</label>
               <select value={dbType} onChange={(event) => setDbType(event.target.value)}>
                 <option value="postgresql">PostgreSQL</option>
                 <option value="mysql">MySQL</option>
+                <option value="mongodb">MongoDB</option>
                 <option value="sqlite">SQLite</option>
                 <option value="sqlserver">SQL Server</option>
               </select>

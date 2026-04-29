@@ -110,11 +110,60 @@ def build_mock_frame() -> pd.DataFrame:
     return finalize_extracted_frame(pd.DataFrame(data))
 
 
+def _extract_from_mongodb(db_url: str) -> pd.DataFrame:
+    """Extract data from a MongoDB database."""
+    try:
+        import pymongo
+        client = pymongo.MongoClient(db_url, serverSelectionTimeoutMS=8000)
+        db_name = pymongo.uri_parser.parse_uri(db_url).get("database") or "test"
+        db = client[db_name]
+        collections = db.list_collection_names()
+        frames = []
+        # Try to find revenue/sales/inventory/ticket-like collections
+        kpi_hints = {
+            "revenue": ("Total Revenue", "amount"),
+            "sales": ("Total Revenue", "amount"),
+            "inventory": ("Inventory Value", "stock_value"),
+            "tickets": ("Support Tickets", "ticket_count"),
+            "support": ("Support Tickets", "count"),
+        }
+        for col_name in collections:
+            for hint, (kpi_name, value_field) in kpi_hints.items():
+                if hint in col_name.lower():
+                    docs = list(db[col_name].find({}, {"_id": 0}).limit(100))
+                    if docs:
+                        df = pd.DataFrame(docs)
+                        date_col = next((c for c in df.columns if "date" in c.lower() or "time" in c.lower() or "at" in c.lower()), None)
+                        val_col = next((c for c in df.columns if hint in c.lower() or "amount" in c.lower() or "value" in c.lower() or "count" in c.lower()), None)
+                        if date_col and val_col:
+                            sub = df[[date_col, val_col]].copy()
+                            sub.columns = ["date", "value"]
+                            sub["kpi_name"] = kpi_name
+                            frames.append(sub)
+                    break
+        if frames:
+            combined = pd.concat(frames, ignore_index=True)
+            return finalize_extracted_frame(combined)
+    except ImportError:
+        print(f"[{datetime.now().isoformat()}] pymongo not installed. Run: pip install pymongo")
+    except Exception as e:
+        print(f"[{datetime.now().isoformat()}] MongoDB extraction error: {e}")
+    return pd.DataFrame()
+
+
 def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
     mock_flag = os.getenv("MOCK_DATA", "False").lower() == "true"
     db_url = db_connection_info.get("credentials") if db_connection_info else os.getenv("DATABASE_URL")
     connection_method = (db_connection_info or {}).get("connection_method") or "direct"
     connection_options = (db_connection_info or {}).get("connection_options") or {}
+    db_type = (db_connection_info or {}).get("db_type", "").lower()
+
+    if not mock_flag and db_url and db_type == "mongodb":
+        result = _extract_from_mongodb(db_url)
+        if not result.empty:
+            return result
+        print(f"[{datetime.now().isoformat()}] MongoDB returned no rows. Falling back to mock data.")
+        return build_mock_frame()
 
     if not mock_flag and db_url:
         tunnel_proc = None
@@ -144,18 +193,91 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                 db_url_for_queries = db_url
 
             engine = create_engine(db_url_for_queries, connect_args={"connect_timeout": 10}, pool_pre_ping=True)
-            queries = [
-                "SELECT id AS source_row_id, transaction_date AS date, 'Total Revenue' AS kpi_name, amount AS value, 'Revenue Record' AS record_label FROM public.source_revenue WHERE transaction_date > NOW() - INTERVAL '30 days'",
-                "SELECT id AS source_row_id, recorded_at AS date, 'Inventory Value' AS kpi_name, stock_value AS value, 'Inventory Snapshot' AS record_label FROM public.source_inventory WHERE recorded_at > NOW() - INTERVAL '30 days'",
-                "SELECT id AS source_row_id, recorded_at AS date, 'Support Tickets' AS kpi_name, ticket_count AS value, 'Support Activity' AS record_label FROM public.source_tickets WHERE recorded_at > NOW() - INTERVAL '30 days'",
+
+            # 1) Try the legacy "well-known table" path for back-compat with
+            #    customers who literally have public.source_revenue etc.
+            legacy_queries = [
+                ("Total Revenue",
+                 "SELECT id AS source_row_id, transaction_date AS date, 'Total Revenue' AS kpi_name, amount AS value, 'Revenue Record' AS record_label FROM public.source_revenue WHERE transaction_date > NOW() - INTERVAL '30 days'"),
+                ("Inventory Value",
+                 "SELECT id AS source_row_id, recorded_at AS date, 'Inventory Value' AS kpi_name, stock_value AS value, 'Inventory Snapshot' AS record_label FROM public.source_inventory WHERE recorded_at > NOW() - INTERVAL '30 days'"),
+                ("Support Tickets",
+                 "SELECT id AS source_row_id, recorded_at AS date, 'Support Tickets' AS kpi_name, ticket_count AS value, 'Support Activity' AS record_label FROM public.source_tickets WHERE recorded_at > NOW() - INTERVAL '30 days'"),
             ]
-            frames = []
-            for query in queries:
-                with engine.connect() as connection:
-                    frames.append(pd.read_sql(query, connection))
-            combined = pd.concat(frames, ignore_index=True)
+            frames: list[pd.DataFrame] = []
+            for _, query in legacy_queries:
+                try:
+                    with engine.connect() as connection:
+                        frames.append(pd.read_sql(query, connection))
+                except Exception as legacy_err:
+                    print(f"[{datetime.now().isoformat()}] Legacy query skipped ({legacy_err}).")
+            combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
             if not combined.empty:
                 return finalize_extracted_frame(combined)
+
+            # 2) Generic introspection-driven extraction. Discover one
+            #    amount-like + date-like column per "interesting" table and
+            #    extract daily totals from it.
+            print(f"[{datetime.now().isoformat()}] Falling back to schema introspection for extraction.")
+            try:
+                from .schema_introspector import introspect_sql
+                schema = introspect_sql(
+                    {"credentials": db_url_for_queries, "connection_method": "direct"},
+                    sample_rows=0,
+                    max_tables=80,
+                )
+                from sqlalchemy import text as _sql_text
+                generic_frames: list[pd.DataFrame] = []
+                for tbl in schema.get("tables", []):
+                    if tbl.get("is_view"):
+                        continue
+                    amt = (tbl.get("amount_columns") or [None])[0]
+                    dt = (tbl.get("date_columns") or [None])[0]
+                    if not amt or not dt:
+                        continue
+                    label = (tbl.get("classifications") or [tbl["name"]])[0].title()
+                    qname = tbl["qualified_name"]
+                    schema_part, name_part = (qname.split(".", 1) + [None])[:2]
+                    quoted = (
+                        f'"{schema_part}"."{name_part}"' if name_part
+                        else f'"{schema_part}"'
+                    ) if engine.dialect.name != "mysql" else (
+                        f"`{schema_part}`.`{name_part}`" if name_part else f"`{schema_part}`"
+                    )
+                    if engine.dialect.name == "postgresql":
+                        gen_sql = (
+                            f'SELECT date_trunc(\'day\', "{dt}") AS date, '
+                            f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
+                            f"FROM {quoted} "
+                            f"WHERE \"{dt}\" > NOW() - INTERVAL '30 days' "
+                            f"GROUP BY 1 ORDER BY 1"
+                        )
+                    elif engine.dialect.name == "mysql":
+                        gen_sql = (
+                            f"SELECT DATE(`{dt}`) AS date, "
+                            f"'{label}' AS kpi_name, SUM(`{amt}`) AS value "
+                            f"FROM {quoted} "
+                            f"WHERE `{dt}` > (NOW() - INTERVAL 30 DAY) "
+                            f"GROUP BY 1 ORDER BY 1"
+                        )
+                    else:
+                        gen_sql = (
+                            f'SELECT "{dt}" AS date, '
+                            f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
+                            f"FROM {quoted} GROUP BY 1 ORDER BY 1 DESC LIMIT 30"
+                        )
+                    try:
+                        with engine.connect() as connection:
+                            sub = pd.read_sql(_sql_text(gen_sql), connection)
+                        if not sub.empty:
+                            generic_frames.append(sub)
+                    except Exception as ex:
+                        print(f"[{datetime.now().isoformat()}] Skipped {qname}: {ex}")
+                if generic_frames:
+                    combined = pd.concat(generic_frames, ignore_index=True)
+                    return finalize_extracted_frame(combined)
+            except Exception as introspect_err:
+                print(f"[{datetime.now().isoformat()}] Introspection-driven extract failed: {introspect_err}")
             print(f"[{datetime.now().isoformat()}] Source DB returned no rows. Falling back to mock data.")
         except Exception as error:
             print(f"[{datetime.now().isoformat()}] Extraction error for user {user_id}: {error}. Falling back to mock data.")
@@ -525,12 +647,22 @@ def run_user_etl_pipeline(user_id: str):
             except Exception as error:
                 print(f"[{datetime.now().isoformat()}] Failed to sync instruction history: {error}")
 
+        # Determine report type from sync frequency
+        freq = prefs.get("sync_frequency", "daily").lower()
+        report_type_map = {"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly", "yearly": "Annual"}
+        report_type = report_type_map.get(freq, "Daily")
+        report_period = datetime.now().date().strftime("%B %d, %Y")
+        custom_format = prefs.get("report_format") or None
+
         update_sync_status(user_id, "GENERATING_AI_NARRATIVE")
         narrative_text = generate_live_narrative(
             kpis, anomalies, tone=user_tone, instruction=user_instruction,
             base_definitions=runtime_config["base_definitions"],
             prompt_template=runtime_config["base_prompt"],
             company_name=runtime_config["company_name"],
+            report_period=report_period,
+            report_type=report_type,
+            custom_format=custom_format,
         )
 
         report_date = datetime.now().date().isoformat()
@@ -541,7 +673,10 @@ def run_user_etl_pipeline(user_id: str):
 
         update_sync_status(user_id, "SENDING_EMAILS")
         try:
-            send_automated_briefing(user_id, kpis, anomalies, narrative_text, raw_df)
+            send_automated_briefing(
+                user_id, kpis, anomalies, narrative_text, raw_df,
+                report_type=report_type, report_period=report_period,
+            )
         except Exception as error:
             print(f"[{datetime.now().isoformat()}] Email delivery failed for user {user_id}: {error}")
 
