@@ -46,6 +46,8 @@ export default function SchemaExplorer() {
   const [autoMapResult, setAutoMapResult] = useState(null);
   const [autoMapping, setAutoMapping] = useState(false);
   const [savingMappings, setSavingMappings] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
 
   const loadSchema = async (refresh = false) => {
     setLoading(true);
@@ -95,6 +97,21 @@ export default function SchemaExplorer() {
       setAutoMapResult({ error: e.message });
     } finally {
       setAutoMapping(false);
+    }
+  };
+
+  const syncToDashboard = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const out = await apiJson('/api/introspect/sync-to-kpis', {
+        method: 'POST', body: JSON.stringify({}),
+      });
+      setSyncResult(out);
+    } catch (e) {
+      setSyncResult({ error: e.message });
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -156,8 +173,49 @@ export default function SchemaExplorer() {
           <button className="btn" onClick={runAutoMap} disabled={autoMapping || !schema}>
             <Sparkles size={14} /> {autoMapping ? 'Mapping…' : 'Auto-map fields'}
           </button>
+          <button className="btn btn-primary" onClick={syncToDashboard} disabled={syncing || !schema}>
+            <RefreshCw size={14} style={syncing ? { animation: 'spin 1s linear infinite' } : null} />
+            {syncing ? 'Syncing…' : 'Sync to dashboard'}
+          </button>
         </div>
       </header>
+
+      {syncResult && (
+        <section style={card}>
+          <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Database size={16} /> Dashboard sync
+          </h3>
+          {syncResult.error && <div style={{ color: '#fca5a5' }}>{syncResult.error}</div>}
+          {syncResult.warning && <div style={{ color: '#fbbf24' }}>{syncResult.warning}</div>}
+          {typeof syncResult.synced === 'number' && (
+            <div style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
+              Wrote <b style={{ color: 'var(--text-primary)' }}>{syncResult.synced}</b> KPI row(s) for {syncResult.recorded_at}
+              {syncResult.failed ? `, ${syncResult.failed} failed` : ''}
+              {syncResult.skipped ? `, ${syncResult.skipped} skipped` : ''}.
+              They'll appear on the Dashboard and in tonight's briefing email.
+            </div>
+          )}
+          {syncResult.kpis?.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+              {syncResult.kpis.map((k, i) => (
+                <div key={i} style={{ ...card, padding: 10 }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{k.kpi_name}</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 600 }}>{k.value.toLocaleString()}</div>
+                  <div style={{ fontSize: '0.7rem', color: k.status === 'NORMAL' ? 'var(--status-normal)' : '#fbbf24' }}>{k.status}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {syncResult.errors?.length > 0 && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}>{syncResult.errors.length} error(s)</summary>
+              <ul style={{ fontSize: '0.85rem', color: '#fca5a5' }}>
+                {syncResult.errors.map((e, i) => (<li key={i}><b>{e.title}:</b> {e.error}</li>))}
+              </ul>
+            </details>
+          )}
+        </section>
+      )}
 
       {error && (
         <div style={{ ...card, borderColor: '#ef4444', color: '#fca5a5', display: 'flex', gap: 8, alignItems: 'center' }}>

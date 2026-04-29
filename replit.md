@@ -55,6 +55,9 @@ Built so any customer can connect their database and immediately get:
   - `POST /api/introspect/analyses` – list ready-to-run analyses
   - `POST /api/introspect/run-analysis` – execute a single analysis
   - `DELETE /api/introspect/cache` – invalidate the in-process schema cache
+  - `POST /api/introspect/sync-to-kpis` – run every suggested analysis and
+    write its summary value into `kpi_results` so it appears on the dashboard
+    and in the nightly briefing email.
 
 ### New frontend files
 
