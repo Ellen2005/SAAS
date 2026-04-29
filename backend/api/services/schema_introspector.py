@@ -163,9 +163,17 @@ def _open_sql_engine(conn_info: dict):
         )
         db_url = _replace_db_url_host_port(db_url, "127.0.0.1", int(local_port))
 
-    engine = create_engine(
-        db_url, connect_args={"connect_timeout": 10}, pool_pre_ping=True
-    )
+    # Connect-timeout argument differs per driver; SQLite has no notion of one.
+    lower = db_url.lower()
+    connect_args: dict = {}
+    if lower.startswith(("postgres", "postgresql", "mysql")):
+        connect_args["connect_timeout"] = 10
+    elif lower.startswith("mssql"):
+        connect_args["timeout"] = 10
+        connect_args["login_timeout"] = 10
+    # SQLite: leave empty.
+
+    engine = create_engine(db_url, connect_args=connect_args, pool_pre_ping=True)
     return engine, tunnel_proc
 
 
@@ -236,7 +244,13 @@ def introspect_sql(
                     try:
                         cols_raw = inspector.get_columns(name, schema=schema) or []
                     except Exception as exc:
-                        logger.warning(f"get_columns failed {qualified}: {exc}")
+                        # Permission errors on system catalogs (pg_enum etc.) are
+                        # very common on managed Postgres — log at debug only.
+                        msg = str(exc)
+                        if "permission denied" in msg.lower() or "insufficientprivilege" in msg.lower():
+                            logger.debug(f"get_columns skipped {qualified}: insufficient privilege")
+                        else:
+                            logger.warning(f"get_columns failed {qualified}: {exc}")
                         cols_raw = []
 
                     columns = [
@@ -347,11 +361,18 @@ def introspect_sql(
 # MongoDB introspection
 # ─────────────────────────────────────────────────────────────────────────────
 
-def introspect_mongo(conn_info: dict, *, sample_rows: int = 5) -> dict[str, Any]:
+def introspect_mongo(
+    conn_info: dict,
+    *,
+    sample_rows: int = 5,
+    max_tables: int | None = None,
+) -> dict[str, Any]:
     import pymongo
 
     started = datetime.utcnow()
     db_url = conn_info.get("credentials")
+    if not db_url:
+        raise ValueError("Missing MongoDB credentials (connection string).")
     client = pymongo.MongoClient(db_url, serverSelectionTimeoutMS=8000)
     db_name = (
         pymongo.uri_parser.parse_uri(db_url).get("database")
@@ -360,8 +381,11 @@ def introspect_mongo(conn_info: dict, *, sample_rows: int = 5) -> dict[str, Any]
     )
     db = client[db_name]
     tables = []
+    cap = max_tables if max_tables is not None else 200
     try:
         for col_name in db.list_collection_names():
+            if len(tables) >= cap:
+                break
             try:
                 doc = db[col_name].find_one() or {}
                 columns = [
@@ -601,18 +625,36 @@ def _qident(schema: str | None, name: str, dialect: str) -> str:
     return f"{q}{name}{q}"
 
 
-def run_analysis(user_id: str, supabase, analysis: dict[str, Any]) -> dict[str, Any]:
-    """Execute one of the suggested analyses, returning rows ready for charting."""
-    resp = (
-        supabase.table("database_connections")
-        .select("*")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
-    if not (hasattr(resp, "data") and resp.data):
-        return {"error": "No database connection configured."}
-    conn_info = resp.data[0]
+def run_analysis(
+    conn_info_or_user_id,
+    analysis_or_supabase=None,
+    analysis: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute one of the suggested analyses, returning rows ready for charting.
+
+    Two calling styles supported:
+      • run_analysis(conn_info_dict, analysis_dict)            ← preferred / testable
+      • run_analysis(user_id, supabase_client, analysis_dict)  ← legacy router style
+    """
+    if isinstance(conn_info_or_user_id, dict) and analysis is None:
+        # Preferred form: (conn_info, analysis)
+        conn_info = conn_info_or_user_id
+        analysis = analysis_or_supabase  # type: ignore[assignment]
+    else:
+        # Legacy form: (user_id, supabase, analysis)
+        user_id = conn_info_or_user_id
+        supabase = analysis_or_supabase
+        resp = (
+            supabase.table("database_connections")
+            .select("*").eq("user_id", user_id).limit(1).execute()
+        )
+        if not (hasattr(resp, "data") and resp.data):
+            return {"error": "No database connection configured."}
+        conn_info = resp.data[0]
+
+    if not isinstance(analysis, dict):
+        return {"error": "Missing analysis spec."}
+
     db_type = (conn_info.get("db_type") or "postgresql").lower()
     if db_type == "mongodb":
         return {"error": "Server-side analyses for MongoDB are not yet implemented; use NLQ instead."}
