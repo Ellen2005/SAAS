@@ -5,19 +5,9 @@ import { useAuth } from '../lib/authContext';
 const RoleGuard = ({ allowedRoles, children, fallback = '/dashboard' }) => {
   const { role, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '60vh',
-        color: 'var(--text-secondary)'
-      }}>
-        <p>Checking permissions...</p>
-      </div>
-    );
-  }
+  // While role is loading, render children optimistically if we have a cached role,
+  // otherwise show nothing (avoids flash of wrong content)
+  if (loading) return null;
 
   if (!role || !allowedRoles.includes(role)) {
     return <Navigate to={fallback} replace />;

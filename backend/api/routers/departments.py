@@ -43,61 +43,73 @@ def list_departments(context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
     try:
         department_rows = _safe_data(
-            supabase.table("departments")
-            .select("*")
-            .order("created_at")
+            supabase.table("departments").select("*").order("created_at").execute()
+        )
+        if not department_rows:
+            return {"departments": [], "requested_by": context["user_id"]}
+
+        dept_ids = [d["id"] for d in department_rows]
+
+        # Batch: user counts per department
+        user_count_rows = _safe_data(
+            supabase.table("user_roles")
+            .select("department_id")
+            .in_("department_id", dept_ids)
             .execute()
         )
+        user_counts = {}
+        for row in user_count_rows:
+            did = row["department_id"]
+            user_counts[did] = user_counts.get(did, 0) + 1
+
+        # Batch: latest report date per department
+        report_rows = _safe_data(
+            supabase.table("daily_reports")
+            .select("department_id, report_date")
+            .in_("department_id", dept_ids)
+            .order("report_date", desc=True)
+            .execute()
+        )
+        last_sync_by_dept = {}
+        for row in report_rows:
+            did = row["department_id"]
+            if did not in last_sync_by_dept:
+                last_sync_by_dept[did] = row["report_date"]
+
+        # Batch: semantic template names
+        template_ids = list({d["template_id"] for d in department_rows if d.get("template_id")})
+        template_name_map = {}
+        if template_ids:
+            tpl_rows = _safe_data(
+                supabase.table("semantic_templates")
+                .select("id, name")
+                .in_("id", template_ids)
+                .execute()
+            )
+            template_name_map = {r["id"]: r["name"] for r in tpl_rows}
+
+        # Batch: instance template names
+        instance_template_ids = list({d["instance_template_id"] for d in department_rows if d.get("instance_template_id")})
+        instance_template_name_map = {}
+        if instance_template_ids:
+            inst_rows = _safe_data(
+                supabase.table("instance_templates")
+                .select("id, name")
+                .in_("id", instance_template_ids)
+                .execute()
+            )
+            instance_template_name_map = {r["id"]: r["name"] for r in inst_rows}
 
         departments = []
         for department in department_rows:
-            users_resp = (
-                supabase.table("user_roles")
-                .select("id", count="exact")
-                .eq("department_id", department["id"])
-                .execute()
-            )
-            last_sync_rows = _safe_data(
-                supabase.table("daily_reports")
-                .select("report_date")
-                .eq("department_id", department["id"])
-                .order("report_date", desc=True)
-                .limit(1)
-                .execute()
-            )
-            template_name = None
-            if department.get("template_id"):
-                template_rows = _safe_data(
-                    supabase.table("semantic_templates")
-                    .select("name")
-                    .eq("id", department["template_id"])
-                    .limit(1)
-                    .execute()
-                )
-                if template_rows:
-                    template_name = template_rows[0].get("name")
-
-            instance_template_name = None
-            if department.get("instance_template_id"):
-                instance_template_rows = _safe_data(
-                    supabase.table("instance_templates")
-                    .select("name")
-                    .eq("id", department["instance_template_id"])
-                    .limit(1)
-                    .execute()
-                )
-                if instance_template_rows:
-                    instance_template_name = instance_template_rows[0].get("name")
-
-            departments.append(
-                {
-                    **department,
-                    "user_count": getattr(users_resp, "count", 0),
-                    "last_sync": last_sync_rows[0]["report_date"] if last_sync_rows else None,
-                    "template_name": template_name,
-                    "instance_template_name": instance_template_name,
-                }
-            )
+            did = department["id"]
+            departments.append({
+                **department,
+                "user_count": user_counts.get(did, 0),
+                "last_sync": last_sync_by_dept.get(did),
+                "template_name": template_name_map.get(department.get("template_id")),
+                "instance_template_name": instance_template_name_map.get(department.get("instance_template_id")),
+            })
 
         return {"departments": departments, "requested_by": context["user_id"]}
     except Exception as error:

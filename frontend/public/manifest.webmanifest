@@ -1,0 +1,29 @@
+{
+  "name": "Smart Automated Analytics System",
+  "short_name": "SAAS-PWA",
+  "description": "Decentralized Analytics Dashboard for Department Managers",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0b",
+  "theme_color": "#4f46e5",
+  "lang": "en",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

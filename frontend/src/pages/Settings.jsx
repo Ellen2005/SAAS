@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bell, CheckCircle, Database, RefreshCw, Save, Workflow } from 'lucide-react';
+import { Bell, CheckCircle, Database, RefreshCw, Save, Workflow, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { apiFetch, apiJson } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 import { useNavigate } from 'react-router-dom';
+import { useLang } from '../lib/i18n';
 
 const DEFAULT_CONNECTION_OPTIONS = {
   tunnel_token: '',
@@ -15,8 +16,12 @@ const DEFAULT_CONNECTION_OPTIONS = {
 
 const Settings = () => {
   const { user, departmentName } = useAuth();
+  const { t, lang, setLang } = useLang();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [savingConnection, setSavingConnection] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [savingPreferences, setSavingPreferences] = useState(false);
+  const [triggeringSync, setTriggeringSync] = useState(false);
   const [dbStatus, setDbStatus] = useState('idle');
   const [connectionMethod, setConnectionMethod] = useState('direct');
   const [connectionOptions, setConnectionOptions] = useState(DEFAULT_CONNECTION_OPTIONS);
@@ -73,11 +78,17 @@ const Settings = () => {
       if (!user) return;
 
       try {
-        const { data: connectionData } = await supabase
-          .from('database_connections')
-          .select('*')
-          .eq('user_id', user.id)
-          .maybeSingle();
+        // Batch all database queries in parallel instead of sequential
+        const [connResp, recResp, preferenceData, semanticData, mappingValidation] = await Promise.all([
+          supabase.from('database_connections').select('*').eq('user_id', user.id).maybeSingle(),
+          supabase.from('notification_recipients').select('email').eq('user_id', user.id),
+          apiJson('/api/settings/preferences'),
+          apiJson('/api/semantic/my-template'),
+          apiJson('/api/semantic/mappings/validate'),
+        ]);
+
+        const connectionData = connResp.data;
+        const recipientData = recResp.data;
 
         if (connectionData) {
           setDbType(connectionData.db_type || 'postgresql');
@@ -88,13 +99,6 @@ const Settings = () => {
           setConnectionMethod(connectionData.connection_method || 'direct');
           setConnectionOptions({ ...DEFAULT_CONNECTION_OPTIONS, ...(connectionData.connection_options || {}) });
         }
-
-        const [{ data: recipientData }, preferenceData, semanticData, mappingValidation] = await Promise.all([
-          supabase.from('notification_recipients').select('email').eq('user_id', user.id),
-          apiJson('/api/settings/preferences'),
-          apiJson('/api/semantic/my-template'),
-          apiJson('/api/semantic/mappings/validate'),
-        ]);
 
         setAiTone(preferenceData.ai_tone || 'insight-driven');
         setSyncTime(preferenceData.sync_time || '06:00');
@@ -111,6 +115,7 @@ const Settings = () => {
           nextInputs[field.id] = currentMapping?.local_column_name || '';
         });
         setMappingInputs(nextInputs);
+
       } catch (error) {
         console.error('Failed to load settings', error);
       }
@@ -125,7 +130,7 @@ const Settings = () => {
   };
 
   const handleSaveConnection = async () => {
-    setLoading(true);
+    setSavingConnection(true);
     try {
       await apiFetch('/api/settings/connection', {
         method: 'POST',
@@ -144,17 +149,24 @@ const Settings = () => {
       alert(`Unable to save connection: ${error.message}`);
       setDbStatus('error');
     } finally {
-      setLoading(false);
+      setSavingConnection(false);
     }
   };
 
   const handleTestConnection = async (event) => {
     event.preventDefault();
     setDbStatus('testing');
+    setTestingConnection(true);
     try {
       const result = await apiJson('/api/test-connection', {
         method: 'POST',
-        body: JSON.stringify({ credentials: buildCredentialString() }),
+        body: JSON.stringify({
+          credentials: buildCredentialString(),
+          connection_method: connectionMethod,
+          connection_options: connectionOptions,
+          host: host.trim(),
+          port: Number(port) || 5432,
+        }),
       });
       setDbStatus(result.status === 'success' ? 'success' : 'error');
       if (result.status !== 'success') {
@@ -163,11 +175,13 @@ const Settings = () => {
     } catch (error) {
       setDbStatus('error');
       alert(`Connection test failed: ${error.message}`);
+    } finally {
+      setTestingConnection(false);
     }
   };
 
   const handleSavePreferences = async () => {
-    setLoading(true);
+    setSavingPreferences(true);
     try {
       await apiFetch('/api/settings/preferences', {
         method: 'POST',
@@ -196,19 +210,19 @@ const Settings = () => {
     } catch (error) {
       alert(`Unable to save preferences: ${error.message}`);
     } finally {
-      setLoading(false);
+      setSavingPreferences(false);
     }
   };
 
   const handleManualSync = async () => {
-    setLoading(true);
+    setTriggeringSync(true);
     try {
       await apiFetch('/api/etl/trigger', { method: 'POST' });
-      alert('Department sync triggered. The dashboard will refresh after the ETL finishes.');
+      alert('Department sync triggered. Please check the Dashboard for live progress.');
     } catch (error) {
       alert(`Unable to trigger sync: ${error.message}`);
     } finally {
-      setLoading(false);
+      setTriggeringSync(false);
     }
   };
 
@@ -289,7 +303,7 @@ const Settings = () => {
   return (
     <div style={{ display: 'grid', gap: '24px' }}>
       <header>
-        <h1>Department Settings</h1>
+        <h1>{t('settings_title')}</h1>
         <p style={{ color: 'var(--text-secondary)' }}>
           Governed configuration for {departmentName || templateData.department?.name || 'your department'}.
         </p>
@@ -297,16 +311,32 @@ const Settings = () => {
 
       <section className="glass-panel">
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-          <Database size={20} color="var(--primary-color)" /> Source Connectivity
+          <Globe size={20} color="var(--primary-color)" /> {t('settings_language')}
+        </h2>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn btn-outline" onClick={() => setLang('en')}
+            style={{ borderColor: lang === 'en' ? 'var(--primary-color)' : undefined, color: lang === 'en' ? 'var(--primary-color)' : undefined }}>
+            🇬🇧 {t('lang_en')}
+          </button>
+          <button className="btn btn-outline" onClick={() => setLang('fr')}
+            style={{ borderColor: lang === 'fr' ? 'var(--primary-color)' : undefined, color: lang === 'fr' ? 'var(--primary-color)' : undefined }}>
+            🇫🇷 {t('lang_fr')}
+          </button>
+        </div>
+      </section>
+
+      <section className="glass-panel">
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+          <Database size={20} color="var(--primary-color)" /> {t('settings_connection')}
         </h2>
         <form onSubmit={handleTestConnection}>
           <div className="form-group">
-            <label>Connection Method</label>
+            <label>{t('settings_connection_method')}</label>
             <select value={connectionMethod} onChange={(event) => setConnectionMethod(event.target.value)}>
-              <option value="direct">Direct Connection</option>
-              <option value="cloudflare_tunnel">Cloudflare Tunnel</option>
-              <option value="ssh_tunnel">SSH Tunnel</option>
-              <option value="docker_vpn">Docker behind VPN</option>
+              <option value="direct">{t('settings_direct')}</option>
+              <option value="cloudflare_tunnel">{t('settings_cloudflare')}</option>
+              <option value="ssh_tunnel">{t('settings_ssh')}</option>
+              <option value="docker_vpn">{t('settings_docker')}</option>
             </select>
           </div>
 
@@ -368,10 +398,11 @@ const Settings = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             <div className="form-group">
-              <label>Database Type</label>
+              <label>{t('settings_db_type')}</label>
               <select value={dbType} onChange={(event) => setDbType(event.target.value)}>
                 <option value="postgresql">PostgreSQL</option>
                 <option value="mysql">MySQL</option>
+                <option value="mongodb">MongoDB</option>
                 <option value="sqlite">SQLite</option>
                 <option value="sqlserver">SQL Server</option>
               </select>
@@ -399,12 +430,16 @@ const Settings = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <button className="btn btn-outline" type="submit">Test Connection</button>
-            <button className="btn btn-primary" type="button" onClick={handleSaveConnection} disabled={loading}>
-              <Save size={16} /> Save Connection
+            <button className="btn btn-outline" type="submit" disabled={testingConnection}>
+              {testingConnection ? 'Testing...' : 'Test Connection'}
             </button>
+            <button className="btn btn-primary" type="button" onClick={handleSaveConnection} disabled={savingConnection}>
+              <Save size={16} /> {savingConnection ? 'Saving...' : 'Save Connection'}
+            </button>
+            {dbStatus === 'testing' && <span style={{ color: 'var(--text-secondary)' }}>Checking database reachability...</span>}
             {dbStatus === 'success' && <span style={{ color: 'var(--status-normal)' }}>Connection verified.</span>}
             {dbStatus === 'saved' && <span style={{ color: 'var(--primary-color)' }}>Configuration saved.</span>}
+            {dbStatus === 'error' && <span style={{ color: 'var(--status-critical)' }}>Connection failed. Review the values and try again.</span>}
           </div>
         </form>
       </section>
@@ -458,7 +493,7 @@ const Settings = () => {
                     placeholder={currentMapping?.local_column_name || 'e.g. total_sales'}
                   />
                 </div>
-                <button className="btn btn-outline" onClick={() => handleSaveMapping(field.id)} disabled={savingMapId === field.id}>
+                <button type="button" className="btn btn-outline" onClick={() => handleSaveMapping(field.id)} disabled={savingMapId === field.id}>
                   {savingMapId === field.id ? 'Saving...' : currentMapping ? 'Update' : 'Map'}
                 </button>
               </div>
@@ -520,11 +555,11 @@ const Settings = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn btn-primary" onClick={handleSavePreferences} disabled={loading}>
-            <Save size={16} /> Save Preferences
+          <button type="button" className="btn btn-primary" onClick={handleSavePreferences} disabled={savingPreferences}>
+            <Save size={16} /> {savingPreferences ? 'Saving...' : 'Save Preferences'}
           </button>
-          <button className="btn btn-outline" onClick={handleManualSync} disabled={loading}>
-            <RefreshCw size={16} /> Trigger Sync Now
+          <button type="button" className="btn btn-outline" onClick={handleManualSync} disabled={triggeringSync}>
+            <RefreshCw size={16} /> {triggeringSync ? 'Triggering...' : 'Trigger Sync Now'}
           </button>
         </div>
       </section>

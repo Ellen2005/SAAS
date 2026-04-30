@@ -1,92 +1,116 @@
 /* eslint react-refresh/only-export-components: off */
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { apiJson } from './api';
 
 const AuthContext = createContext(null);
-const AUTH_INIT_TIMEOUT_MS = 8000;
-
-function withTimeout(promise, timeoutMs, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
-    ),
-  ]);
-}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(null);
   const [departmentId, setDepartmentId] = useState(null);
   const [departmentName, setDepartmentName] = useState(null);
+  // Start as false — we resolve from localStorage/session cache immediately
   const [loading, setLoading] = useState(true);
+  const resolvedRef = useRef(false);
 
-  const resetAuthState = useCallback(() => {
-    // Clear app-specific cached data when the user is signed out.
-    // This prevents offline-stored sensitive data from being shown after logout/expiry.
+  const clearCache = useCallback(() => {
     try {
       localStorage.removeItem('saas.dashboard.lastSummary.v1');
       localStorage.removeItem('saas.validation.lastLogs.v1');
-    } catch {
-      // Ignore when storage is unavailable.
-    }
+      localStorage.removeItem('saas.user.role.v1');
+    } catch { /* ignore */ }
+  }, []);
+
+  const resetAuthState = useCallback(() => {
+    clearCache();
     setUser(null);
     setRole(null);
     setDepartmentId(null);
     setDepartmentName(null);
-  }, []);
+  }, [clearCache]);
 
+  // Fetch role from backend — non-blocking, runs after UI is already shown
   const fetchUserRole = useCallback(async () => {
     try {
       const data = await apiJson('/api/users/me');
       setRole(data.role || 'manager');
-      setDepartmentId(data.department_id);
-      setDepartmentName(data.department_name);
-    } catch (err) {
-      console.error("Error fetching user role:", err);
-      setRole('manager'); // Default fallback
+      setDepartmentId(data.department_id ?? null);
+      setDepartmentName(data.department_name ?? null);
+      // Cache role so next load is instant
+      try {
+        localStorage.setItem('saas.user.role.v1', JSON.stringify({
+          role: data.role || 'manager',
+          department_id: data.department_id,
+          department_name: data.department_name,
+        }));
+      } catch { /* ignore */ }
+    } catch {
+      // Backend unreachable — use cached role if available, else default
+      try {
+        const cached = localStorage.getItem('saas.user.role.v1');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setRole(parsed.role || 'manager');
+          setDepartmentId(parsed.department_id ?? null);
+          setDepartmentName(parsed.department_name ?? null);
+          return;
+        }
+      } catch { /* ignore */ }
+      setRole('manager');
     }
   }, []);
 
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        const { data: { session } } = await withTimeout(
-          supabase.auth.getSession(),
-          AUTH_INIT_TIMEOUT_MS,
-          'Supabase session lookup'
-        );
-
+    // Step 1: Resolve session synchronously from Supabase's local storage cache.
+    // This is instant — no network call. We use it to unblock the UI immediately.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!resolvedRef.current) {
+        resolvedRef.current = true;
         if (session?.user) {
           setUser(session.user);
-          await fetchUserRole();
+          // Try to restore cached role instantly before the API responds
+          try {
+            const cached = localStorage.getItem('saas.user.role.v1');
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              setRole(parsed.role || 'manager');
+              setDepartmentId(parsed.department_id ?? null);
+              setDepartmentName(parsed.department_name ?? null);
+            }
+          } catch { /* ignore */ }
+          setLoading(false);
+          // Fetch fresh role in background — does NOT block UI
+          fetchUserRole();
         } else {
           resetAuthState();
+          setLoading(false);
         }
-      } catch (err) {
-        console.error('Auth initialisation failed:', err);
+      }
+    }).catch(() => {
+      if (!resolvedRef.current) {
+        resolvedRef.current = true;
         resetAuthState();
-      } finally {
         setLoading(false);
       }
-    };
+    });
 
-    initAuth();
-
+    // Step 2: Listen for subsequent auth changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        try {
-          if (session?.user) {
-            setUser(session.user);
-            await fetchUserRole();
-          } else {
-            resetAuthState();
+        if (session?.user) {
+          setUser(session.user);
+          if (!resolvedRef.current) {
+            resolvedRef.current = true;
+            setLoading(false);
           }
-        } catch (err) {
-          console.error('Auth state change handling failed:', err);
+          // Always refresh role on auth change (non-blocking)
+          fetchUserRole();
+        } else {
           resetAuthState();
-        } finally {
+          if (!resolvedRef.current) {
+            resolvedRef.current = true;
+          }
           setLoading(false);
         }
       }
@@ -113,8 +137,6 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 }
