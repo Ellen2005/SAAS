@@ -57,7 +57,16 @@ Built so any customer can connect their database and immediately get:
   - `DELETE /api/introspect/cache` – invalidate the in-process schema cache
   - `POST /api/introspect/sync-to-kpis` – run every suggested analysis and
     write its summary value into `kpi_results` so it appears on the dashboard
-    and in the nightly briefing email.
+    and in the nightly briefing email. The same logic
+    (`run_introspect_sync`) is also called by the APScheduler heartbeat
+    after the regular ETL, so discovered analyses keep flowing in nightly
+    without any manual click.
+
+### Documentation
+
+- `docs/PROJECT_GUIDE.md` – tech stack, SDLC, 3-month Gantt for re-implementing.
+- `docs/TESTING_GUIDE.md` – DB connection-string cookbook (PG/MySQL/SQLite/MSSQL/MongoDB, direct + SSH-tunnel) and role/feature matrix.
+- `docs/DEPLOYMENT.md` – push to GitHub, free deploy on Render + Vercel + Supabase.
 
 ### New frontend files
 

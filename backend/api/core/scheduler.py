@@ -60,6 +60,17 @@ def process_scheduled_etl():
                     run_user_etl_pipeline(user_id)
                 except Exception as e:
                     logger.error(f"Scheduled ETL fail for {user_id}: {e}")
+                # Always also push schema-discovered analyses into the KPI feed
+                # so any auto-classified table contributes to the dashboard.
+                try:
+                    from ..routers.introspect import run_introspect_sync
+                    res = run_introspect_sync(user_id, supabase, refresh=True)
+                    logger.info(
+                        f"Discovered-analyses sync for {user_id}: "
+                        f"synced={res.get('synced')} failed={res.get('failed')}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Discovered-analyses sync fail for {user_id}: {e}")
 
     # 2. Department-level heartbeat: trigger ETL for all users in departments whose schedule matches
     try:

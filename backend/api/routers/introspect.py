@@ -210,28 +210,21 @@ def _summarize_for_kpi(result: dict) -> tuple[float, str] | None:
     return None
 
 
-@router.post("/sync-to-kpis")
-def sync_to_kpis(
-    payload: dict | None = None,
-    context: dict = Depends(require_role(["manager", "admin"])),
-):
-    """Run every suggested analysis and persist its summary value as a KPI row.
+def run_introspect_sync(user_id: str, supabase, refresh: bool = False) -> dict:
+    """Discover the user's schema, run every suggested analysis, and persist
+    each as a KPI row. Callable from both the HTTP route and the scheduler.
 
-    The resulting kpi_results rows feed the dashboard, the daily briefing email
-    and the validation history — exactly the same surface the legacy
-    hard-coded ETL writes to.
+    Returns a dict with `synced`, `failed`, `skipped`, `kpis`, `errors`,
+    `recorded_at` (and possibly `warning` / `error` for soft failures).
     """
-    user_id = context["user_id"]
-    supabase = get_supabase()
-
     schema = _SCHEMA_CACHE.get(user_id)
-    if not schema or (payload or {}).get("refresh"):
+    if not schema or refresh:
         try:
             schema = schema_introspector.introspect_user_database(user_id, supabase)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            return {"synced": 0, "warning": str(exc)}
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
+            return {"synced": 0, "error": str(exc)}
         _SCHEMA_CACHE[user_id] = schema
 
     analyses = schema_introspector.suggest_analyses(schema)
@@ -277,3 +270,23 @@ def sync_to_kpis(
         "errors": failures,
         "recorded_at": today,
     }
+
+
+@router.post("/sync-to-kpis")
+def sync_to_kpis(
+    payload: dict | None = None,
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    """Run every suggested analysis and persist its summary value as a KPI row.
+
+    The resulting kpi_results rows feed the dashboard, the daily briefing email
+    and the validation history — exactly the same surface the legacy
+    hard-coded ETL writes to.
+    """
+    user_id = context["user_id"]
+    supabase = get_supabase()
+    result = run_introspect_sync(user_id, supabase, refresh=bool((payload or {}).get("refresh")))
+    if result.get("error") and result.get("synced", 0) == 0:
+        # Surface as 502 so the UI can render a real error
+        raise HTTPException(status_code=502, detail=result["error"])
+    return result

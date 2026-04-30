@@ -48,6 +48,11 @@ export default function SchemaExplorer() {
   const [savingMappings, setSavingMappings] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [prefs, setPrefs] = useState(null);
+
+  useEffect(() => {
+    apiJson('/api/settings/preferences').then(setPrefs).catch(() => setPrefs(null));
+  }, []);
 
   const loadSchema = async (refresh = false) => {
     setLoading(true);
@@ -165,6 +170,11 @@ export default function SchemaExplorer() {
           <p style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
             Auto-discovered tables, relationships and ready-to-run analyses from your connected database.
           </p>
+          {prefs?.sync_time && (
+            <span style={pill('#10b981')}>
+              Auto-syncs {prefs.sync_frequency || 'daily'} at {prefs.sync_time}
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-outline" onClick={() => loadSchema(true)} disabled={loading}>
