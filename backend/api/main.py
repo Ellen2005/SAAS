@@ -172,6 +172,74 @@ def get_reports_history(limit: int = 50, user_id: str = Depends(resolve_user_id)
         return {"reports": [], "error": str(e)}
 
 
+# ── Report download (printable HTML — universal, no extra deps needed) ────────
+
+@app.get("/api/reports/{report_id}/download")
+def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
+    """Return the report as a standalone, printable HTML document.
+
+    Browsers can save the response as .html or use *Print → Save as PDF* to
+    produce a hard copy. This avoids requiring system-level PDF dependencies
+    (wkhtmltopdf / weasyprint / chromium) on free-tier hosts.
+    """
+    from fastapi.responses import Response
+    from .services.email_service import generate_professional_html_email
+    supabase = get_supabase()
+
+    rows = (
+        supabase.table("daily_reports").select("*")
+        .eq("id", report_id).eq("user_id", user_id).limit(1).execute()
+    )
+    if not rows.data:
+        raise HTTPException(status_code=404, detail="Report not found.")
+    report = rows.data[0]
+
+    kpi_rows = (
+        supabase.table("kpi_results").select("*")
+        .eq("user_id", user_id)
+        .eq("recorded_at", str(report["report_date"]))
+        .execute()
+    )
+    kpis = kpi_rows.data if hasattr(kpi_rows, "data") and kpi_rows.data else []
+    if not kpis:
+        # Fall back to most recent KPI batch when none exist for that exact date
+        recent = (
+            supabase.table("kpi_results").select("*")
+            .eq("user_id", user_id).order("recorded_at", desc=True).limit(20).execute()
+        )
+        kpis = recent.data if hasattr(recent, "data") and recent.data else []
+
+    anomaly_rows = (
+        supabase.table("anomaly_records").select("*")
+        .eq("user_id", user_id).order("detected_at", desc=True).limit(10).execute()
+    )
+    anomalies = anomaly_rows.data if hasattr(anomaly_rows, "data") and anomaly_rows.data else []
+
+    html = generate_professional_html_email(
+        kpis=kpis,
+        narrative_text=report.get("narrative", ""),
+        chart_url="",
+        anomalies=anomalies,
+        department_name=None,
+        recipient_email="",
+        report_type="Saved",
+        report_period=str(report["report_date"]),
+    )
+    # Inject a print-friendly button + page metadata
+    print_helper = (
+        "<script>window.addEventListener('load',()=>{setTimeout(()=>window.print(),300)});</script>"
+        "<style>@media print{.no-print{display:none!important}}</style>"
+    )
+    html = html.replace("</head>", f"{print_helper}</head>", 1)
+
+    filename = f"report-{report['report_date']}.html"
+    return Response(
+        content=html,
+        media_type="text/html",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── Report Edit & Resend ─────────────────────────────────────────────────────
 
 @app.patch("/api/reports/{report_id}")
@@ -494,6 +562,48 @@ def save_custom_report(
 
 
 # ── Audit Log ─────────────────────────────────────────────────────────────────
+
+@app.post("/api/admin/test-email")
+def send_test_email(
+    body: dict,
+    context: dict = Depends(require_role(["admin", "manager"])),
+):
+    """Send a one-off test email to verify Brevo wiring.
+
+    Body: { "email": "someone@example.com" }
+    """
+    to_email = (body or {}).get("email", "").strip()
+    if not to_email or "@" not in to_email:
+        raise HTTPException(status_code=400, detail="A valid email address is required.")
+    api_key = os.getenv("BREVO_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="BREVO_API_KEY not configured.")
+    try:
+        import sib_api_v3_sdk
+        from sib_api_v3_sdk.rest import ApiException
+        cfg = sib_api_v3_sdk.Configuration()
+        cfg.api_key["api-key"] = api_key
+        client = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(cfg))
+        sender_email = os.getenv("EMAIL_SENDER_ADDRESS", "noreply@saas-analytics.com")
+        sender_name = os.getenv("EMAIL_SENDER_NAME", "SAAS Analytics")
+        html = (
+            "<h2>SaaS Analytics — Test Email</h2>"
+            f"<p>Hello! This is a test email confirming Brevo is configured correctly "
+            f"for user <b>{context['user_id']}</b>.</p>"
+            "<p>If you received this, your nightly briefings will deliver successfully.</p>"
+        )
+        resp = client.send_transac_email(sib_api_v3_sdk.SendSmtpEmail(
+            to=[{"email": to_email}],
+            sender={"name": sender_name, "email": sender_email},
+            subject="SaaS Analytics — test email",
+            html_content=html,
+        ))
+        return {"status": "sent", "message_id": resp.message_id, "to": to_email}
+    except ApiException as e:
+        raise HTTPException(status_code=502, detail=f"Brevo error: {getattr(e, 'body', str(e))}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/audit-log")
 def get_audit_log(limit: int = 50, context: dict = Depends(require_role(["manager", "admin"]))):

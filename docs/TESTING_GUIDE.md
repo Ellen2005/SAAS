@@ -225,7 +225,38 @@ Test each row by signing in as a user assigned that role in `user_roles`.
 
 ---
 
-## 7. Failure-mode checklist
+## 7. Email — sending a test message
+
+A dedicated admin endpoint is available so you do not have to wait for the
+nightly briefing cron to verify Brevo:
+
+```bash
+curl -X POST https://YOUR-API/api/admin/test-email \
+     -H "Authorization: Bearer $JWT" \
+     -H "Content-Type: application/json" \
+     -d '{ "email": "you@example.com" }'
+```
+
+Or trigger it from the in-app **Settings** page (Send Test Email button).
+
+If the response is `502 Brevo error: Key not found / unauthorized`, your
+`BREVO_API_KEY` is the legacy `xsmtpsib-…` format that Brevo deprecated in
+2024. Generate a new key (it should start with `xkeysib-`) at
+https://app.brevo.com/settings/keys/api and put it in your `.env`. The from
+address (`EMAIL_SENDER_ADDRESS`) must be a verified sender at
+https://app.brevo.com/senders/list.
+
+## 8. Downloading a report
+
+Open `/reports`, click **Download** on any row. The browser receives a
+self-contained HTML file (`report-2026-04-30.html`) that opens the print
+dialog automatically — choose *Save as PDF* or send it to a real printer.
+
+This works on every browser without requiring server-side PDF libraries
+(weasyprint / wkhtmltopdf / chromium), which keeps the free-tier deploy
+slim.
+
+## 9. Failure-mode checklist
 
 For each of the following, confirm the UI shows a friendly error rather
 than a stack trace or silent failure:

@@ -226,7 +226,48 @@ M1 → M2 → M3 → M4 → M5 → M6
 
 ---
 
-## 9. After launch
+## 9. Admin surface
+
+Every admin page in `frontend/src/pages/Admin*.jsx` is gated by
+`require_role(["admin"])` on the backend. They are:
+
+| Page | Route | Backend endpoints | Purpose |
+|---|---|---|---|
+| **Admin Dashboard** | `/admin` | `GET /api/admin/summary`, `GET /api/admin/validation/scorecard`, `GET /api/admin/lineage/{kpi_id}` | Cross-departmental KPI rollup, validation scorecard, drill-down to source rows |
+| **Departments** | `/admin/departments` | `GET/POST/DELETE /api/departments`, `POST /api/departments/{id}/assign-user` | CRUD departments and assign users |
+| **Semantic Templates** | `/admin/semantic` | `GET/POST/DELETE /api/admin/semantic/templates(/fields)` | Define which business concepts your KPIs measure |
+| **Instance Templates** | `/admin/templates` | `GET/POST/DELETE /api/templates/instances`, `POST /api/templates/deploy` | Per-customer customised template snapshots |
+| **Users & Roles** | `/admin/users` | `GET /api/admin/users`, `POST/DELETE /api/admin/users/{id}/role` | Promote/demote users between admin/manager/viewer |
+| **Validation History** | `/admin/validation` | `GET /api/admin/validation/logs` | Inspect every connection test, ETL run and KPI write |
+| **Heartbeat status** | (in Admin Dashboard) | `GET /api/admin/heartbeat/status`, `POST /api/admin/heartbeat/trigger/{dept_id}` | See last-sync per department, force a department-wide ETL |
+
+In total **30+ admin endpoints** across 6 routers, all protected. RLS on the
+underlying tables means even a SQL injection at the app layer cannot leak
+across tenants.
+
+## 10. Reports
+
+Reports are stored in `daily_reports` and surfaced in three ways:
+
+* **In-app history** (`/reports`) — list, expand, edit narrative, resend.
+* **Download** — `GET /api/reports/{id}/download` returns a standalone HTML
+  file that auto-triggers the browser print dialog. Saves as PDF or prints
+  on paper without any server-side PDF dependency. Available to every
+  authenticated user (admins, managers, viewers).
+* **Email** — Brevo transactional sends to `notification_recipients`.
+
+### Email troubleshooting
+
+* Use `POST /api/admin/test-email` with `{ "email": "you@example.com" }`
+  to verify the Brevo wiring without waiting for the nightly cron.
+* Brevo deprecated the legacy `xsmtpsib-…` keys in 2024. New keys must
+  start with `xkeysib-…`. If your sends fail with `Key not found /
+  unauthorized`, rotate the key in your Brevo dashboard
+  (https://app.brevo.com/settings/keys/api) and update `BREVO_API_KEY`.
+* The "from" address must be a **verified sender** in Brevo
+  (https://app.brevo.com/senders/list).
+
+## 11. After launch
 
 * Add multi-tenant billing (Stripe).
 * Add Slack / Teams briefing destinations alongside email.

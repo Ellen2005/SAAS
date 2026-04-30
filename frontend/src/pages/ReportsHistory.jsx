@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X } from 'lucide-react';
+import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X, Download } from 'lucide-react';
 import { apiJson, apiFetch } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 
@@ -47,6 +47,22 @@ const ReportsHistory = () => {
       alert(`Failed to save: ${err.message}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDownload = async (reportId, reportDate) => {
+    try {
+      const blob = await apiFetch(`/api/reports/${reportId}/download`).then(r => r.blob());
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `report-${reportDate}.html`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(`Download failed: ${err.message}`);
     }
   };
 
@@ -121,27 +137,37 @@ const ReportsHistory = () => {
                     </div>
                   </button>
 
-                  {isManager && (
-                    <div style={{ display: 'flex', gap: '8px', marginLeft: '16px', flexShrink: 0 }}>
-                      <button
-                        className="btn btn-outline"
-                        onClick={() => handleStartEdit(report)}
-                        style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}
-                        title="Edit narrative before sending"
-                      >
-                        <Edit3 size={14} /> Edit
-                      </button>
-                      <button
-                        className="btn btn-primary"
-                        onClick={() => handleResend(report.id)}
-                        disabled={sending === report.id}
-                        style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}
-                        title="Send this report to email recipients"
-                      >
-                        {wasSent ? <><Check size={14} /> Sent!</> : sending === report.id ? 'Sending…' : <><Send size={14} /> Send</>}
-                      </button>
-                    </div>
-                  )}
+                  <div style={{ display: 'flex', gap: '8px', marginLeft: '16px', flexShrink: 0 }}>
+                    <button
+                      className="btn btn-outline"
+                      onClick={() => handleDownload(report.id, report.report_date)}
+                      style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}
+                      title="Download a printable copy of this report"
+                    >
+                      <Download size={14} /> Download
+                    </button>
+                    {isManager && (
+                      <>
+                        <button
+                          className="btn btn-outline"
+                          onClick={() => handleStartEdit(report)}
+                          style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}
+                          title="Edit narrative before sending"
+                        >
+                          <Edit3 size={14} /> Edit
+                        </button>
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => handleResend(report.id)}
+                          disabled={sending === report.id}
+                          style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}
+                          title="Send this report to email recipients"
+                        >
+                          {wasSent ? <><Check size={14} /> Sent!</> : sending === report.id ? 'Sending…' : <><Send size={14} /> Send</>}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {/* Expanded body */}
