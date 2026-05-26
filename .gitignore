@@ -1,0 +1,51 @@
+# ── Environment files (NEVER commit secrets) ──────────────────────────────
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+**/*.env
+
+# ── Python ────────────────────────────────────────────────────────────────
+backend/venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+uv.lock
+
+# ── Node / Frontend ────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# ── Logs ──────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+backend_run.log
+backend_test.log
+pyproject.toml
+
+# ── OS / Editor ───────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# ── Replit / local state ──────────────────────────────────────────────────
+.local/
+.replit
+replit.nix
+ping_status.txt
+attached_assets/

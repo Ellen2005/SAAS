@@ -1,0 +1,11 @@
+-- =============================================================================
+-- Optional Test Data Placeholder
+-- Run AFTER 001_governed_mesh.sql has been applied.
+--
+-- This migration intentionally does not insert demo business metrics. The
+-- application should only report data from a user's configured source database
+-- or from explicit semantic/KPI mappings.
+-- =============================================================================
+
+-- Add organization-specific test fixtures here only if they match the database
+-- you are actively validating.
