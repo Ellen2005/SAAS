@@ -94,6 +94,8 @@ request. Perfect for this app.
    | Runtime | `Python 3` |
    | Build Command | `pip install -r requirements.txt` |
    | Start Command | `uvicorn api.main:app --host 0.0.0.0 --port $PORT` |
+
+> Note: `backend/requirements.txt` now includes `oracledb` for Oracle source database support. Ensure the target runtime can install Oracle dependencies if you plan to connect Oracle sources.
    | Plan | **Free** |
 
 4. Click **Advanced → Add Environment Variable** for every key in your

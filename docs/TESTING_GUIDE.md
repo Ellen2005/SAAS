@@ -110,7 +110,37 @@ mysql+pymysql://rfamro:@mysql-rfam-public.ebi.ac.uk:4497/Rfam
 
 (Note: empty password — that is intentional.)
 
-### 2.3 SQLite
+### 2.3 Oracle
+
+Driver used: `oracledb` (installed via `backend/requirements.txt`).
+
+| Method | Example |
+|---|---|
+| **Direct** | `oracle+oracledb://user:password@db.example.com:1521/service_name` |
+| **Direct + service name** | `oracle+oracledb://user:password@db.example.com:1521/ORCL` |
+| **SSH tunnel** | `oracle+oracledb://user:password@127.0.0.1:1521/service_name` plus the same SSH fields as above |
+
+For Oracle, use `service_name` or `SID` in the path section of the URI. The current code normalizes `oracle://...` into `oracle+oracledb://...` automatically.
+
+**SSH-tunnel form (UI fields):**
+
+| Field | Value |
+|---|---|
+| `db_type` | `oracle` |
+| `host` (where the DB appears once tunnelled) | `127.0.0.1` |
+| `port` | `1521` |
+| `db_name` | `service_name` |
+| `credentials` | `oracle+oracledb://user:password@127.0.0.1:1521/service_name` |
+| `connection_method` | `ssh_tunnel` |
+| `connection_options.ssh_host` | `bastion.example.com` |
+| `connection_options.ssh_user` | `ubuntu` |
+| `connection_options.remote_db_host` | `internal-db.vpc.local` |
+| `connection_options.remote_db_port` | `1521` |
+| `connection_options.ssh_pkey` | (paste the PEM contents, optional) |
+
+The backend rewrites host/port to the local SSH tunnel endpoint before connecting.
+
+### 2.4 SQLite
 
 SQLite is file-based — there is no host/port/credentials.
 

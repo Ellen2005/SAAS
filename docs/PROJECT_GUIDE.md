@@ -10,7 +10,7 @@ Gantt-style schedule of milestones.
 
 A multi-tenant SaaS analytics PWA that:
 
-1. Lets a customer connect their own database (PostgreSQL, MySQL, SQLite, SQL
+1. Lets a customer connect their own database (PostgreSQL, MySQL, Oracle, SQLite, SQL
    Server, MongoDB) — directly or through an SSH tunnel.
 2. Auto-introspects that database, classifies its tables into business
    domains (contributions, payments, beneficiaries, claims, pensions,
@@ -33,7 +33,7 @@ A multi-tenant SaaS analytics PWA that:
 |---|---|---|
 | Language / runtime | **Python 3.11** | Mature data libraries, fast iteration |
 | Web framework | **FastAPI** + **Uvicorn** | Async, type-checked routes, OpenAPI for free |
-| ORM / DB driver | **SQLAlchemy 2.x** core + dialect drivers (`psycopg2-binary`, `pymysql`, `pymssql`, `pysqlite3`), **pymongo** | One abstraction, multi-dialect |
+| ORM / DB driver | **SQLAlchemy 2.x** core + dialect drivers (`psycopg2-binary`, `pymysql`, `oracledb`, `pymssql`, `pysqlite3`), **pymongo** | One abstraction, multi-dialect |
 | App database & auth | **Supabase** (Postgres + GoTrue) | Hosted, RLS, JWT auth, free tier |
 | Scheduling | **APScheduler** (`BackgroundScheduler`) | In-process cron for nightly ETL |
 | AI / LLM | **Groq** (Llama-3-70B) via `requests` | Free, fast tokens for narrative + NLQ + auto-mapping |

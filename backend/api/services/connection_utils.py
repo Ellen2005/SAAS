@@ -18,6 +18,8 @@ def detect_db_type(credentials: str, explicit: str | None = None) -> str:
         return "mongodb"
     if lowered.startswith("sqlite"):
         return "sqlite"
+    if "oracle" in lowered or lowered.startswith("oracle+"):
+        return "oracle"
     if "mysql" in lowered or lowered.startswith("mariadb"):
         return "mysql"
     if "mssql" in lowered or "sqlserver" in lowered:
@@ -34,7 +36,7 @@ def normalize_credentials(credentials: str, db_type: str) -> str:
     if db_type == "mongodb":
         return cred
     if db_type == "sqlite":
-        return cred if lowered.startswith("sqlite") else f"sqlite:///{cred.lstrip('/')}"
+        return cred if lowered.startswith("sqlite") else f"sqlite:///{cred.lstrip('/') }"
     if db_type == "mysql" and not lowered.startswith("mysql+"):
         if lowered.startswith("mysql://"):
             return cred.replace("mysql://", "mysql+pymysql://", 1)
@@ -43,6 +45,12 @@ def normalize_credentials(credentials: str, db_type: str) -> str:
         if lowered.startswith("mssql+"):
             return cred
         return f"mssql+pymssql://{cred.split('://', 1)[-1]}" if "://" not in cred else cred
+    if db_type == "oracle":
+        if lowered.startswith("oracle+"):
+            return cred
+        if lowered.startswith("oracle://"):
+            return cred.replace("oracle://", "oracle+oracledb://", 1)
+        return f"oracle+oracledb://{cred.split('://', 1)[-1]}" if "://" not in cred else cred
     if db_type == "postgresql" and lowered.startswith("postgres://"):
         return cred.replace("postgres://", "postgresql://", 1)
     if db_type == "postgresql" and lowered.startswith("postgresql://") and "+" not in lowered.split("://", 1)[0]:
@@ -77,6 +85,8 @@ def _default_port(credentials_lower: str) -> int:
         return 3306
     if "mssql" in credentials_lower:
         return 1433
+    if credentials_lower.startswith("oracle"):
+        return 1521
     return 5432
 
 
@@ -119,4 +129,6 @@ def sqlalchemy_engine_kwargs(credentials: str, db_type: str) -> dict:
             "connect_args": {"connect_timeout": 10, "ssl_disabled": True},
             "pool_pre_ping": True,
         }
+    if db_type == "oracle":
+        return {"connect_args": {"connect_timeout": 10}, "pool_pre_ping": True}
     return {"connect_args": {"connect_timeout": 10}, "pool_pre_ping": True}

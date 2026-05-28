@@ -182,6 +182,10 @@ For best results:
 `mysql+pymysql://user:password@host:3306/database`
 Note: your environment must have the required SQLAlchemy driver installed for MySQL.
 
+**Oracle**
+`oracle+oracledb://user:password@host:1521/service_name`
+Note: requires the Oracle Instant Client or Python `oracledb` driver installation.
+
 **SQLite**
 `sqlite:///absolute/path/to/database.sqlite`
 

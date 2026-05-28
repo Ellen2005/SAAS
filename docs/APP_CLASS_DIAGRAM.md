@@ -5,6 +5,8 @@ This document is derived from:
 - `backend/migrations/*.sql`
 
 > Note: Supabase Auth-managed tables (e.g., `auth.users`) are referenced as FK targets but are not created by your migrations.
+>
+> Supported external source databases: PostgreSQL, MySQL, Oracle, SQLite, SQL Server, MongoDB.
 
 ## 0) Cardinality Legend
 - **1 → many**: one target row can be referenced by multiple source rows

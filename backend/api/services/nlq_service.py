@@ -52,6 +52,10 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
                 "SELECT COUNT(*) AS table_count FROM information_schema.tables "
                 "WHERE table_schema = DATABASE();"
             ), "Counting tables in the active MySQL database."
+        if dialect == "oracle":
+            return (
+                "SELECT COUNT(*) AS table_count FROM user_tables"
+            ), "Counting tables in the active Oracle schema."
         if dialect == "sqlite":
             return (
                 "SELECT COUNT(*) AS table_count FROM sqlite_master "
@@ -70,6 +74,10 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
                 "SELECT table_schema, table_name, table_type FROM information_schema.tables "
                 "WHERE table_schema = DATABASE() ORDER BY table_name LIMIT 200;"
             ), "Listing tables in the active MySQL database."
+        if dialect == "oracle":
+            return (
+                "SELECT table_name FROM user_tables ORDER BY table_name FETCH FIRST 200 ROWS ONLY"
+            ), "Listing tables in the active Oracle schema."
         if dialect == "sqlite":
             return (
                 "SELECT type AS table_type, name AS table_name FROM sqlite_master "
@@ -96,6 +104,11 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
                 f"WHERE table_schema = DATABASE() AND table_name = '{table_name}' "
                 "ORDER BY ordinal_position LIMIT 200;"
             ), f"Describing columns for {table_name}."
+        if dialect == "oracle":
+            return (
+                "SELECT column_name, data_type, nullable FROM user_tab_columns "
+                f"WHERE table_name = UPPER('{table_name}') ORDER BY column_id"
+            ), f"Describing columns for {table_name}."
         if dialect == "sqlite":
             return f"PRAGMA table_info({table_name!r});", f"Describing columns for {table_name}."
 
@@ -103,7 +116,13 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
     if match:
         table = match.group(1).strip(".")
         if table not in {"rows", "records", "data", "table", "tables"}:
-            ident = ".".join(f'"{part}"' for part in table.split(".")) if dialect != "mysql" else ".".join(f"`{part}`" for part in table.split("."))
+            ident = (
+                ".".join(f'"{part}"' for part in table.split("."))
+                if dialect != "mysql"
+                else ".".join(f"`{part}`" for part in table.split("."))
+            )
+            if dialect == "oracle":
+                return f"SELECT * FROM {ident} FETCH FIRST 20 ROWS ONLY", f"Previewing up to 20 rows from {table}."
             return f"SELECT * FROM {ident} LIMIT 20;", f"Previewing up to 20 rows from {table}."
 
     return None, (
@@ -119,6 +138,8 @@ def _ask_groq_for_sql(question: str, schema_hint: str, db_type: str) -> str:
         dialect_note = "Use MySQL syntax."
     elif db_type in ("sqlserver",):
         dialect_note = "Use T-SQL (SQL Server) syntax."
+    elif db_type in ("oracle",):
+        dialect_note = "Use Oracle SQL syntax."
     else:
         dialect_note = "Use PostgreSQL syntax."
 

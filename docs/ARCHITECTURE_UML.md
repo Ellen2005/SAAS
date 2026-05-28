@@ -14,7 +14,7 @@ flowchart TB
   PWA -->|JWT + REST| API
   PWA -->|Auth + RLS reads| SB
   API -->|Service role| SB
-  API -->|Read-only SQL/Mongo| SRC
+  API -->|Read-only SQL/Mongo| SRC[(Customer source DB: PostgreSQL / MySQL / Oracle / SQLite / SQL Server / MongoDB)]
 ```
 
 ## Use cases

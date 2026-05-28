@@ -129,8 +129,9 @@ const Settings = () => {
     const user = encodeURIComponent(dbUser.trim());
     const pass = encodeURIComponent(dbPass.trim());
     const hostPart = host.trim();
-    const portPart = port.trim() || '5432';
-    const dbPart = dbName.trim() || 'postgres';
+    const defaultPort = dbType === 'oracle' ? '1521' : '5432';
+    const portPart = port.trim() || defaultPort;
+    const dbPart = dbName.trim() || (dbType === 'oracle' ? 'orcl' : 'postgres');
     if (dbType === 'mongodb') {
       const auth = user ? `${user}:${pass}@` : '';
       return `mongodb://${auth}${hostPart}:${portPart}/${dbPart}`;
@@ -143,6 +144,9 @@ const Settings = () => {
     }
     if (dbType === 'sqlserver') {
       return `mssql+pymssql://${user}:${pass}@${hostPart}:${portPart}/${dbPart}`;
+    }
+    if (dbType === 'oracle') {
+      return `oracle+oracledb://${user}:${pass}@${hostPart}:${portPart}/${dbPart}`;
     }
     return `postgresql+psycopg2://${user}:${pass}@${hostPart}:${portPart}/${dbPart}`;
   };
@@ -422,6 +426,7 @@ const Settings = () => {
               <select value={dbType} onChange={(event) => setDbType(event.target.value)}>
                 <option value="postgresql">PostgreSQL</option>
                 <option value="mysql">MySQL</option>
+                <option value="oracle">Oracle</option>
                 <option value="mongodb">MongoDB</option>
                 <option value="sqlite">SQLite</option>
                 <option value="sqlserver">SQL Server</option>

@@ -18,6 +18,15 @@ class ConnectionUtilsTests(unittest.TestCase):
         out = normalize_credentials(uri, "postgresql")
         self.assertTrue(out.startswith("postgresql+psycopg2://"))
 
+    def test_detect_oracle_uri(self):
+        uri = "oracle+oracledb://user:secret@oracle.example.com:1521/ORCL"
+        self.assertEqual(detect_db_type(uri), "oracle")
+
+    def test_normalize_oracle_uri(self):
+        uri = "oracle://user:secret@oracle.example.com:1521/ORCL"
+        out = normalize_credentials(uri, "oracle")
+        self.assertTrue(out.startswith("oracle+oracledb://"))
+
     def test_enrich_direct_uri_only_payload(self):
         uri = "postgresql://reader:secret@hh-pgsql-public.ebi.ac.uk:5432/pfmegrnargs"
         enriched = enrich_connection_payload({"credentials": uri, "db_type": "postgresql"})

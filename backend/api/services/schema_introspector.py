@@ -302,11 +302,18 @@ def introspect_sql(
                     samples: list[dict] = []
                     if sample_rows > 0:
                         try:
-                            sel = (
-                                f'SELECT * FROM "{schema}"."{name}" LIMIT :n'
-                                if schema
-                                else f'SELECT * FROM "{name}" LIMIT :n'
-                            )
+                            if engine.dialect.name == "oracle":
+                                sel = (
+                                    f'SELECT * FROM "{schema}"."{name}" FETCH FIRST :n ROWS ONLY'
+                                    if schema
+                                    else f'SELECT * FROM "{name}" FETCH FIRST :n ROWS ONLY'
+                                )
+                            else:
+                                sel = (
+                                    f'SELECT * FROM "{schema}"."{name}" LIMIT :n'
+                                    if schema
+                                    else f'SELECT * FROM "{name}" LIMIT :n'
+                                )
                             res = conn.execute(text(sel), {"n": int(sample_rows)})
                             cols = list(res.keys())
                             for row in res.fetchall():

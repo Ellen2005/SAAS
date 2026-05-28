@@ -14,5 +14,6 @@ groq
 httpx
 pymongo
 pymysql
+oracledb
 gotrue<2.7
 cryptography>=42.0.0

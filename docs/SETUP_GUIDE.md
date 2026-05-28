@@ -73,10 +73,10 @@ If you want to use another Supabase project as your data source:
 9.  Wait a few seconds, then check your **Dashboard** to see results from *Analytix360*.
 
 ### Local Database Testing
-If your database is running on your own computer (e.g., SQL Server, MySQL, Postgres):
+If your database is running on your own computer (e.g., SQL Server, MySQL, Postgres, Oracle):
 1.  Open the **SAAS Settings** page.
 2.  Set the **Host URL** to `localhost` or `127.0.0.1`.
-3.  Ensure your firewall allows connections on the specific port (e.g., `1433` for SQL Server, `5432` for Postgres).
+3.  Ensure your firewall allows connections on the specific port (e.g., `1433` for SQL Server, `5432` for Postgres, `1521` for Oracle).
 4.  The backend Python service will act as a bridge, fetching data from your local PC and pushing results to the Supabase cloud.
 
 ### Adding New Extractors

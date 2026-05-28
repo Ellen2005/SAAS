@@ -199,6 +199,7 @@ SAAS/
 
 - **PostgreSQL** — Direct connection, SSH tunnel, Cloudflare tunnel
 - **MySQL** — Direct connection, SSH tunnel
+- **Oracle** — Direct connection, SSH tunnel
 - **SQLite** — File-based databases
 - **SQL Server** — Direct connection
 - **MongoDB** — Connection string support

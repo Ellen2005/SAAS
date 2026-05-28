@@ -71,7 +71,7 @@ The system packages ETL pipeline, ML analytics, AI narrative generation, and a P
 |---|---|
 | User Account Management | Sign up / login via Supabase email auth; role assignment (admin / manager / viewer); password reset and account deletion |
 | Role-Based Access Control | Three-tier RBAC: admin sees all departments; manager controls their department; viewer has read-only access |
-| Database Connectivity | Connect to department's own DB (PostgreSQL, MySQL, SQLite, SQL Server) via direct connection, Cloudflare Tunnel, SSH tunnel, or Docker/VPN |
+| Database Connectivity | Connect to department's own DB (PostgreSQL, MySQL, Oracle, SQLite, SQL Server) via direct connection, Cloudflare Tunnel, SSH tunnel, or Docker/VPN |
 | Automated ETL | Scheduled pipeline extracts raw data, applies semantic mappings, validates data quality, computes KPIs, detects anomalies, generates AI narrative, and sends email |
 | Semantic Layer | Admin-defined global field templates; managers map local DB columns to standardized global field names |
 | KPI Computation | Daily computation of DoD %, WoW %, rolling 7-day average; results stored in Supabase for instant dashboard load |
@@ -99,7 +99,7 @@ The system packages ETL pipeline, ML analytics, AI narrative generation, and a P
 - **Database:** Supabase (PostgreSQL) for app config, user data, analytics results, validation logs, and lineage records.
 - **AI Narrative:** Groq API (primary, cloud LLM — llama3-70b-8192); Ollama local REST API on port 11434 (fallback); template-based generation (final fallback).
 - **Email delivery:** Brevo (Sendinblue) transactional email API via `sib-api-v3-sdk`.
-- **Source database:** Manager's own PostgreSQL, MySQL, SQLite, or SQL Server instance.
+- **Source database:** Manager's own PostgreSQL, MySQL, Oracle, SQLite, or SQL Server instance.
 - **Network:** HTTPS required for all production communication. Offline mode served from service worker cache.
 
 ### 2.5 Design and Implementation Constraints
@@ -142,7 +142,7 @@ Requirements are categorized by module. Each has a unique ID (FR-xxx), a priorit
 
 | ID | Priority | Requirement | Status |
 |---|---|---|---|
-| FR-020 | HIGH | The system shall support connection to PostgreSQL, MySQL, SQLite, and SQL Server via SQLAlchemy connection strings. | ✅ Implemented — `etl_service.py` `extract_from_source` uses SQLAlchemy |
+| FR-020 | HIGH | The system shall support connection to PostgreSQL, MySQL, Oracle, SQLite, and SQL Server via SQLAlchemy connection strings. | ✅ Implemented — `etl_service.py` `extract_from_source` uses SQLAlchemy |
 | FR-021 | HIGH | The system shall support four connection methods: Direct Connection, Cloudflare Tunnel (token-based), SSH Tunnel (key/agent auth), and Docker behind VPN. | ✅ Implemented — `Settings.jsx` connection method selector; `etl_service.py` SSH tunnel logic via `_start_ssh_tunnel` |
 | FR-022 | HIGH | A "Test Connection" function shall validate reachability and credentials before saving. | ✅ Implemented — `POST /api/test-connection`; `Settings.jsx` `handleTestConnection` |
 | FR-023 | HIGH | Connection details shall be saved per user in the `database_connections` Supabase table. The system shall perform an update-or-insert based on whether a row already exists for the user. | ✅ Implemented — `POST /api/settings/connection` with explicit exists-check logic |
