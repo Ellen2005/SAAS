@@ -35,10 +35,9 @@ LEGACY_DEMO_KPI_NAMES = frozenset({
 
 
 def _is_legacy_demo_kpi(row: dict) -> bool:
-    """Hide leftover seed/demo KPI rows that are not tied to a real sync batch."""
+    """Hide leftover seed/demo KPI rows completely."""
     name = row.get("kpi_name")
-    # Only filter if it's one of the exact legacy names AND has no source_id (i.e. seeded, not synced)
-    return name in LEGACY_DEMO_KPI_NAMES and not row.get("source_id")
+    return name in LEGACY_DEMO_KPI_NAMES or (name and name.replace("_", " ").title() in LEGACY_DEMO_KPI_NAMES)
 
 
 def _is_legacy_demo_report(row: dict) -> bool:
@@ -188,8 +187,15 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
         summary = DashboardSummary(kpis=kpis, anomalies=anomalies, narrative=narrative, last_refreshed=last_refreshed)
         summary_dict = summary.model_dump()
         validation_rows = validation_resp.data if hasattr(validation_resp, "data") and validation_resp.data else []
-        latest_by_type = {}
+        filtered_validation_rows = []
         for row in validation_rows:
+            msg = row.get("message") or ""
+            if any(legacy.lower() in msg.lower() or legacy.replace("_", " ").lower() in msg.lower() for legacy in LEGACY_DEMO_KPI_NAMES):
+                continue
+            filtered_validation_rows.append(row)
+
+        latest_by_type = {}
+        for row in filtered_validation_rows:
             latest_by_type.setdefault(row.get("check_type"), row)
         summary_dict["validation"] = list(latest_by_type.values())
         try:
@@ -379,8 +385,37 @@ def get_etl_status(user_id: str = Depends(resolve_user_id)):
 def get_forecasts(user_id: str = Depends(resolve_user_id)):
     supabase = get_supabase()
     try:
-        rows = supabase.table("kpi_forecasts").select("*").eq("user_id", user_id).order("forecast_date").execute()
-        return {"forecasts": rows.data if hasattr(rows, "data") and rows.data else []}
+        rows = (
+            supabase.table("kpi_forecasts")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("forecast_date")
+            .execute()
+        )
+        raw = rows.data if hasattr(rows, "data") and rows.data else []
+        filtered = [
+            r
+            for r in raw
+            if r.get("kpi_name") not in LEGACY_DEMO_KPI_NAMES
+            and r.get("kpi_name", "").replace("_", " ").title() not in LEGACY_DEMO_KPI_NAMES
+        ]
+
+        # Ensure the shape matches what the frontend expects.
+        # Frontend Dashboard.jsx expects: kpi_name, forecast_date, predicted_value, lower_bound, upper_bound.
+        forecasts = []
+        for f in filtered:
+            forecasts.append(
+                {
+                    **f,
+                    "kpi_name": f.get("kpi_name"),
+                    "forecast_date": f.get("forecast_date"),
+                    "predicted_value": f.get("predicted_value"),
+                    "lower_bound": f.get("lower_bound"),
+                    "upper_bound": f.get("upper_bound"),
+                }
+            )
+
+        return {"forecasts": forecasts}
     except Exception as e:
         return {"forecasts": [], "error": str(e)}
 

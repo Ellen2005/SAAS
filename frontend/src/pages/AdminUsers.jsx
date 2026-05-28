@@ -65,8 +65,9 @@ const AdminUsers = () => {
           <tbody>
             {users.map(u => (
               <tr key={u.role_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <td style={{ padding: '12px', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                  {u.email || `${u.user_id.substring(0, 12)}...`}
+                <td style={{ padding: '12px', fontSize: '0.85rem' }}>
+                  <div style={{ fontWeight: 500, marginBottom: '2px' }}>{u.email || 'Unknown User'}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>ID: {u.user_id.substring(0, 8)}...</div>
                 </td>
                 <td style={{ padding: '12px' }}>
                   {editRole?.userId === u.user_id ? (

@@ -51,6 +51,8 @@ const Dashboard = () => {
   const [syncing, setSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Syncing...');
   const [forecasts, setForecasts] = useState([]);
+  const [schemaSyncing, setSchemaSyncing] = useState(false);
+  const [schemaSyncResult, setSchemaSyncResult] = useState(null);
 
   // Keepalive ping — wakes up free-tier backend before user needs it
   useEffect(() => {
@@ -107,6 +109,24 @@ const Dashboard = () => {
   }, [forecasts]);
 
   const KPI_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'];
+
+  const handleSchemaSync = async () => {
+    if (schemaSyncing || !user) return;
+    setSchemaSyncing(true);
+    setSchemaSyncResult(null);
+    try {
+      const out = await apiJson('/api/introspect/sync-to-kpis', {
+        method: 'POST',
+        body: JSON.stringify({ refresh: true }),
+      });
+      setSchemaSyncResult(out);
+      await fetchData();
+    } catch (err) {
+      setSchemaSyncResult({ error: err.message || 'Sync failed.' });
+    } finally {
+      setSchemaSyncing(false);
+    }
+  };
 
   const handleSync = async () => {
     if (syncing || !user) return;
@@ -182,7 +202,11 @@ const Dashboard = () => {
               <button className="btn btn-outline" onClick={() => navigate('/reports/custom')} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <Sparkles size={16} /> {t('custom_report_title')}
               </button>
-              <button className="btn btn-primary" onClick={handleSync} disabled={syncing} style={{ display: 'flex', gap: '8px', alignItems: 'center', opacity: syncing ? 0.7 : 1 }}>
+              <button className="btn btn-primary" onClick={handleSchemaSync} disabled={schemaSyncing || syncing} style={{ display: 'flex', gap: '8px', alignItems: 'center', opacity: schemaSyncing ? 0.7 : 1, background: 'linear-gradient(135deg, var(--primary-color) 0%, #4f46e5 100%)', border: 'none' }}>
+                <RefreshCcw size={16} style={{ animation: schemaSyncing ? 'spin 1s linear infinite' : 'none' }} />
+                {schemaSyncing ? 'Syncing Schema…' : 'Sync Schema'}
+              </button>
+              <button className="btn btn-outline" onClick={handleSync} disabled={syncing || schemaSyncing} style={{ display: 'flex', gap: '8px', alignItems: 'center', opacity: syncing ? 0.7 : 1 }}>
                 <RefreshCcw size={16} style={{ animation: syncing ? 'spin 1s linear infinite' : 'none' }} />
                 {syncing ? statusMessage : t('dashboard_generate')}
               </button>
@@ -202,6 +226,34 @@ const Dashboard = () => {
               {syncing ? statusMessage : t('dashboard_generate')}
             </button>
           )}
+        </div>
+      )}
+
+      {schemaSyncResult && (
+        <div className="glass-panel" style={{
+          padding: '16px',
+          marginBottom: '24px',
+          background: schemaSyncResult.error ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
+          border: `1px solid ${schemaSyncResult.error ? 'var(--status-critical)' : 'var(--status-normal)'}`,
+          borderRadius: 'var(--radius-md)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '16px'
+        }}>
+          <div>
+            <strong style={{ color: schemaSyncResult.error ? 'var(--status-critical)' : 'var(--status-normal)', display: 'block', marginBottom: '4px' }}>
+              {schemaSyncResult.error ? 'Schema Sync Failed' : 'Schema Sync Successful!'}
+            </strong>
+            <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+              {schemaSyncResult.error
+                ? schemaSyncResult.error
+                : `Successfully mapped and synced ${schemaSyncResult.synced || 0} KPI(s) from your connected database. (Skipped ${schemaSyncResult.skipped || 0}, Failed ${schemaSyncResult.failed || 0})`}
+            </span>
+          </div>
+          <button className="btn btn-outline" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => setSchemaSyncResult(null)}>
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -262,7 +314,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {chartData.length > 0 && (
+      {data.kpis.length > 0 && chartData.length > 0 && (
         <section className="glass-panel" style={{ marginTop: '32px' }}>
           <h2 style={{ fontSize: '1.2rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <TrendingUp size={20} color="var(--primary-color)" /> {t('dashboard_forecast')}

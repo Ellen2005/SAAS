@@ -5,6 +5,7 @@ import { apiJson } from '../lib/api';
 
 const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [data, setData] = useState(null);
   const [scorecard, setScorecard] = useState([]);
   const [expandedDept, setExpandedDept] = useState(null);
@@ -35,6 +36,39 @@ const AdminDashboard = () => {
     loadData();
   }, []);
 
+  const handleSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      await fetch('/api/etl/trigger', { method: 'POST' });
+      // Wait a moment then reload data
+      setTimeout(() => {
+        setLoading(true);
+        const loadData = async () => {
+          try {
+            const [summary, validation] = await Promise.all([
+              apiJson('/api/admin/summary'),
+              apiJson('/api/admin/validation/scorecard'),
+            ]);
+            setData(summary);
+            setScorecard(validation.scorecard || []);
+            if (summary.timeline?.length) {
+              setSelectedPeriod(summary.timeline[summary.timeline.length - 1]);
+            }
+          } catch (error) {
+            console.error('Failed to reload admin dashboard', error);
+          } finally {
+            setLoading(false);
+          }
+        };
+        loadData();
+      }, 2000);
+    } catch (error) {
+      console.error('Sync failed', error);
+      setSyncing(false);
+    }
+  };
+
   const handleLineage = async (kpiId) => {
     try {
       const result = await apiJson(`/api/admin/lineage/${kpiId}`);
@@ -60,14 +94,26 @@ const AdminDashboard = () => {
 
   return (
     <div style={{ display: 'grid', gap: '24px' }}>
-      <header>
-        <h1 style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <BarChart3 color="var(--primary-color)" /> Executive Dashboard
-        </h1>
-        <p style={{ color: 'var(--text-secondary)' }}>
-          Combined view across {data?.total_departments || 0} departments.
-        </p>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px' }}>
+        <div>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <BarChart3 color="var(--primary-color)" /> Executive Dashboard
+          </h1>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Combined view across {data?.total_departments || 0} departments.
+          </p>
+        </div>
+        <button 
+          className="btn btn-primary"
+          onClick={handleSync}
+          disabled={syncing}
+          style={{ display: 'flex', gap: '8px', alignItems: 'center', opacity: syncing ? 0.7 : 1 }}
+        >
+          <RefreshCcw size={16} style={{ animation: syncing ? 'spin 1s linear infinite' : 'none' }} />
+          {syncing ? 'Syncing...' : 'Sync Now'}
+        </button>
       </header>
+      <style>{'@keyframes spin{100%{transform:rotate(360deg)}}'}</style>
 
       <section className="glass-panel">
         <h2 style={{ fontSize: '1.1rem', marginBottom: '16px' }}>Company Revenue Timeline</h2>

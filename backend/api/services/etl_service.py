@@ -421,7 +421,8 @@ def get_required_fields(user_id: str, supabase) -> list:
     fields = get_admin_kpi_fields(supabase, user_id)
     if not fields:
         return []
-    return [f for f in fields if f.get("required")]
+    # Filter out legacy demo fields so they are never required
+    return [f for f in fields if f.get("required") and f.get("global_field_name") not in {"net_revenue", "inventory_value", "support_tickets"}]
 
 
 def get_runtime_config(user_id: str, supabase) -> dict:
@@ -549,6 +550,7 @@ def _run_database_overview_pipeline(user_id: str, supabase, db_connection_info: 
     actually contains instead of inventing demo KPIs.
     """
     from .schema_introspector import introspect_sql, introspect_mongo
+    from .narrative_service import generate_database_overview_narrative
 
     db_type = (db_connection_info.get("db_type") or "postgresql").lower()
     schema = (
@@ -601,22 +603,23 @@ def _run_database_overview_pipeline(user_id: str, supabase, db_connection_info: 
         supabase.table("kpi_results").insert(kpis).execute()
     supabase.table("validation_logs").insert(validation_results).execute()
 
-    table_lines = [
-        f"- {table.get('qualified_name') or table.get('name')}: "
-        f"{table.get('row_count') if table.get('row_count') is not None else 'row count unavailable'} rows, "
-        f"{len(table.get('columns') or [])} columns"
-        for table in tables[:12]
-    ]
-    sample_table = tables[0] if tables else {}
-    sample_columns = ", ".join((c.get("name") for c in sample_table.get("columns", [])[:12] if c.get("name")))
-    narrative_text = (
-        f"Connected database overview - {today}\n\n"
-        f"The system did not find configured KPI mappings, so it generated a database-level overview from the actual connected source.\n\n"
-        f"Database type: {schema.get('dialect', db_type)}\n"
-        f"Tables/collections discovered: {len(tables)}\n\n"
-        f"Largest discovered objects:\n{chr(10).join(table_lines) if table_lines else 'No readable tables or collections were found.'}\n\n"
-        f"Suggested next step: open Schema Explorer or Ask Your Data to choose the table and analysis you want. "
-        f"{'For example, start with ' + (sample_table.get('qualified_name') or sample_table.get('name')) + ' columns: ' + sample_columns + '.' if sample_table else ''}"
+    # Load ai tone and custom analysis instructions from user preferences
+    tone = "insight-driven"
+    instruction = None
+    try:
+        pref_response = supabase.table("user_preferences").select("*").eq("user_id", user_id).limit(1).execute()
+        if hasattr(pref_response, "data") and pref_response.data:
+            prefs = pref_response.data[0]
+            tone = prefs.get("ai_tone", "insight-driven")
+            instruction = prefs.get("analysis_instruction")
+    except Exception as e:
+        print(f"Failed to fetch user preferences: {e}")
+
+    narrative_text = generate_database_overview_narrative(
+        schema=schema,
+        tone=tone,
+        instruction=instruction,
+        company_name=schema.get("dialect", db_type).title(),
     )
 
     supabase.table("daily_reports").insert({

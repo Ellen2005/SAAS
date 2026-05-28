@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Database, MessageSquare, Plus, Send, Table } from 'lucide-react';
+import { AlertCircle, Database, MessageSquare, Plus, Send, Table, BarChart2 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import ChartRenderer from '../components/ChartRenderer';
@@ -270,6 +270,23 @@ const NLQPage = () => {
         </section>
 
         <section className="glass-panel" style={{ padding: 14 }}>
+          <h3 style={{ fontSize: '0.95rem', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Database size={16} color="var(--primary-color)" /> Query Options
+          </h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 14 }}>
+            Run your natural language query. Use the buttons below to execute with or without a chart.
+          </p>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <button className="btn btn-primary" onClick={handleRun} disabled={loading || !question.trim()} style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'center' }}>
+              <Send size={16} /> {loading ? t('nlq_running') : 'Run Query Only'}
+            </button>
+            <button className="btn btn-outline" onClick={() => { setCustomChart(null); handleRun(); }} disabled={loading || !question.trim()} style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'center' }}>
+              <Send size={16} /> Query + Result Table
+            </button>
+          </div>
+        </section>
+
+        <section className="glass-panel" style={{ padding: 14 }}>
           <h3 style={{ fontSize: '0.95rem', marginBottom: 10 }}>Custom chart (optional)</h3>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
             Uses the same question above to query your database, then renders the chart type you choose.
@@ -289,8 +306,8 @@ const NLQPage = () => {
                 {t}
               </button>
             ))}
-            <button type="button" className="btn btn-outline" onClick={handleCustomChart} disabled={chartLoading || !question.trim()}>
-              {chartLoading ? 'Building chart...' : 'Build chart'}
+            <button type="button" className="btn btn-primary" onClick={handleCustomChart} disabled={chartLoading || !question.trim()} style={{ display: 'flex', gap: 8 }}>
+              <BarChart2 size={16} /> {chartLoading ? 'Building chart...' : 'Build Chart'}
             </button>
           </div>
           {customChart?.error && <p style={{ color: 'var(--status-critical)', fontSize: '0.85rem' }}>{customChart.error}</p>}
@@ -304,14 +321,9 @@ const NLQPage = () => {
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={handleKey}
             placeholder={t('nlq_placeholder')}
-            style={{ resize: 'vertical', fontSize: '1rem', marginBottom: 10 }}
+            style={{ resize: 'vertical', fontSize: '1rem', marginBottom: 10, width: '100%' }}
           />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Enter sends, Shift+Enter adds a new line.</span>
-            <button className="btn btn-primary" onClick={handleRun} disabled={loading || !question.trim()} style={{ display: 'flex', gap: 8 }}>
-              <Send size={16} /> {loading ? t('nlq_running') : 'Send'}
-            </button>
-          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Enter sends, Shift+Enter adds a new line.</div>
         </section>
       </main>
     </div>

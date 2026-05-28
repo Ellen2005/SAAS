@@ -108,10 +108,14 @@ def run_anomaly_check(
 
     flagged_kpis = {}
 
+    LEGACY_DEMO_KPI_NAMES = {"net_revenue", "inventory_value", "support_tickets", "Total Revenue", "Inventory Value", "Support Tickets"}
     numeric_columns = [
         col
         for col in current_df.columns
-        if col not in {"report_date", "customer_id"} and pd.api.types.is_numeric_dtype(current_df[col])
+        if col not in {"report_date", "customer_id"}
+        and col not in LEGACY_DEMO_KPI_NAMES
+        and col.replace("_", " ").title() not in LEGACY_DEMO_KPI_NAMES
+        and pd.api.types.is_numeric_dtype(current_df[col])
     ]
 
     for column in numeric_columns:
