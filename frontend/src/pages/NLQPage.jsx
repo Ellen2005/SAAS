@@ -270,60 +270,44 @@ const NLQPage = () => {
         </section>
 
         <section className="glass-panel" style={{ padding: 14 }}>
-          <h3 style={{ fontSize: '0.95rem', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Database size={16} color="var(--primary-color)" /> Query Options
-          </h3>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 14 }}>
-            Run your natural language query. Use the buttons below to execute with or without a chart.
-          </p>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-            <button className="btn btn-primary" onClick={handleRun} disabled={loading || !question.trim()} style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'center' }}>
-              <Send size={16} /> {loading ? t('nlq_running') : 'Run Query Only'}
-            </button>
-            <button className="btn btn-outline" onClick={() => { setCustomChart(null); handleRun(); }} disabled={loading || !question.trim()} style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'center' }}>
-              <Send size={16} /> Query + Result Table
-            </button>
-          </div>
-        </section>
-
-        <section className="glass-panel" style={{ padding: 14 }}>
-          <h3 style={{ fontSize: '0.95rem', marginBottom: 10 }}>Custom chart (optional)</h3>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
-            Uses the same question above to query your database, then renders the chart type you choose.
-          </p>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-            {['bar', 'line', 'pie', 'area'].map((t) => (
-              <button
-                key={t}
-                type="button"
-                className="btn btn-outline"
-                onClick={() => setChartType(t)}
-                style={{
-                  borderColor: chartType === t ? 'var(--primary-color)' : undefined,
-                  color: chartType === t ? 'var(--primary-color)' : undefined,
-                }}
-              >
-                {t}
-              </button>
-            ))}
-            <button type="button" className="btn btn-primary" onClick={handleCustomChart} disabled={chartLoading || !question.trim()} style={{ display: 'flex', gap: 8 }}>
-              <BarChart2 size={16} /> {chartLoading ? 'Building chart...' : 'Build Chart'}
-            </button>
-          </div>
-          {customChart?.error && <p style={{ color: 'var(--status-critical)', fontSize: '0.85rem' }}>{customChart.error}</p>}
-          {customChart?.chart && <ChartRenderer spec={customChart.chart} height={320} />}
-        </section>
-
-        <section className="glass-panel" style={{ padding: 14 }}>
           <textarea
-            rows={3}
+            rows={4}
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={handleKey}
             placeholder={t('nlq_placeholder')}
-            style={{ resize: 'vertical', fontSize: '1rem', marginBottom: 10, width: '100%' }}
+            style={{ resize: 'vertical', fontSize: '1rem', width: '100%', minHeight: 120 }}
           />
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Enter sends, Shift+Enter adds a new line.</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginTop: 12 }}>
+            <button className="btn btn-primary" onClick={handleRun} disabled={loading || !question.trim()} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Send size={16} /> {loading ? t('nlq_running') : 'Send Query'}
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 260 }}>
+              <label htmlFor="chart-type" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                Chart type:
+              </label>
+              <select
+                id="chart-type"
+                value={chartType}
+                onChange={(e) => setChartType(e.target.value)}
+                style={{ minWidth: 160, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--surface-color)', color: 'var(--text-primary)' }}
+              >
+                <option value="none">No chart</option>
+                <option value="bar">Bar chart</option>
+                <option value="line">Line chart</option>
+                <option value="pie">Pie chart</option>
+                <option value="area">Area chart</option>
+              </select>
+            </div>
+            <button className="btn btn-outline" onClick={handleCustomChart} disabled={chartLoading || !question.trim() || chartType === 'none'} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <BarChart2 size={16} /> {chartLoading ? 'Building chart...' : 'Build chart'}
+            </button>
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 10 }}>
+            Enter sends the query, Shift+Enter adds a new line. Choose a chart type only if you want a chart.
+          </div>
+          {customChart?.error && <p style={{ color: 'var(--status-critical)', fontSize: '0.85rem', marginTop: 10 }}>{customChart.error}</p>}
+          {customChart?.chart && <ChartRenderer spec={customChart.chart} height={320} />}
         </section>
       </main>
     </div>

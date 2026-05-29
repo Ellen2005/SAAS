@@ -4,6 +4,7 @@ Converts plain-English (or French) questions into SQL/MongoDB queries,
 executes them against the user's connected database, and returns results.
 """
 import os
+import re
 import logging
 from datetime import datetime
 from .groq_utils import execute_groq_completion, get_groq_model
@@ -62,6 +63,28 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
                 "WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%';"
             ), "Counting SQLite tables and views."
 
+    if re.search(r"\bshow\b.*\btable(?:s)?\b", q) and "from" not in q:
+        if dialect == "postgresql":
+            return (
+                "SELECT table_schema, table_name, table_type FROM information_schema.tables "
+                "WHERE table_schema NOT IN ('pg_catalog', 'information_schema') "
+                "ORDER BY table_schema, table_name LIMIT 200;"
+            ), "Listing readable non-system tables."
+        if dialect == "mysql":
+            return (
+                "SELECT table_schema, table_name, table_type FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() ORDER BY table_name LIMIT 200;"
+            ), "Listing tables in the active MySQL database."
+        if dialect == "oracle":
+            return (
+                "SELECT table_name FROM user_tables ORDER BY table_name FETCH FIRST 200 ROWS ONLY"
+            ), "Listing tables in the active Oracle schema."
+        if dialect == "sqlite":
+            return (
+                "SELECT type AS table_type, name AS table_name FROM sqlite_master "
+                "WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name LIMIT 200;"
+            ), "Listing SQLite tables and views."
+
     if "list" in q and "table" in q:
         if dialect == "postgresql":
             return (
@@ -84,7 +107,6 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
                 "WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name LIMIT 200;"
             ), "Listing SQLite tables and views."
 
-    import re
     match = re.search(r"(?:describe|columns? (?:of|for)|schema (?:of|for))\s+([a-zA-Z0-9_.]+)", q)
     if match:
         table = match.group(1).strip(".")
@@ -131,6 +153,24 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
     )
 
 
+def _sanitize_sql_for_dialect(sql: str, dialect: str) -> str:
+    normalized = sql.strip()
+    if dialect == "sqlite":
+        normalized = re.sub(r"\bILIKE\b", "LIKE", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(
+            r"\bNOW\(\)\s*-\s*INTERVAL\s*'([0-9]+)\s+day[s]?'\b",
+            lambda m: f"datetime('now', '-{m.group(1)} days')",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        normalized = re.sub(r"\bNOW\(\)\b", "datetime('now')", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bCURRENT_DATE\b", "date('now')", normalized, flags=re.IGNORECASE)
+    if dialect == "oracle":
+        normalized = re.sub(r"\bLIMIT\s+(\d+)\b", r"FETCH FIRST \1 ROWS ONLY", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bILIKE\b", "LIKE", normalized, flags=re.IGNORECASE)
+    return normalized
+
+
 def _ask_groq_for_sql(question: str, schema_hint: str, db_type: str) -> str:
     """Use Groq LLM to convert a natural language question to SQL."""
     dialect_note = ""
@@ -171,7 +211,7 @@ SQL QUERY:"""
         sql = sql.split("```")[1]
         if sql.lower().startswith("sql"):
             sql = sql[3:]
-    return sql.strip()
+    return _sanitize_sql_for_dialect(sql, db_type).strip()
 
 
 def _ask_groq_for_mongo(question: str, collections: list) -> dict:
@@ -260,9 +300,17 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
         if not sql:
             sql, assistant_note = _fallback_sql_for_question(question, engine)
 
+        if sql:
+            sql = _sanitize_sql_for_dialect(sql, db_type)
+
         if not sql:
+            friendly = (
+                "Could not generate a valid SQL response for that question. "
+                "Please try a more specific question or verify your database connection."
+            )
             return {
-                "answer": assistant_note,
+                "error": friendly,
+                "answer": friendly,
                 "rows": [],
                 "columns": [],
                 "row_count": 0,
@@ -321,7 +369,16 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
 
     except Exception as e:
         logger.error(f"NLQ error for user {user_id}: {e}")
-        return {"error": str(e), "rows": [], "sql": None}
+        return {
+            "error": (
+                "Unable to execute the requested query. "
+                "Please try again with a different question or check your database connection."
+            ),
+            "rows": [],
+            "columns": [],
+            "row_count": 0,
+            "sql": None,
+        }
     finally:
         if engine:
             try:

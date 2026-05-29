@@ -314,7 +314,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {data.kpis.length > 0 && chartData.length > 0 && (
+      {(data.kpis.length > 0 || forecastKpiNames.length > 0) && chartData.length > 0 && (
         <section className="glass-panel" style={{ marginTop: '32px' }}>
           <h2 style={{ fontSize: '1.2rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <TrendingUp size={20} color="var(--primary-color)" /> {t('dashboard_forecast')}

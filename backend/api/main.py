@@ -146,11 +146,16 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
 
         kpis = []
         if hasattr(kpi_resp, "data") and kpi_resp.data:
-            for item in [row for row in kpi_resp.data if not _is_legacy_demo_kpi(row)]:
+            seen_kpis = set()
+            for item in kpi_resp.data:
+                kpi_name = str(item.get("kpi_name", "unknown"))
+                if _is_legacy_demo_kpi(item) or kpi_name in seen_kpis:
+                    continue
+                seen_kpis.add(kpi_name)
                 try:
                     kpis.append(KPIResult(
                         id=str(item.get("id", "")),
-                        kpi_name=str(item.get("kpi_name", "unknown")),
+                        kpi_name=kpi_name,
                         value=float(item.get("value") or 0),
                         dod_pct=float(item["dod_pct"]) if item.get("dod_pct") is not None else None,
                         wow_pct=float(item["wow_pct"]) if item.get("wow_pct") is not None else None,

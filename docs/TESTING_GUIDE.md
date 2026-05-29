@@ -140,6 +140,29 @@ For Oracle, use `service_name` or `SID` in the path section of the URI. The curr
 
 The backend rewrites host/port to the local SSH tunnel endpoint before connecting.
 
+### 2.3.1 Oracle demo sample
+
+If you need a sample Oracle test connection, use local Oracle XE or a hosted Oracle Express instance and the following pattern:
+
+```text
+oracle+oracledb://system:oracle@localhost:1521/XEPDB1
+```
+
+For a direct remote Oracle demo:
+
+```text
+oracle+oracledb://demo_user:demo_password@oracle-demo.example.com:1521/XEPDB1
+```
+
+Sample validation checks:
+
+- `How many tables are there?`
+- `Show all tables`
+- `Describe employees`
+- `Show rows from nps_feedback`
+
+When using Oracle, the app will normalize `oracle://...` into `oracle+oracledb://...` automatically, and it will use Oracle-compatible preview SQL such as `SELECT * FROM <table> FETCH FIRST 20 ROWS ONLY`.
+
 ### 2.4 SQLite
 
 SQLite is file-based — there is no host/port/credentials.
