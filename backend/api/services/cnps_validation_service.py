@@ -3,7 +3,7 @@ CNPS-specific data quality checks beyond generic validation.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any
 
 import pandas as pd
@@ -24,7 +24,7 @@ def check_contribution_date_staleness(df: pd.DataFrame, max_days: int = 30) -> d
         return {"check": "contribution_staleness", "status": "failed", "message": "No valid contribution dates."}
 
     latest = series.max()
-    age_days = (datetime.utcnow() - latest.to_pydatetime().replace(tzinfo=None)).days
+    age_days = (datetime.now(UTC) - latest.to_pydatetime().replace(tzinfo=None)).days
     if age_days > max_days:
         return {
             "check": "contribution_staleness",

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 
 import pandas as pd
 
@@ -52,7 +52,7 @@ def generate_forecasts(df: pd.DataFrame) -> list:
                     "predicted_value": round(float(row["yhat"]), 2),
                     "lower_bound": round(float(row["yhat_lower"]), 2),
                     "upper_bound": round(float(row["yhat_upper"]), 2),
-                    "generated_at": datetime.utcnow().isoformat(),
+                    "generated_at": datetime.now(UTC).isoformat(),
                 })
         except Exception as e:
             logger.error(f"Forecast failed for {kpi_name}: {e}")

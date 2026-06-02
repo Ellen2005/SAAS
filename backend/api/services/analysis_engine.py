@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any
 
 from .groq_utils import execute_groq_completion, get_groq_model
@@ -377,7 +377,7 @@ def run_analysis(
             "result_summary": summary,
             "chart_json": chart,
             "metrics_json": {**metrics, "explanation": explanation},
-            "completed_at": datetime.utcnow().isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }).eq("id", run_id).execute()
 
         # Publish primary metric to kpi_results for dashboard widgets
@@ -393,7 +393,7 @@ def run_analysis(
                     "value": val,
                     "status": "normal",
                     "source": "goal_run",
-                    "recorded_at": datetime.utcnow().isoformat(),
+                    "recorded_at": datetime.now(UTC).isoformat(),
                 }).execute()
             except (TypeError, ValueError):
                 pass
@@ -413,7 +413,7 @@ def run_analysis(
             supabase.table("analysis_runs").update({
                 "status": "failed",
                 "error_message": str(exc)[:500],
-                "completed_at": datetime.utcnow().isoformat(),
+                "completed_at": datetime.now(UTC).isoformat(),
             }).eq("id", run_id).execute()
         return {"run_id": run_id, "status": "failed", "error": str(exc)}
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, UTC
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ def log_config_change(supabase, user_id: str, action: str, entity: str, changes:
             "action": action,
             "entity": entity,
             "changes": changes,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }).execute()
     except Exception as e:
         logger.warning(f"Audit log write failed (non-critical): {e}")

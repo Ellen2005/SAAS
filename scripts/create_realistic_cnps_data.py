@@ -8,14 +8,16 @@ to demonstrate how SAAS handles imperfect data and negative results
 import sqlite3
 import random
 import datetime
+import os
 from datetime import timedelta
 import json
 
 def create_realistic_cnps_database():
     """Create a realistic CNPS database with data quality issues and anomalies"""
     
-    # Connect to database
-    conn = sqlite3.connect('cnps_realistic_demo.db')
+    # Connect to database in scripts folder
+    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cnps_realistic_demo.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
     # Drop existing tables

@@ -2,7 +2,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 import pandas as pd
 
@@ -29,7 +29,7 @@ from backend.api.services.validation_service import run_all_validations
 
 class CorePipelineTests(unittest.TestCase):
     def test_null_and_bad_data_handling_survives_complete_local_pipeline(self):
-        today = datetime.utcnow().date()
+        today = datetime.now(UTC).date()
         rows = []
         for i in range(14):
             rows.append({

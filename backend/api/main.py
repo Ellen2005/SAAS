@@ -1,16 +1,30 @@
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 import os
+import logging
 from contextlib import asynccontextmanager
 from sqlalchemy import create_engine
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
+# Load environment
+env_path = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(env_path)
+logger.info(f"Environment loaded from: {env_path}")
+
+from .core.env_config import validate_environment, configure_cors_origins
 from .core.supabase_client import get_supabase
 from .core.auth import require_role, resolve_user_id
 from .services.email_service import send_automated_briefing, verify_unsubscribe_token
@@ -51,27 +65,104 @@ def _is_legacy_demo_report(row: dict) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    start_scheduler()
-    yield
-    shutdown_scheduler()
+    """
+    Startup and shutdown lifecycle handler.
+    Validates environment and starts background scheduler.
+    """
+    try:
+        logger.info("Validating environment...")
+        env_validation = validate_environment()
+        logger.info(f"Environment validation: {env_validation}")
+        
+        logger.info("Starting scheduler...")
+        start_scheduler()
+        logger.info("Application startup complete ✓")
+    except Exception as e:
+        logger.error(f"Startup failed: {str(e)}", exc_info=True)
+        raise
+    
+    try:
+        yield
+    finally:
+        logger.info("Shutting down scheduler...")
+        shutdown_scheduler()
+        logger.info("Application shutdown complete ✓")
 
 
 INSTITUTION_NAME = os.getenv("INSTITUTION_NAME", "Smart Analytics")
 
-app = FastAPI(title=f"{INSTITUTION_NAME} System API", lifespan=lifespan)
+app = FastAPI(
+    title=f"{INSTITUTION_NAME} System API",
+    version="1.0.0",
+    description="Data Pipeline & Analytics Engine",
+    lifespan=lifespan
+)
+
+# Configure CORS dynamically based on environment
+cors_origins = configure_cors_origins()
+logger.info(f"Configuring CORS for origins: {cors_origins}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5000",
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:4173",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
+
+
+# ── Global Exception Handlers ────────────────────────────────────────────────
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    """Handle validation errors with detailed response."""
+    logger.warning(f"Validation error on {request.url}: {exc}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Invalid request parameters",
+            "errors": [
+                {
+                    "field": ".".join(str(x) for x in err["loc"][1:]),
+                    "message": err["msg"],
+                    "type": err["type"]
+                }
+                for err in exc.errors()
+            ]
+        }
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    """Handle HTTP exceptions with consistent format."""
+    logger.warning(f"HTTP error on {request.url}: {exc.status_code} - {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "status": exc.status_code}
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """Handle unexpected errors and log them."""
+    logger.error(f"Unhandled exception on {request.url}: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "message": "An unexpected error occurred. Please contact support."
+        }
+    )
 
 app.include_router(departments.router)
 app.include_router(users.router)

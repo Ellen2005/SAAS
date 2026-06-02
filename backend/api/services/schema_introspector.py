@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any
 from urllib.parse import urlparse
 
@@ -209,7 +209,7 @@ def introspect_sql(
     """Introspect a SQL database (Postgres / MySQL / SQLite / etc.)."""
     from sqlalchemy import inspect, text
 
-    started = datetime.utcnow()
+    started = datetime.now(UTC)
     engine, tunnel_proc = _open_sql_engine(conn_info)
     try:
         inspector = inspect(engine)
@@ -371,7 +371,7 @@ def introspect_mongo(
 ) -> dict[str, Any]:
     import pymongo
 
-    started = datetime.utcnow()
+    started = datetime.now(UTC)
     db_url = conn_info.get("credentials")
     if not db_url:
         raise ValueError("Missing MongoDB credentials (connection string).")

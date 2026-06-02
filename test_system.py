@@ -120,18 +120,24 @@ class SAASTestSuite:
         try:
             # Test various error conditions
             error_tests = [
-                ("/api/nonexistent", 404),
-                ("/api/dashboard/widgets", 401),  # No auth
-                ("/api/analysis/run", 401),       # No auth
+                ("/api/nonexistent", "get", 404),
+                ("/api/dashboard/widgets", "get", 401),  # No auth
+                ("/api/analysis/run", "post", 401),      # No auth
             ]
             
-            for endpoint, expected_status in error_tests:
-                response = self.session.get(f"{BASE_URL}{endpoint}")
+            for endpoint, method, expected_status in error_tests:
+                if method == "get":
+                    response = self.session.get(f"{BASE_URL}{endpoint}")
+                elif method == "post":
+                    response = self.session.post(f"{BASE_URL}{endpoint}", json={})
+                else:
+                    response = self.session.request(method, f"{BASE_URL}{endpoint}")
+
                 if response.status_code == expected_status:
                     continue
                 else:
                     self.log_test("Error Handling", "FAIL", 
-                        f"{endpoint} returned {response.status_code}, expected {expected_status}")
+                        f"{endpoint} ({method.upper()}) returned {response.status_code}, expected {expected_status}")
                     return False
                     
             self.log_test("Error Handling", "PASS", "Proper error responses")

@@ -4,7 +4,7 @@ Generates on-demand reports based on user-specified parameters, scope, and forma
 """
 import os
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, UTC
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +138,7 @@ REPORT:"""
         "report": report_text,
         "kpi_count": len(kpis),
         "anomaly_count": len(anomalies),
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "scope": report_scope,
         "format": format_type,
     }
