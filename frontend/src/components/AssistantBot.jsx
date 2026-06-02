@@ -16,7 +16,9 @@ const loadHistory = () => {
 const saveHistory = (msgs) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs.slice(-30)));
-  } catch {}
+  } catch (error) {
+    console.warn('Unable to save assistant history', error);
+  }
 };
 
 const SUGGESTIONS = [

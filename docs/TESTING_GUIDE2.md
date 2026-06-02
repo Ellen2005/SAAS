@@ -1,7 +1,7 @@
 # SAAS Analytics System — Feature Testing Guide
 
 Complete manual testing checklist for every implemented feature.  
-Run both backend (`uvicorn api.main:app --reload`) and frontend (`npm run dev`) before starting.
+Run both backend (from `backend/`: `python -m uvicorn api.main:app --reload`) and frontend (`npm run dev`) before starting.
 
 ---
 

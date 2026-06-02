@@ -404,17 +404,10 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
         from .chart_service import build_chart_from_rows
         chart_spec = build_chart_from_rows(rows, columns, title=f"Results: {question[:60]}")
 
-        # Debug logging to help test runs inspect returned SQL and rows
         if os.environ.get("NLQ_DEBUG"):
             logger.debug("NLQ debug sql: %s", sql)
             logger.debug("NLQ debug columns: %s", columns)
             logger.debug("NLQ debug rows: %s", rows)
-            try:
-                print("NLQ_DEBUG SQL:", sql)
-                print("NLQ_DEBUG COLUMNS:", columns)
-                print("NLQ_DEBUG ROWS:", rows)
-            except Exception:
-                pass
 
         return {
             "answer": assistant_note,

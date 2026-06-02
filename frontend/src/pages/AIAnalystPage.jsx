@@ -64,7 +64,7 @@ function DimensionBar({ label, value }) {
 
 export default function AIAnalystPage() {
   const { isManager } = useAuth();
-  const { t, lang } = useLang();
+  const { lang } = useLang();
   const [tab, setTab] = useState('insights');
   const [loading, setLoading] = useState(false);
   const [fullResult, setFullResult] = useState(null);

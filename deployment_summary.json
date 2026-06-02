@@ -1,7 +1,7 @@
 {
   "system_name": "SAAS - Smart Automated Analytics System",
   "target_client": "CNPS Cameroon",
-  "version": "1.0",
+  "version": "2.0",
   "status": "Production Ready",
   "key_features": [
     "Automated ETL Pipeline (8-stage execution)",
