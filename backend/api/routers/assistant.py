@@ -3,6 +3,7 @@ Floating AI Assistant endpoint.
 Answers questions about how to use the app, explains features,
 and can reference the user's current data context.
 """
+import os
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
@@ -13,7 +14,9 @@ from ..services.groq_utils import execute_groq_completion, get_groq_model
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 
-SYSTEM_PROMPT = """You are the SAAS Analytics Assistant — a helpful, concise in-app guide built into the Smart Automated Analytics System.
+_INSTITUTION = os.getenv("INSTITUTION_NAME", "CNPS")
+
+SYSTEM_PROMPT = f"""You are the {_INSTITUTION} Analytics Assistant — a helpful, concise in-app guide built into the CNPS Smart Automated Analytics System.
 
 Your job:
 1. Explain how to use features of this app (Dashboard, Schema Explorer, AI Analyst, Ask Your Data, Settings, Reports, etc.)
@@ -22,7 +25,8 @@ Your job:
 4. Answer general analytics questions in plain language
 
 App features you know about:
-- Dashboard: shows KPIs, anomalies, AI narrative, forecast chart. Click "Generate Report" to sync and analyze.
+- Dashboard: shows CNPS KPIs (contributions, pensions, AT/MP), anomalies, AI narrative, forecast chart. Use Analysis to run goal-driven studies.
+- Analysis: specify what to compute (contributions by region, pension trends, employer compliance) or pick a CNPS preset.
 - Schema Explorer: connect your database, browse tables, run suggested analyses, sync results to dashboard.
 - Ask Your Data (NLQ): chat with your connected database using plain English. Shows SQL + results + charts.
 - AI Analyst: autonomous insights, governance score, explainable AI, team collaboration snapshots.

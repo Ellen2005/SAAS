@@ -135,6 +135,74 @@ def _extract_from_mongodb(db_url: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def extract_from_mapped_tables(user_id: str, db_connection_info: dict, supabase) -> pd.DataFrame:
+    """When semantic mappings exist, prefer tables that contain mapped CNPS columns."""
+    from .kpi_config import get_user_field_mappings, get_admin_kpi_fields
+    from .connection_crypto import maybe_decrypt_connection_row
+
+    mappings = get_user_field_mappings(supabase, user_id)
+    if not mappings:
+        return pd.DataFrame()
+
+    local_columns = {m["local_column_name"].lower() for m in mappings if m.get("local_column_name")}
+    if not local_columns:
+        return pd.DataFrame()
+
+    db_connection_info = maybe_decrypt_connection_row(db_connection_info or {})
+    db_url = db_connection_info.get("credentials")
+    if not db_url:
+        return pd.DataFrame()
+
+    try:
+        from .schema_introspector import introspect_sql
+        schema = introspect_sql(
+            {"credentials": db_url, "connection_method": "direct", "db_type": db_connection_info.get("db_type")},
+            sample_rows=0,
+            max_tables=80,
+        )
+        db_type = (db_connection_info.get("db_type") or detect_db_type(db_url)).lower()
+        engine = create_engine(
+            normalize_credentials(db_url, db_type),
+            **sqlalchemy_engine_kwargs(db_url, db_type),
+        )
+        from sqlalchemy import text as _sql_text
+        frames: list[pd.DataFrame] = []
+        for tbl in schema.get("tables", []):
+            cols = {c["name"].lower() for c in tbl.get("columns", [])}
+            if not local_columns.intersection(cols):
+                continue
+            amt = (tbl.get("amount_columns") or [None])[0]
+            dt = (tbl.get("date_columns") or [None])[0]
+            if not amt or not dt:
+                continue
+            label = (tbl.get("classifications") or [tbl["name"]])[0].title()
+            qname = tbl["qualified_name"]
+            quoted = f'"{qname}"' if db_type != "mysql" else f"`{qname}`"
+            if db_type == "sqlite":
+                gen_sql = (
+                    f"SELECT date({dt}) AS date, '{label}' AS kpi_name, SUM({amt}) AS value "
+                    f"FROM {quoted} GROUP BY 1 ORDER BY 1 DESC LIMIT 90"
+                )
+            else:
+                gen_sql = (
+                    f'SELECT "{dt}" AS date, \'{label}\' AS kpi_name, SUM("{amt}") AS value '
+                    f"FROM {quoted} GROUP BY 1 ORDER BY 1 DESC LIMIT 90"
+                )
+            try:
+                with engine.connect() as connection:
+                    sub = pd.read_sql(_sql_text(gen_sql), connection)
+                if not sub.empty:
+                    frames.append(sub)
+            except Exception:
+                continue
+        engine.dispose()
+        if frames:
+            return finalize_extracted_frame(pd.concat(frames, ignore_index=True))
+    except Exception as err:
+        print(f"[{datetime.now().isoformat()}] Mapped extract failed: {err}")
+    return pd.DataFrame()
+
+
 def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
     from .connection_crypto import maybe_decrypt_connection_row
     db_connection_info = maybe_decrypt_connection_row(db_connection_info or {})
@@ -670,7 +738,11 @@ def run_user_etl_pipeline(user_id: str):
         required_fields = get_required_fields(user_id, supabase)
 
         update_sync_status(user_id, "FETCHING_DATA")
-        raw_df = extract_from_source(user_id, db_connection_info)
+        raw_df = pd.DataFrame()
+        if kpi_mode_info.get("mode") == "configured" and kpi_mode_info.get("mapped_count", 0) > 0:
+            raw_df = extract_from_mapped_tables(user_id, db_connection_info, supabase)
+        if raw_df.empty:
+            raw_df = extract_from_source(user_id, db_connection_info)
         print(
             f"[{datetime.now().isoformat()}] Extraction complete. {len(raw_df)} rows retrieved. "
             f"KPI mode: {kpi_mode_info.get('mode')}."
@@ -714,6 +786,27 @@ def run_user_etl_pipeline(user_id: str):
                     )
         store_validation_results(supabase, user_id, department_id, validation_results)
 
+        try:
+            from .cnps_validation_service import run_cnps_validations
+            from .validation_service import ValidationResult
+            cnps_checks = run_cnps_validations(validation_df)
+            cnps_results = []
+            status_map = {"passed": "pass", "failed": "fail", "warning": "warning", "skipped": "pass"}
+            for check in cnps_checks:
+                if check.get("status") == "skipped":
+                    continue
+                cnps_results.append(
+                    ValidationResult(
+                        check["check"],
+                        status_map.get(check["status"], "warning"),
+                        check["message"],
+                    )
+                )
+            if cnps_results:
+                store_validation_results(supabase, user_id, department_id, cnps_results)
+        except Exception as cnps_err:
+            print(f"[{datetime.now().isoformat()}] CNPS validation skipped: {cnps_err}")
+
         if any(r.status == "fail" for r in validation_results):
             update_sync_status(user_id, "VALIDATION_FAILED")
 
@@ -731,6 +824,7 @@ def run_user_etl_pipeline(user_id: str):
             kpi["user_id"] = user_id
             kpi["department_id"] = department_id
             kpi["source_id"] = batch_source_id
+            kpi["source"] = "etl"
             kpi["source_record_count"] = int(metric_counts.get(kpi["kpi_name"], len(raw_df)))
 
         for anomaly in anomalies:

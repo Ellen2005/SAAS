@@ -17,6 +17,7 @@ class DepartmentCreate(BaseModel):
     heartbeat_time: str = "06:00"
     template_id: Optional[str] = None
     instance_template_id: Optional[str] = None
+    regional_office_id: Optional[str] = None
 
 
 class DepartmentUpdate(BaseModel):
@@ -27,6 +28,17 @@ class DepartmentUpdate(BaseModel):
     heartbeat_time: Optional[str] = None
     template_id: Optional[str] = None
     instance_template_id: Optional[str] = None
+    regional_office_id: Optional[str] = None
+
+
+@router.get("/regional-offices")
+def list_regional_offices(context: dict = Depends(require_role(["admin", "manager"]))):
+    supabase = get_supabase()
+    try:
+        rows = _safe_data(supabase.table("regional_offices").select("*").order("code").execute())
+        return {"regional_offices": rows}
+    except Exception:
+        return {"regional_offices": []}
 
 
 class AssignUserRequest(BaseModel):
@@ -130,6 +142,7 @@ def create_department(
         "heartbeat_time": department.heartbeat_time,
         "template_id": department.template_id,
         "instance_template_id": department.instance_template_id,
+        "regional_office_id": department.regional_office_id,
     }
     try:
         rows = _safe_data(supabase.table("departments").insert(payload).execute())

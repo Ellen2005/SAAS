@@ -1,3 +1,10 @@
+"""
+DEPRECATED for CNPS institutional demos — this script generates Customer NPS (Net Promoter Score) data.
+
+For Cameroon CNPS (social security) sample data, use:
+  python scripts/seed_cnps_sample.py
+See docs/CNPS_SAMPLE_DATABASE.md
+"""
 import sqlite3
 import random
 from datetime import datetime, timedelta

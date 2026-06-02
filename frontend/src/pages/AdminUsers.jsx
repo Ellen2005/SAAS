@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Users as UsersIcon, Trash2 } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
+import { useLang } from '../lib/i18n';
+
+const ROLE_LABELS = { admin: 'role_admin', manager: 'role_manager', viewer: 'role_viewer' };
 
 const AdminUsers = () => {
+  const { t } = useLang();
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -72,9 +76,9 @@ const AdminUsers = () => {
                 <td style={{ padding: '12px' }}>
                   {editRole?.userId === u.user_id ? (
                     <select value={editRole.role} onChange={e => setEditRole({ ...editRole, role: e.target.value })} style={{ padding: '4px 8px', fontSize: '0.8rem' }}>
-                      <option value="admin">Admin</option>
-                      <option value="manager">Manager</option>
-                      <option value="viewer">Viewer</option>
+                      <option value="admin">{t('role_admin')}</option>
+                      <option value="manager">{t('role_manager')}</option>
+                      <option value="viewer">{t('role_viewer')}</option>
                     </select>
                   ) : (
                     <span style={{
@@ -82,7 +86,7 @@ const AdminUsers = () => {
                       background: u.role === 'admin' ? 'rgba(245,158,11,0.15)' : u.role === 'manager' ? 'rgba(59,130,246,0.15)' : 'rgba(148,163,184,0.15)',
                       color: u.role === 'admin' ? '#f59e0b' : u.role === 'manager' ? 'var(--primary-color)' : 'var(--text-secondary)'
                     }}>
-                      {u.role}
+                      {t(ROLE_LABELS[u.role] || u.role)}
                     </span>
                   )}
                 </td>

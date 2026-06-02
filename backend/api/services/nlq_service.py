@@ -156,6 +156,7 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
 def _sanitize_sql_for_dialect(sql: str, dialect: str) -> str:
     normalized = sql.strip()
     if dialect == "sqlite":
+        # Convert PostgreSQL-specific functions to SQLite equivalents
         normalized = re.sub(r"\bILIKE\b", "LIKE", normalized, flags=re.IGNORECASE)
         normalized = re.sub(
             r"\bNOW\(\)\s*-\s*INTERVAL\s*'([0-9]+)\s+day[s]?'\b",
@@ -165,6 +166,43 @@ def _sanitize_sql_for_dialect(sql: str, dialect: str) -> str:
         )
         normalized = re.sub(r"\bNOW\(\)\b", "datetime('now')", normalized, flags=re.IGNORECASE)
         normalized = re.sub(r"\bCURRENT_DATE\b", "date('now')", normalized, flags=re.IGNORECASE)
+        
+        # Convert EXTRACT functions to SQLite equivalents
+        normalized = re.sub(
+            r"EXTRACT\(MONTH\s+FROM\s+([^)]+)\)",
+            r"strftime('%m', \1)",
+            normalized,
+            flags=re.IGNORECASE
+        )
+        normalized = re.sub(
+            r"EXTRACT\(YEAR\s+FROM\s+([^)]+)\)",
+            r"strftime('%Y', \1)",
+            normalized,
+            flags=re.IGNORECASE
+        )
+        normalized = re.sub(
+            r"EXTRACT\(DAY\s+FROM\s+([^)]+)\)",
+            r"strftime('%d', \1)",
+            normalized,
+            flags=re.IGNORECASE
+        )
+        
+        # Convert AGE function to SQLite date arithmetic
+        normalized = re.sub(
+            r"AGE\(([^,]+),\s*([^)]+)\)",
+            r"julianday(\1) - julianday(\2)",
+            normalized,
+            flags=re.IGNORECASE
+        )
+        
+        # Convert DATE_TRUNC to strftime
+        normalized = re.sub(
+            r"DATE_TRUNC\('month',\s*([^)]+)\)",
+            r"strftime('%Y-%m-01', \1)",
+            normalized,
+            flags=re.IGNORECASE
+        )
+        
     if dialect == "oracle":
         normalized = re.sub(r"\bLIMIT\s+(\d+)\b", r"FETCH FIRST \1 ROWS ONLY", normalized, flags=re.IGNORECASE)
         normalized = re.sub(r"\bILIKE\b", "LIKE", normalized, flags=re.IGNORECASE)
@@ -180,6 +218,8 @@ def _ask_groq_for_sql(question: str, schema_hint: str, db_type: str) -> str:
         dialect_note = "Use T-SQL (SQL Server) syntax."
     elif db_type in ("oracle",):
         dialect_note = "Use Oracle SQL syntax."
+    elif db_type in ("sqlite",):
+        dialect_note = "Use SQLite syntax. Use strftime() for date functions, not EXTRACT() or DATE_TRUNC()."
     else:
         dialect_note = "Use PostgreSQL syntax."
 
@@ -329,19 +369,26 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
             with engine.connect() as conn:
                 result = conn.execute(text(query))
                 cols = list(result.keys())
+                # normalize column names to lowercase for stable keys across DB drivers
+                cols_lower = [c.lower() for c in cols]
                 raw_rows = result.fetchmany(200)
                 out_rows = []
                 for row in raw_rows:
                     record = {}
-                    for col, val in zip(cols, row):
+                    for col, val in zip(cols_lower, row):
                         if hasattr(val, "isoformat"):
                             record[col] = val.isoformat()
                         elif isinstance(val, (bytes, bytearray)):
                             record[col] = val.decode("utf-8", errors="replace")
                         else:
                             record[col] = val
+                    # provide common aliases for compatibility
+                    if "name" in record and "table_name" not in record:
+                        record["table_name"] = record["name"]
+                    if "table_name" in record and "name" not in record:
+                        record["name"] = record["table_name"]
                     out_rows.append(record)
-                return cols, out_rows
+                return cols_lower, out_rows
 
         try:
             columns, rows = _execute_readonly(sql)
@@ -356,6 +403,18 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
 
         from .chart_service import build_chart_from_rows
         chart_spec = build_chart_from_rows(rows, columns, title=f"Results: {question[:60]}")
+
+        # Debug logging to help test runs inspect returned SQL and rows
+        if os.environ.get("NLQ_DEBUG"):
+            logger.debug("NLQ debug sql: %s", sql)
+            logger.debug("NLQ debug columns: %s", columns)
+            logger.debug("NLQ debug rows: %s", rows)
+            try:
+                print("NLQ_DEBUG SQL:", sql)
+                print("NLQ_DEBUG COLUMNS:", columns)
+                print("NLQ_DEBUG ROWS:", rows)
+            except Exception:
+                pass
 
         return {
             "answer": assistant_note,

@@ -11,6 +11,7 @@ const AdminDashboard = () => {
   const [expandedDept, setExpandedDept] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   const [lineageData, setLineageData] = useState(null);
+  const [institutionalReport, setInstitutionalReport] = useState(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -97,7 +98,7 @@ const AdminDashboard = () => {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px' }}>
         <div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <BarChart3 color="var(--primary-color)" /> Executive Dashboard
+            <BarChart3 color="var(--primary-color)" /> System Governance Dashboard
           </h1>
           <p style={{ color: 'var(--text-secondary)' }}>
             Combined view across {data?.total_departments || 0} departments.
@@ -116,7 +117,7 @@ const AdminDashboard = () => {
       <style>{'@keyframes spin{100%{transform:rotate(360deg)}}'}</style>
 
       <section className="glass-panel">
-        <h2 style={{ fontSize: '1.1rem', marginBottom: '16px' }}>Company Revenue Timeline</h2>
+        <h2 style={{ fontSize: '1.1rem', marginBottom: '16px' }}>Institutional Performance Timeline</h2>
         {timeline.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={timeline}>
@@ -209,6 +210,35 @@ const AdminDashboard = () => {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="glass-panel">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h2 style={{ fontSize: '1.1rem', margin: 0 }}>Institutional Report</h2>
+          <button
+            type="button"
+            className="btn btn-outline"
+            style={{ fontSize: '0.85rem' }}
+            onClick={async () => {
+              try {
+                const report = await apiJson('/api/admin/combined-report');
+                setInstitutionalReport(report);
+              } catch (e) {
+                console.error(e);
+              }
+            }}
+          >
+            Load combined report
+          </button>
+        </div>
+        {institutionalReport?.narrative ? (
+          <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+            {institutionalReport.narrative.slice(0, 2000)}
+            {institutionalReport.narrative.length > 2000 ? '…' : ''}
+          </p>
+        ) : (
+          <p style={{ color: 'var(--text-secondary)' }}>Load the combined cross-department institutional briefing.</p>
+        )}
       </section>
 
       <section className="glass-panel">

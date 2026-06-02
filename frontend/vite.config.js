@@ -45,9 +45,9 @@ export default defineConfig({
         enabled: false,
       },
       manifest: {
-        name: 'Smart Automated Analytics System',
-        short_name: 'SAAS',
-        description: 'Decentralized Analytics Dashboard for Department Managers',
+        name: 'CNPS Smart Automated Analytics System',
+        short_name: 'CNPS Analytics',
+        description: 'Institutional analytics for CNPS — contributions, pensions, AT/MP',
         theme_color: '#4f46e5',
         background_color: '#0a0a0b',
         display: 'standalone',

@@ -5,9 +5,15 @@ const STORAGE_KEY = 'saas.language'
 
 export const translations = {
   en: {
+    // Brand
+    app_name: 'Smart Automated Analytics System',
+    app_full_name: 'Smart Automated Analytics System',
+    institution_name: 'Smart Automated Analytics System',
+
     // Nav
-    nav_admin: 'Admin',
+    nav_admin: 'Governance',
     nav_dashboard: 'Dashboard',
+    nav_analysis: 'Analysis',
     nav_reports: 'Reports',
     nav_validation: 'Validation',
     nav_settings: 'Settings',
@@ -15,7 +21,8 @@ export const translations = {
 
     // Landing
     landing_title: 'Smart Automated Analytics System',
-    landing_subtitle: 'Nightly AI-driven intelligence for department heads. Connect your data, get your briefings, and act before the coffee is cold.',
+    landing_subtitle: 'Institutional analytics for organizations — automated insights, anomaly detection, and performance monitoring in one platform.',
+    landing_powering: 'Institutional Intelligence for Social Security',
     landing_enter: 'Enter Platform',
     landing_feature1_title: 'AI-Driven Summaries',
     landing_feature1_desc: "Don't look at charts for hours. Our system writes a concise executive narrative of your previous 24 hours automatically.",
@@ -25,8 +32,8 @@ export const translations = {
     landing_feature3_desc: 'Connect PostgreSQL, MySQL, MongoDB or SQL Server. Local or hosted, we fetch and process your data on your schedule.',
 
     // Login
-    login_title: 'Welcome to SAAS',
-    login_subtitle: 'Enter your credentials to access the analytics dashboard.',
+    login_title: 'Welcome to Analytics Platform',
+    login_subtitle: 'Sign in to access the institutional analytics dashboard.',
     signup_title: 'Create your Account',
     signup_subtitle: 'Sign up to start your automated analytics.',
     login_email: 'Email Address',
@@ -48,8 +55,24 @@ export const translations = {
     lang_fr: 'Français',
     lang_continue: 'Continue',
 
+    // Analysis
+    analysis_title: 'Goal-Driven Analysis',
+    analysis_subtitle: 'Specify what you want to analyze — metrics, formulas, or organizational presets.',
+    analysis_goal_label: 'Analysis goal',
+    analysis_goal_placeholder: 'e.g. Monthly contribution collection rate by regional office',
+    analysis_formula_label: 'Formula (optional)',
+    analysis_formula_placeholder: 'e.g. total_paid / total_expected',
+    analysis_run: 'Run Analysis',
+    analysis_running: 'Running analysis...',
+    analysis_presets: 'Analysis Presets',
+    analysis_history: 'Recent analyses',
+    analysis_no_history: 'No analyses yet.',
+    analysis_result: 'Analysis results',
+
     // Dashboard
-    dashboard_title: 'Executive Summary',
+    dashboard_title: 'Institutional Dashboard',
+    dashboard_widgets: 'Performance Widgets',
+    dashboard_new_analysis: 'New Analysis',
     dashboard_last_report: 'Last report:',
     dashboard_no_report: 'No report generated yet.',
     dashboard_generate: 'Generate Report',
@@ -116,8 +139,13 @@ export const translations = {
     reports_cancel: 'Cancel',
     reports_full_narrative: 'Full Report Narrative',
 
+    // Roles (display)
+    role_admin: 'System Administrator',
+    role_manager: 'Department Manager',
+    role_viewer: 'Data Analyst',
+
     // Settings
-    settings_title: 'Department Settings',
+    settings_title: 'Unit Settings',
     settings_connection: 'Source Connectivity',
     settings_connection_method: 'Connection Method',
     settings_direct: 'Direct Connection',
@@ -158,7 +186,8 @@ export const translations = {
     settings_analysis_focus: 'Analysis Focus',
     settings_recipients: 'Email Recipients',
     settings_save_prefs: 'Save Preferences',
-    settings_trigger_sync: 'Trigger Sync Now',
+    settings_trigger_sync: 'Refresh Data Now',
+    settings_sample_db_hint: 'Demo: use sqlite:///path/to/sample_data.db',
     settings_account: 'Account Management',
     settings_appearance: 'Appearance',
     settings_light: 'Light',
@@ -182,17 +211,24 @@ export const translations = {
     admin_quality: 'Data Quality',
     admin_users: 'Users',
     admin_templates: 'Templates',
+    admin_institutional_report: 'Institutional Report',
+    admin_regional: 'Regional Offices',
 
     // Onboarding
-    onboarding_title: 'Welcome to SAAS!',
+    onboarding_title: 'Welcome to CNPS Analytics!',
     onboarding_desc: 'Your account has been created. An admin will assign you to a department. You can already explore the dashboard.',
     onboarding_language: 'Select your preferred language:',
   },
 
   fr: {
+    app_name: 'Système Analytique Automatisé',
+    app_full_name: 'Système Analytique Automatisé Intelligent',
+    institution_name: 'Système Analytique Automatisé',
+
     // Nav
-    nav_admin: 'Admin',
+    nav_admin: 'Gouvernance',
     nav_dashboard: 'Tableau de bord',
+    nav_analysis: 'Analyse',
     nav_reports: 'Rapports',
     nav_validation: 'Validation',
     nav_settings: 'Paramètres',
@@ -200,7 +236,8 @@ export const translations = {
 
     // Landing
     landing_title: 'Système Analytique Automatisé Intelligent',
-    landing_subtitle: "Intelligence IA nocturne pour les responsables de département. Connectez vos données, recevez vos briefings et agissez avant que le café refroidisse.",
+    landing_subtitle: 'Analytique institutionnelle pour les organisations — insights automatisés, détection d\'anomalies et surveillance de performance.',
+    landing_powering: 'Intelligence institutionnelle pour la sécurité sociale',
     landing_enter: 'Accéder à la plateforme',
     landing_feature1_title: 'Résumés pilotés par IA',
     landing_feature1_desc: "Ne passez pas des heures sur des graphiques. Notre système rédige automatiquement un résumé exécutif de vos dernières 24 heures.",
@@ -210,8 +247,8 @@ export const translations = {
     landing_feature3_desc: 'Connectez PostgreSQL, MySQL, MongoDB ou SQL Server. Local ou hébergé, nous récupérons et traitons vos données selon votre calendrier.',
 
     // Login
-    login_title: 'Bienvenue sur SAAS',
-    login_subtitle: 'Entrez vos identifiants pour accéder au tableau de bord analytique.',
+    login_title: 'Bienvenue sur la plateforme analytique',
+    login_subtitle: 'Connectez-vous pour accéder au tableau de bord analytique institutionnel.',
     signup_title: 'Créer votre compte',
     signup_subtitle: 'Inscrivez-vous pour démarrer vos analyses automatisées.',
     login_email: 'Adresse e-mail',
@@ -233,8 +270,23 @@ export const translations = {
     lang_fr: 'Français',
     lang_continue: 'Continuer',
 
+    analysis_title: 'Analyse orientée objectif',
+    analysis_subtitle: 'Précisez ce que vous souhaitez analyser — indicateurs, formules ou modèles organisationnels.',
+    analysis_goal_label: 'Objectif d\'analyse',
+    analysis_goal_placeholder: 'ex. Taux de recouvrement des cotisations par agence régionale',
+    analysis_formula_label: 'Formule (optionnel)',
+    analysis_formula_placeholder: 'ex. total_paye / total_attendu',
+    analysis_run: 'Lancer l\'analyse',
+    analysis_running: 'Analyse en cours...',
+    analysis_presets: 'Modèles d\'analyse',
+    analysis_history: 'Analyses récentes',
+    analysis_no_history: 'Aucune analyse pour le moment.',
+    analysis_result: 'Résultats de l\'analyse',
+
     // Dashboard
-    dashboard_title: 'Résumé exécutif',
+    dashboard_title: 'Tableau de bord institutionnel',
+    dashboard_widgets: 'Indicateurs de performance',
+    dashboard_new_analysis: 'Nouvelle analyse',
     dashboard_last_report: 'Dernier rapport :',
     dashboard_no_report: 'Aucun rapport généré.',
     dashboard_generate: 'Générer un rapport',
@@ -302,7 +354,11 @@ export const translations = {
     reports_full_narrative: 'Rapport complet',
 
     // Settings
-    settings_title: 'Paramètres du département',
+    role_admin: 'Administrateur système',
+    role_manager: 'Responsable département',
+    role_viewer: 'Analyste de données',
+
+    settings_title: 'Paramètres de l\'unité',
     settings_connection: 'Connectivité source',
     settings_connection_method: 'Méthode de connexion',
     settings_direct: 'Connexion directe',
@@ -343,7 +399,8 @@ export const translations = {
     settings_analysis_focus: 'Focus d\'analyse',
     settings_recipients: 'Destinataires e-mail',
     settings_save_prefs: 'Sauvegarder les préférences',
-    settings_trigger_sync: 'Déclencher la synchronisation',
+    settings_trigger_sync: 'Actualiser les données',
+    settings_sample_db_hint: 'Démo : sqlite:///chemin/vers/cnps_institutional_sample.db',
     settings_account: 'Gestion du compte',
     settings_appearance: 'Apparence',
     settings_light: 'Clair',
@@ -367,9 +424,11 @@ export const translations = {
     admin_quality: 'Qualité des données',
     admin_users: 'Utilisateurs',
     admin_templates: 'Modèles',
+    admin_institutional_report: 'Rapport institutionnel',
+    admin_regional: 'Agences régionales',
 
     // Onboarding
-    onboarding_title: 'Bienvenue sur SAAS !',
+    onboarding_title: 'Bienvenue sur le système analytique !',
     onboarding_desc: 'Votre compte a été créé. Un administrateur vous assignera à un département. Vous pouvez déjà explorer le tableau de bord.',
     onboarding_language: 'Sélectionnez votre langue préférée :',
   },

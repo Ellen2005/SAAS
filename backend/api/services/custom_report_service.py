@@ -77,6 +77,10 @@ def generate_custom_report(
     anomaly_text = _format_anomalies_for_prompt(anomalies)
     dept_text = ", ".join([d.get("name", "") for d in departments_data]) if departments_data else "your department"
 
+    from .cnps_report_templates import sections_for_format
+    cnps_sections = sections_for_format(format_type)
+    cnps_section_text = "\n".join(f"- {s}" for s in cnps_sections)
+
     format_instructions = {
         "narrative": "Write a flowing narrative report with paragraphs. Be analytical and insightful.",
         "table": "Present data in a structured tabular text format with clear columns and rows.",
@@ -86,10 +90,12 @@ def generate_custom_report(
     }
 
     format_instruction = format_instructions.get(format_type, format_instructions["narrative"])
+    format_instruction += f"\n\nRequired CNPS sections:\n{cnps_section_text}"
     today = date.today().strftime("%B %d, %Y")
     period_text = f"from {date_from} to {date_to}" if date_from and date_to else f"as of {today}"
 
-    prompt = f"""You are a senior business analyst. Generate a custom report based on the following request.
+    institution = os.getenv("INSTITUTION_NAME", "CNPS")
+    prompt = f"""You are a senior institutional analyst for {institution} (Caisse Nationale de Prévoyance Sociale). Generate a custom report based on the following request.
 
 USER REQUEST: {instruction}
 

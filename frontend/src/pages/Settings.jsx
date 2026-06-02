@@ -353,6 +353,7 @@ const Settings = () => {
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
           <Database size={20} color="var(--primary-color)" /> {t('settings_connection')}
         </h2>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>{t('settings_sample_db_hint')}</p>
         <form onSubmit={handleTestConnection}>
           <div className="form-group">
             <label>{t('settings_connection_method')}</label>
@@ -469,6 +470,27 @@ const Settings = () => {
         </form>
       </section>
 
+      <section className="glass-panel">
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+          <Workflow size={20} color="var(--primary-color)" /> Custom Formulas
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
+          Save frequently used formulas for quick access in Goal Analysis.
+        </p>
+        
+        <div style={{ marginBottom: '16px', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+          <div style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '8px' }}>Common Formula Examples:</div>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            • Collection Rate: <code>(paid_contributions / total_contributions) * 100</code><br/>
+            • Processing Efficiency: <code>processed_claims / total_claims</code><br/>
+            • Regional Performance: <code>SUM(contribution_amount) / COUNT(DISTINCT employer_id)</code>
+          </div>
+        </div>
+        
+        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', padding: '12px', background: 'rgba(59,130,246,0.08)', borderRadius: '8px' }}>
+          💡 <strong>Tip:</strong> Formulas are used in the AI Analyst → Goal Analysis tab. You can reference any column from your connected database.
+        </div>
+      </section>
       <section className="glass-panel">
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
           <Workflow size={20} color="var(--primary-color)" /> Semantic Mapping

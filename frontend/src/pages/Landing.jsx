@@ -10,7 +10,7 @@ const Landing = () => {
       <section style={{ padding: '80px 20px', textAlign: 'center', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <div className="pulse-circle" style={{ position: 'absolute', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)', borderRadius: '50%', top: '10%', zIndex: 0, animation: 'pulse 4s infinite alternate ease-in-out' }}></div>
         <div style={{ zIndex: 1, position: 'relative', maxWidth: '900px' }}>
-          <img src="/logo.png" alt="SAAS Logo" style={{ width: '120px', height: '120px', marginBottom: '32px', filter: 'drop-shadow(0 0 20px rgba(59, 130, 246, 0.5))', animation: 'float 6s infinite ease-in-out' }} />
+          <img src="/logo.png" alt={t('app_name')} style={{ width: '120px', height: '120px', marginBottom: '32px', filter: 'drop-shadow(0 0 20px rgba(59, 130, 246, 0.5))', animation: 'float 6s infinite ease-in-out' }} />
           <h1 style={{ fontSize: '4.5rem', marginBottom: '24px', fontWeight: '800', background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: '1.1' }}>
             {t('landing_title')}
           </h1>
@@ -30,7 +30,7 @@ const Landing = () => {
       </section>
 
       <section style={{ padding: '100px 20px', maxWidth: '1200px', margin: '0 auto' }}>
-        <h2 style={{ textAlign: 'center', fontSize: '2.5rem', marginBottom: '64px' }}>Powering Decentralized Intelligence</h2>
+        <h2 style={{ textAlign: 'center', fontSize: '2.5rem', marginBottom: '64px' }}>{t('landing_powering')}</h2>
         <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
           <div className="glass-panel" style={{ textAlign: 'left' }}>
             <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: '12px', borderRadius: '12px', width: 'fit-content', marginBottom: '20px' }}><Zap color="var(--primary-color)" /></div>
@@ -52,10 +52,10 @@ const Landing = () => {
 
       <footer style={{ padding: '64px 20px', borderTop: '1px solid var(--border-color)', textAlign: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginBottom: '20px' }}>
-          <img src="/logo.png" alt="SAAS logo" style={{ width: '32px', height: '32px' }} />
-          <h2 style={{ margin: 0, letterSpacing: '-0.05em' }}>SAAS</h2>
+          <img src="/logo.png" alt={t('app_name')} style={{ width: '32px', height: '32px' }} />
+          <h2 style={{ margin: 0, letterSpacing: '-0.05em' }}>{t('app_name')}</h2>
         </div>
-        <p>© 2026 Smart Automated Analytics System. All rights reserved.</p>
+        <p>© 2026 {t('app_full_name')}. {t('institution_name')}.</p>
       </footer>
 
       <style>{`

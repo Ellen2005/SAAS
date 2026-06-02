@@ -24,9 +24,11 @@ from .services.connection_utils import (
 )
 from .services.audit_service import log_config_change
 
-from .routers import departments, users, semantic, validation, admin, heartbeat, templates, introspect, analyst, assistant  # noqa: F401
+from .routers import departments, users, semantic, validation, admin, heartbeat, templates, introspect, analyst, assistant, analysis  # noqa: F401
 from .services.nlq_service import run_nlq
 from .services.custom_report_service import generate_custom_report
+from .services.analysis_engine import run_analysis as run_goal_analysis
+from .services.export_service import export_kpis_csv
 
 LEGACY_DEMO_KPI_NAMES = frozenset({
     "net_revenue", "inventory_value", "support_tickets",
@@ -54,7 +56,9 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
 
 
-app = FastAPI(title="SAAS-PWA Analytics System API", lifespan=lifespan)
+INSTITUTION_NAME = os.getenv("INSTITUTION_NAME", "Smart Analytics")
+
+app = FastAPI(title=f"{INSTITUTION_NAME} System API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -79,6 +83,7 @@ app.include_router(templates.router)
 app.include_router(introspect.router)
 app.include_router(analyst.router)
 app.include_router(assistant.router)
+app.include_router(analysis.router)
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -181,9 +186,33 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                 except Exception as parse_err:
                     print(f"Anomaly parse error: {parse_err} — row: {item}")
 
+        # Check if there's a recent analysis result to show instead of the standard narrative
+        analysis_resp = supabase.table("analysis_runs").select("*").eq("user_id", user_id).eq("status", "completed").order("completed_at", desc=True).limit(1).execute()
+        
         narrative = "No analytics report generated yet. Go to Dashboard and click Sync Now to generate your first report."
         last_refreshed = "Never"
-        if hasattr(report_resp, "data") and report_resp.data:
+        
+        # Show analysis result if it's more recent than the last report
+        if hasattr(analysis_resp, "data") and analysis_resp.data:
+            analysis = analysis_resp.data[0]
+            analysis_date = analysis.get("completed_at", "")
+            
+            # Check if we should show analysis result instead of report
+            show_analysis = True
+            if hasattr(report_resp, "data") and report_resp.data:
+                reports = [row for row in report_resp.data if not _is_legacy_demo_report(row)]
+                if reports:
+                    report_date = reports[0]["report_date"]
+                    # Compare dates - if analysis is more recent, show it
+                    if analysis_date < str(report_date):
+                        show_analysis = False
+                        narrative = reports[0]["narrative"]
+                        last_refreshed = str(reports[0]["report_date"])
+            
+            if show_analysis:
+                narrative = f"**Latest Analysis:** {analysis.get('goal_text', 'Analysis completed')}\n\n{analysis.get('result_summary', 'Analysis completed successfully.')}"
+                last_refreshed = analysis_date[:10] if analysis_date else "Recent"
+        elif hasattr(report_resp, "data") and report_resp.data:
             reports = [row for row in report_resp.data if not _is_legacy_demo_report(row)]
             if reports:
                 narrative = reports[0]["narrative"]
@@ -218,6 +247,48 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
         fallback_dict = fallback.model_dump()
         fallback_dict["validation"] = []
         return fallback_dict
+
+
+# ── KPI Series (sparklines) ───────────────────────────────────────────────────
+
+@app.get("/api/kpis/series")
+def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120):
+    """
+    Returns lightweight time-series points for the user's KPIs.
+    Used for dashboard sparklines and trend arrows.
+    """
+    supabase = get_supabase()
+    try:
+        rows = (
+            supabase.table("kpi_results")
+            .select("kpi_name, value, recorded_at, source")
+            .eq("user_id", user_id)
+            .order("recorded_at", desc=True)
+            .limit(max(50, min(800, limit * 10)))
+            .execute()
+        )
+        raw = rows.data if hasattr(rows, "data") and rows.data else []
+        series: dict[str, list[dict]] = {}
+        for row in raw:
+            if _is_legacy_demo_kpi(row):
+                continue
+            name = str(row.get("kpi_name") or "unknown")
+            series.setdefault(name, [])
+            if len(series[name]) >= limit:
+                continue
+            series[name].append(
+                {
+                    "t": str(row.get("recorded_at") or ""),
+                    "value": float(row.get("value") or 0),
+                    "source": row.get("source") or "etl",
+                }
+            )
+        # recorded_at was fetched DESC; reverse each series for charting
+        for key in list(series.keys()):
+            series[key] = list(reversed(series[key]))
+        return {"series": series}
+    except Exception as e:
+        return {"series": {}, "error": str(e)}
 
 
 # ── Report History ────────────────────────────────────────────────────────────
@@ -368,11 +439,71 @@ def resend_report(
 
 # ── ETL ───────────────────────────────────────────────────────────────────────
 
+class EtlTriggerRequest(BaseModel):
+    analysis_goal: Optional[str] = None
+    preset_slug: Optional[str] = None
+
+
+def _run_etl_with_optional_goal(user_id: str, analysis_goal: str | None, preset_slug: str | None):
+    run_user_etl_pipeline(user_id)
+    if analysis_goal or preset_slug:
+        try:
+            supabase = get_supabase()
+            run_goal_analysis(
+                user_id=user_id,
+                goal_text=analysis_goal or "",
+                preset_slug=preset_slug,
+                supabase=supabase,
+            )
+        except Exception:
+            pass
+
+
 @app.post("/api/etl/trigger")
-def trigger_etl(background_tasks: BackgroundTasks, context: dict = Depends(require_role(["manager", "admin"]))):
+def trigger_etl(
+    background_tasks: BackgroundTasks,
+    context: dict = Depends(require_role(["manager", "admin"])),
+    body: Optional[EtlTriggerRequest] = None,
+):
     update_sync_status(context["user_id"], "FETCHING_DATA")
-    background_tasks.add_task(run_user_etl_pipeline, context["user_id"])
-    return {"status": "Manual ETL trigger started in the background", "user_id": context["user_id"]}
+    goal = body.analysis_goal if body else None
+    preset = body.preset_slug if body else None
+    background_tasks.add_task(_run_etl_with_optional_goal, context["user_id"], goal, preset)
+    return {
+        "status": "Data refresh started in the background",
+        "user_id": context["user_id"],
+        "analysis_goal_queued": bool(goal or preset),
+    }
+
+
+@app.get("/api/kpis/export")
+def export_kpis(context: dict = Depends(require_role(["manager", "admin"]))):
+    from fastapi.responses import Response
+    supabase = get_supabase()
+    return Response(
+        content=export_kpis_csv(context["user_id"], supabase),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=cnps_kpis.csv"},
+    )
+
+
+@app.get("/api/dashboard/widgets")
+def get_dashboard_widgets(user_id: str = Depends(resolve_user_id)):
+    """CNPS dashboard widget configuration."""
+    supabase = get_supabase()
+    try:
+        defs = supabase.table("kpi_definitions").select("*").order("sort_order").execute()
+        widgets = defs.data if hasattr(defs, "data") and defs.data else []
+    except Exception:
+        widgets = []
+    if not widgets:
+        widgets = [
+            {"name": "total_contributions", "display_name_en": "Total Contributions", "widget_type": "area"},
+            {"name": "pension_disbursement", "display_name_en": "Pension Disbursement", "widget_type": "area"},
+            {"name": "workplace_accident_frequency", "display_name_en": "AT/MP Frequency", "widget_type": "line"},
+            {"name": "regional_contribution_share", "display_name_en": "Contributions by Region", "widget_type": "bar"},
+        ]
+    return {"widgets": widgets, "institution": INSTITUTION_NAME}
 
 
 @app.get("/api/etl/status")
@@ -714,6 +845,14 @@ def create_custom_report(
     if not body.instruction.strip():
         raise HTTPException(status_code=400, detail="Instruction cannot be empty.")
     supabase = get_supabase()
+    try:
+        run_goal_analysis(
+            user_id=context["user_id"],
+            goal_text=body.instruction.strip(),
+            supabase=supabase,
+        )
+    except Exception:
+        pass
     result = generate_custom_report(
         user_id=context["user_id"],
         instruction=body.instruction.strip(),

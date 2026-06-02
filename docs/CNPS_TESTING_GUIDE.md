@@ -1,5 +1,7 @@
 # Customer Net Promoter Score (CNPS) Manual Testing & Simulation Guide
 
+> **Note:** This guide is for **Customer NPS** demo data (`generate_cnps_db.py`). For **Cameroon CNPS (social security)** institutional testing, use [`CNPS_SAMPLE_DATABASE.md`](CNPS_SAMPLE_DATABASE.md) and [`CNPS_USER_GUIDE.md`](CNPS_USER_GUIDE.md).
+
 This guide provides a comprehensive manual testing walk-through for a Customer Net Promoter Score (CNPS) analytical pipeline using a bulky, 1,589-record SQLite database. It simulates a corporate customer success department with two distinct operational roles:
 
 1. **The System Administrator (Admin)**: Declares the required global semantic metrics, builds the template schema, and governs the standards.

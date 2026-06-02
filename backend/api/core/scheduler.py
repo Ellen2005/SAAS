@@ -34,7 +34,7 @@ def process_scheduled_etl():
             .execute()
         )
     except Exception as e:
-        logger.error(f"User preference heartbeat check failed: {e}")
+        logger.warning(f"User preference heartbeat check failed: {e}")
         response = None
 
     if response and hasattr(response, "data") and response.data:
@@ -111,7 +111,7 @@ def process_scheduled_etl():
                             except Exception as e:
                                 logger.error(f"Dept heartbeat ETL fail for {uid}: {e}")
     except Exception as e:
-        logger.error(f"Department heartbeat check failed: {e}")
+        logger.warning(f"Department heartbeat check failed: {e}")
 
 
 def start_scheduler():

@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Brain, TrendingUp, Shield, Users, Zap, RefreshCw,
   AlertTriangle, CheckCircle, Info, ChevronDown, ChevronRight,
-  BookOpen, Share2, Trash2, BarChart2,
+  BookOpen, Share2, Trash2, BarChart2, Play, Target, History,
 } from 'lucide-react';
 import { apiJson, apiFetch } from '../lib/api';
 import { useAuth } from '../lib/authContext';
+import { useLang } from '../lib/i18n';
+import ChartRenderer from '../components/ChartRenderer';
 
 const card = {
   background: 'rgba(30,41,59,0.7)',
@@ -62,6 +64,7 @@ function DimensionBar({ label, value }) {
 
 export default function AIAnalystPage() {
   const { isManager } = useAuth();
+  const { t, lang } = useLang();
   const [tab, setTab] = useState('insights');
   const [loading, setLoading] = useState(false);
   const [fullResult, setFullResult] = useState(null);
@@ -76,6 +79,15 @@ export default function AIAnalystPage() {
   const [expandedInsight, setExpandedInsight] = useState(null);
   const [runningFull, setRunningFull] = useState(false);
   const [error, setError] = useState(null);
+
+  // Analysis tab state
+  const [goal, setGoal] = useState('');
+  const [formula, setFormula] = useState('');
+  const [presets, setPresets] = useState([]);
+  const [runs, setRuns] = useState([]);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [analysisError, setAnalysisError] = useState('');
 
   const loadInsights = useCallback(async () => {
     setLoading(true);
@@ -98,7 +110,23 @@ export default function AIAnalystPage() {
     }
   }, []);
 
-  useEffect(() => { loadInsights(); }, [loadInsights]);
+  const loadAnalysisMeta = useCallback(async () => {
+    try {
+      const [presetRes, runsRes] = await Promise.all([
+        apiJson(`/api/analysis/presets?lang=${lang}`),
+        apiJson('/api/analysis/runs'),
+      ]);
+      setPresets(presetRes.presets || []);
+      setRuns(runsRes.runs || []);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [lang]);
+
+  useEffect(() => { 
+    loadInsights(); 
+    loadAnalysisMeta();
+  }, [loadInsights, loadAnalysisMeta]);
 
   const runFullAnalysis = async () => {
     setRunningFull(true);
@@ -165,8 +193,33 @@ export default function AIAnalystPage() {
     }
   };
 
+  const runAnalysis = async (presetSlug = null) => {
+    setAnalysisLoading(true);
+    setAnalysisError('');
+    setAnalysisResult(null);
+    try {
+      const body = {
+        goal_text: goal || (presetSlug ? '' : 'Institutional KPI summary'),
+        preset_slug: presetSlug || undefined,
+        formula: formula.trim() || undefined,
+      };
+      const res = await apiJson('/api/analysis/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      setAnalysisResult(res);
+      loadAnalysisMeta();
+    } catch (e) {
+      setAnalysisError(e.message || 'Analysis failed');
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+
   const TABS = [
     { id: 'insights', label: 'Augmented Insights', icon: <Zap size={15} /> },
+    { id: 'analysis', label: 'Goal Analysis', icon: <BarChart2 size={15} /> },
     { id: 'governance', label: 'Governance', icon: <Shield size={15} /> },
     { id: 'xai', label: 'Explainable AI', icon: <Brain size={15} /> },
     { id: 'collaboration', label: 'Collaboration', icon: <Users size={15} /> },
@@ -287,6 +340,146 @@ export default function AIAnalystPage() {
               Generated at {new Date(insights.generated_at).toLocaleString()}
             </p>
           )}
+        </div>
+      )}
+
+      {/* ── Goal Analysis ── */}
+      {tab === 'analysis' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={card}>
+            <h3 style={{ marginTop: 0, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Target size={16} /> Goal-Driven Analysis
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Describe what you want to analyze and let AI generate the appropriate queries and insights.
+            </p>
+            
+            <div className="form-group">
+              <label>Analysis Goal</label>
+              <textarea
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                placeholder="e.g., Show contribution collection rates by region for the last 6 months"
+                rows={3}
+              />
+            </div>
+            
+            <div className="form-group">
+              <label>Custom Formula (Optional)</label>
+              <input
+                type="text"
+                value={formula}
+                onChange={(e) => setFormula(e.target.value)}
+                placeholder="e.g., (paid_contributions / total_contributions) * 100"
+              />
+            </div>
+            
+            <button 
+              className="btn btn-primary" 
+              disabled={analysisLoading} 
+              onClick={() => runAnalysis()}
+            >
+              <Play size={14} /> {analysisLoading ? 'Analyzing...' : 'Run Analysis'}
+            </button>
+            
+            {analysisError && (
+              <div style={{ color: '#ef4444', marginTop: 12, padding: 12, background: 'rgba(239,68,68,0.1)', borderRadius: 8 }}>
+                {analysisError}
+              </div>
+            )}
+          </div>
+
+          {/* Analysis Presets */}
+          <div style={card}>
+            <h3 style={{ marginTop: 0 }}>Quick Analysis Presets</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+              {presets.map((p) => (
+                <button
+                  key={p.slug || p.id}
+                  type="button"
+                  style={{
+                    ...card,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    border: '1px solid var(--border-color)',
+                    background: 'rgba(255,255,255,0.02)',
+                    transition: 'all 0.2s',
+                  }}
+                  onClick={() => {
+                    setGoal(p.default_goal_text || '');
+                    runAnalysis(p.slug);
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>{p.title}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{p.category}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Analysis Result */}
+          {analysisResult && (
+            <div style={card}>
+              <h3 style={{ marginTop: 0 }}>Analysis Result</h3>
+              <p style={{ marginBottom: 16 }}>{analysisResult.summary}</p>
+              {analysisResult.chart && (
+                <div style={{ marginTop: 16 }}>
+                  <ChartRenderer
+                    spec={{
+                      type: analysisResult.chart.type || 'bar',
+                      data: analysisResult.chart.data,
+                      title: analysisResult.chart.title,
+                      xKey: analysisResult.chart.xKey || 'name',
+                      yKey: analysisResult.chart.yKey,
+                    }}
+                  />
+                </div>
+              )}
+              {analysisResult.sql && (
+                <details style={{ marginTop: 16 }}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 600, marginBottom: 8 }}>Generated SQL</summary>
+                  <pre style={{ 
+                    background: 'rgba(0,0,0,0.3)', 
+                    padding: 12, 
+                    borderRadius: 8, 
+                    overflow: 'auto',
+                    fontSize: '0.85rem'
+                  }}>
+                    {analysisResult.sql}
+                  </pre>
+                </details>
+              )}
+            </div>
+          )}
+
+          {/* Analysis History */}
+          <div style={card}>
+            <h3 style={{ marginTop: 0, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <History size={16} /> Recent Analysis Runs
+            </h3>
+            {runs.length === 0 ? (
+              <p style={{ color: 'var(--text-secondary)' }}>No analysis history yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {runs.slice(0, 10).map((r) => (
+                  <div key={r.id} style={{ 
+                    padding: 12, 
+                    background: 'rgba(255,255,255,0.03)', 
+                    borderRadius: 8, 
+                    border: '1px solid var(--border-color)' 
+                  }}>
+                    <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                      {r.goal_text?.slice(0, 120)}{r.goal_text?.length > 120 ? '...' : ''}
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: 12 }}>
+                      <span style={pill(r.status === 'completed' ? '#10b981' : '#ef4444')}>{r.status}</span>
+                      <span>{new Date(r.created_at).toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

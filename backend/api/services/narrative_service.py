@@ -5,6 +5,7 @@ from datetime import datetime, date
 from .groq_utils import execute_groq_completion, get_groq_model
 
 logger = logging.getLogger(__name__)
+INSTITUTION_NAME = os.getenv("INSTITUTION_NAME", "CNPS")
 
 BASE_DEFINITIONS = """
 STANDARD METRIC DEFINITIONS:
@@ -97,7 +98,10 @@ Generate a PROFESSIONAL STRUCTURED REPORT with ALL of the following sections in 
    - Write 3–5 bullet points covering the most critical findings
    - State the top 1–2 recommended actions
 
-3. KEY PERFORMANCE INDICATORS
+3. CNPS DOMAINS (Cotisations, Prestations, Sinistres AT/MP, Performance régionale)
+   Brief institutional context for each domain represented in the KPI data.
+
+4. KEY PERFORMANCE INDICATORS
    Use this data:
 {kpi_table}
    - Describe trends, compare to previous period where possible

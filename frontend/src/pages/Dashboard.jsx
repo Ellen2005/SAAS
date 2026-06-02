@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -53,6 +53,8 @@ const Dashboard = () => {
   const [forecasts, setForecasts] = useState([]);
   const [schemaSyncing, setSchemaSyncing] = useState(false);
   const [schemaSyncResult, setSchemaSyncResult] = useState(null);
+  const [widgets, setWidgets] = useState([]);
+  const [series, setSeries] = useState({});
 
   // Keepalive ping — wakes up free-tier backend before user needs it
   useEffect(() => {
@@ -62,13 +64,17 @@ const Dashboard = () => {
   const fetchData = useCallback(async () => {
     try {
       if (!user) return;
-      const [result, forecastResult] = await Promise.all([
+      const [result, forecastResult, widgetResult] = await Promise.all([
         apiJson('/api/summary'),
         apiJson('/api/forecasts'),
+        apiJson('/api/dashboard/widgets').catch(() => ({ widgets: [] })),
       ]);
       setData(result);
       writeDashboardCache(result);
       setForecasts(forecastResult.forecasts || []);
+      setWidgets(widgetResult.widgets || []);
+      const seriesResult = await apiJson('/api/kpis/series?limit=18').catch(() => ({ series: {} }));
+      setSeries(seriesResult.series || {});
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
       const cached = readDashboardCache();
@@ -109,6 +115,18 @@ const Dashboard = () => {
   }, [forecasts]);
 
   const KPI_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'];
+
+  const widgetCards = useMemo(() => {
+    return (widgets || []).map((w) => {
+      const kpi = data.kpis.find((k) => (k.kpi_name || '').toLowerCase() === (w.name || '').toLowerCase())
+        || data.kpis.find((k) => (k.kpi_name || '').toLowerCase().includes((w.name || '').toLowerCase()));
+      const points = series[(kpi?.kpi_name || w.name || '')] || [];
+      const last = points[points.length - 1]?.value;
+      const prev = points[points.length - 2]?.value;
+      const delta = (last != null && prev != null && prev !== 0) ? ((last - prev) / Math.abs(prev)) * 100 : null;
+      return { w, kpi, points, last, delta };
+    });
+  }, [widgets, data.kpis, series]);
 
   const handleSchemaSync = async () => {
     if (schemaSyncing || !user) return;
@@ -196,6 +214,7 @@ const Dashboard = () => {
           </button>
           {isManager && (
             <>
+
               <button className="btn btn-outline" onClick={() => navigate('/query')} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <Search size={16} /> Query
               </button>
@@ -258,6 +277,51 @@ const Dashboard = () => {
       )}
 
       <ValidationWarnings validations={data.validation || []} />
+
+      {widgets.length > 0 && (
+        <section style={{ marginBottom: '32px' }}>
+          <h2 style={{ fontSize: '1.1rem', marginBottom: '16px' }}>{t('dashboard_widgets')}</h2>
+          <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+            {widgetCards.map(({ w, kpi, points, last, delta }) => (
+              <div key={w.name} className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    {w.display_name_en || w.name}
+                  </div>
+                  {delta != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: delta >= 0 ? 'var(--status-normal)' : 'var(--status-critical)', fontWeight: 700, fontSize: '0.85rem' }}>
+                      {delta >= 0 ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+                      {Math.abs(delta).toFixed(1)}%
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, letterSpacing: '-0.03em' }}>
+                    {kpi ? Number(kpi.value).toLocaleString() : (last != null ? Number(last).toLocaleString() : '—')}
+                  </div>
+                  <div style={{ width: 90, height: 28, opacity: points.length ? 1 : 0.25 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={points.map((p) => ({ t: p.t?.slice(5, 10) || '', value: p.value }))}>
+                        <defs>
+                          <linearGradient id={`spark-${w.name}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="var(--primary-color)" stopOpacity={0.35} />
+                            <stop offset="100%" stopColor="var(--primary-color)" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <Area type="monotone" dataKey="value" stroke="var(--primary-color)" fill={`url(#spark-${w.name})`} strokeWidth={2} dot={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  <span>{w.widget_type || 'stat'}</span>
+                  <span>{kpi?.status || ''}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {data.kpi_mode && (
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 16 }}>

@@ -29,6 +29,7 @@ const NLQPage = lazy(() => import('./pages/NLQPage'));
 const CustomReportPage = lazy(() => import('./pages/CustomReportPage'));
 const SchemaExplorer = lazy(() => import('./pages/SchemaExplorer'));
 const AIAnalystPage = lazy(() => import('./pages/AIAnalystPage'));
+const AnalysisPage = lazy(() => import('./pages/AnalysisPage'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', color: 'var(--text-secondary)' }}>
@@ -90,7 +91,7 @@ function AppShell() {
   if (loading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg-color)', gap: '16px' }}>
-        <img src="/logo.png" alt="SAAS" style={{ width: '56px', height: '56px', opacity: 0.9 }} />
+        <img src="/logo.png" alt="CNPS" style={{ width: '56px', height: '56px', opacity: 0.9 }} />
         <div style={{ width: '32px', height: '32px', border: '3px solid var(--border-color)', borderTopColor: 'var(--primary-color)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
         <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
       </div>
@@ -110,8 +111,8 @@ function AppShell() {
             <div className="app-container">
               <nav className="navbar">
                 <div className="brand" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <img src="/logo.png" alt="SAAS" style={{ width: '32px', height: '32px' }} />
-                  <h2 style={{ letterSpacing: '-0.05em' }}>SAAS</h2>
+                  <img src="/logo.png" alt="CNPS" style={{ width: '32px', height: '32px' }} />
+                  <h2 style={{ letterSpacing: '-0.05em' }}>{t('app_name')}</h2>
                   {departmentName && (
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', padding: '2px 8px', background: 'rgba(255,255,255,0.05)', borderRadius: '999px' }}>
                       {departmentName}

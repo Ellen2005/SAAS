@@ -2,6 +2,8 @@
 
 > **A multi-tenant, department-owned Progressive Web Application that connects to any operational database, runs a fully automated ETL pipeline, and delivers KPI summaries, anomaly alerts, and AI-generated executive briefings — with zero BI tool expertise required.**
 
+**Customized for CNPS Cameroon** — Institutional analytics for social security operations, pension management, and regulatory compliance.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![React 18+](https://img.shields.io/badge/React-18+-61dafb.svg)](https://reactjs.org/)
