@@ -68,9 +68,9 @@ const AdminUsers = () => {
           </thead>
           <tbody>
             {users.map(u => (
-              <tr key={u.role_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <tr key={u.user_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                 <td style={{ padding: '12px', fontSize: '0.85rem' }}>
-                  <div style={{ fontWeight: 500, marginBottom: '2px' }}>{u.email || 'Unknown User'}</div>
+                  <div style={{ fontWeight: 500, marginBottom: '2px' }}>{u.email || `User ${u.user_id.substring(0, 8)}...`}</div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>ID: {u.user_id.substring(0, 8)}...</div>
                 </td>
                 <td style={{ padding: '12px' }}>
@@ -80,7 +80,7 @@ const AdminUsers = () => {
                       <option value="manager">{t('role_manager')}</option>
                       <option value="viewer">{t('role_viewer')}</option>
                     </select>
-                  ) : (
+                  ) : u.role ? (
                     <span style={{
                       padding: '4px 10px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 600,
                       background: u.role === 'admin' ? 'rgba(245,158,11,0.15)' : u.role === 'manager' ? 'rgba(59,130,246,0.15)' : 'rgba(148,163,184,0.15)',
@@ -88,6 +88,8 @@ const AdminUsers = () => {
                     }}>
                       {t(ROLE_LABELS[u.role] || u.role)}
                     </span>
+                  ) : (
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>No role assigned</span>
                   )}
                 </td>
                 <td style={{ padding: '12px' }}>
@@ -108,10 +110,14 @@ const AdminUsers = () => {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button className="btn btn-outline" onClick={() => setEditRole({ userId: u.user_id, role: u.role, departmentId: u.department_id })} style={{ padding: '4px 12px', fontSize: '0.8rem' }}>Edit</button>
-                      <button onClick={() => handleRemoveRole(u.user_id)} style={{ background: 'none', border: 'none', color: 'var(--status-critical)', cursor: 'pointer' }}>
-                        <Trash2 size={14} />
+                      <button className="btn btn-outline" onClick={() => setEditRole({ userId: u.user_id, role: u.role || 'viewer', departmentId: u.department_id })} style={{ padding: '4px 12px', fontSize: '0.8rem' }}>
+                        {u.role ? 'Edit' : 'Assign Role'}
                       </button>
+                      {u.role && (
+                        <button onClick={() => handleRemoveRole(u.user_id)} style={{ background: 'none', border: 'none', color: 'var(--status-critical)', cursor: 'pointer' }}>
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   )}
                 </td>
@@ -119,7 +125,7 @@ const AdminUsers = () => {
             ))}
           </tbody>
         </table>
-        {users.length === 0 && <p style={{ color: 'var(--text-secondary)', padding: '16px' }}>No users found. Run the migration bootstrap functions first.</p>}
+        {users.length === 0 && <p style={{ color: 'var(--text-secondary)', padding: '16px' }}>No users found. Users will appear here after they sign up and log in.</p>}
       </div>
     </div>
   );

@@ -24,8 +24,9 @@ import random
 import sqlite3
 from datetime import date, timedelta
 
+# Default output: project root (same level as scripts/ directory)
 DEFAULT_OUTPUT = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "cnps_full_demo.db",
 )
 

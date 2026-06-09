@@ -31,12 +31,29 @@ export function AuthProvider({ children }) {
   }, [clearCache]);
 
   // Fetch role from backend — non-blocking, runs after UI is already shown
-  const fetchUserRole = useCallback(async () => {
+  const fetchUserRole = useCallback(async (currentUser) => {
     try {
       const data = await apiJson('/api/users/me');
       setRole(data.role || 'manager');
       setDepartmentId(data.department_id ?? null);
       setDepartmentName(data.department_name ?? null);
+      
+      // Also create/update user profile with email if available
+      if (currentUser?.email) {
+        try {
+          await apiJson('/api/users/me/profile', {
+            method: 'POST',
+            body: JSON.stringify({
+              email: currentUser.email,
+              display_name: currentUser.email
+            })
+          });
+        } catch (error) {
+          // Profile creation is optional, don't fail if it doesn't work
+          console.log('Profile creation skipped:', error.message);
+        }
+      }
+      
       // Cache role so next load is instant
       try {
         localStorage.setItem('saas.user.role.v1', JSON.stringify({
@@ -81,7 +98,7 @@ export function AuthProvider({ children }) {
           } catch { /* ignore */ }
           setLoading(false);
           // Fetch fresh role in background — does NOT block UI
-          fetchUserRole();
+          fetchUserRole(session.user);
         } else {
           resetAuthState();
           setLoading(false);
@@ -105,7 +122,7 @@ export function AuthProvider({ children }) {
             setLoading(false);
           }
           // Always refresh role on auth change (non-blocking)
-          fetchUserRole();
+          fetchUserRole(session.user);
         } else {
           resetAuthState();
           if (!resolvedRef.current) {
@@ -129,7 +146,7 @@ export function AuthProvider({ children }) {
     isManager: role === 'manager',
     isViewer: role === 'viewer',
     isManagerOrAbove: role === 'admin' || role === 'manager',
-    refreshRole: () => user && fetchUserRole(),
+    refreshRole: () => user && fetchUserRole(user),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

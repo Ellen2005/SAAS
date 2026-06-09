@@ -142,7 +142,7 @@ export const translations = {
     // Roles (display)
     role_admin: 'System Administrator',
     role_manager: 'Department Manager',
-    role_viewer: 'Data Analyst',
+    role_viewer: 'Viewer',
 
     // Settings
     settings_title: 'Unit Settings',
@@ -356,7 +356,7 @@ export const translations = {
     // Settings
     role_admin: 'Administrateur système',
     role_manager: 'Responsable département',
-    role_viewer: 'Analyste de données',
+    role_viewer: 'Observateur',
 
     settings_title: 'Paramètres de l\'unité',
     settings_connection: 'Connectivité source',

@@ -78,7 +78,18 @@ const Dashboard = () => {
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
       const cached = readDashboardCache();
-      if (cached) setData(cached);
+      if (cached) {
+        setData(cached);
+      } else {
+        setData({
+          ...EMPTY_DATA,
+          narrative: 'Unable to load dashboard data. Check backend connectivity and API status.',
+          last_refreshed: 'Error',
+          kpis: [],
+          anomalies: [],
+          validation: [],
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -299,9 +310,8 @@ const Dashboard = () => {
                   <div style={{ fontSize: '1.6rem', fontWeight: 800, letterSpacing: '-0.03em' }}>
                     {kpi ? Number(kpi.value).toLocaleString() : (last != null ? Number(last).toLocaleString() : '—')}
                   </div>
-                  <div style={{ width: 90, height: 28, opacity: points.length ? 1 : 0.25 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={points.map((p) => ({ t: p.t?.slice(5, 10) || '', value: p.value }))}>
+                  <div style={{ width: 90, height: 28, flexShrink: 0 }}>
+                    <AreaChart width={90} height={28} data={points.map((p) => ({ t: p.t?.slice(5, 10) || '', value: p.value }))} style={{ opacity: points.length ? 1 : 0.25 }}>
                         <defs>
                           <linearGradient id={`spark-${w.name}`} x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="var(--primary-color)" stopOpacity={0.35} />
@@ -310,7 +320,6 @@ const Dashboard = () => {
                         </defs>
                         <Area type="monotone" dataKey="value" stroke="var(--primary-color)" fill={`url(#spark-${w.name})`} strokeWidth={2} dot={false} />
                       </AreaChart>
-                    </ResponsiveContainer>
                   </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
