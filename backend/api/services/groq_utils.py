@@ -50,7 +50,8 @@ def create_groq_client():
 
 
 def execute_groq_completion(
-    messages: list,
+    messages: list | None = None,
+    prompt: str | None = None,
     temperature: float = 0.1,
     max_tokens: int = 400,
     model: str | None = None,
@@ -63,6 +64,12 @@ def execute_groq_completion(
     """
     client = create_groq_client()
     requested = model or get_groq_model()
+
+    # Normalize: allow single prompt string for backward compatibility
+    if prompt and not messages:
+        messages = [{"role": "user", "content": prompt}]
+    if not messages:
+        raise ValueError("Either 'messages' or 'prompt' must be provided.")
 
     # Build ordered candidate list: requested first, then the rest
     candidates = [requested] + [m for m in _CANDIDATE_MODELS if m != requested]

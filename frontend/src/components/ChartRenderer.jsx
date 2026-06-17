@@ -24,7 +24,6 @@ import {
   Scatter,
   ZAxis,
   Treemap,
-  Heatmap,
   XAxis as RechartsXAxis,
   YAxis as RechartsYAxis,
 } from 'recharts';
@@ -292,21 +291,24 @@ export default function ChartRenderer({ spec, height = 280 }) {
           </Treemap>
         );
 
-      // ── HEATMAP ─────────────────────────────────────────────
+      // ── HEATMAP (simulated with colored bars) ──────────────
       case 'heatmap':
-        const heatmapData = data.map((d) => ({ x: d.label, y: 'Value', v: d.value }));
-        const uniqueX = [...new Set(heatmapData.map(d => d.x))];
+        const maxVal = Math.max(...data.map(d => d.value), 1);
         return (
-          <Heatmap
-            data={heatmapData}
-            xAxis={{ data: uniqueX, stroke: 'var(--text-secondary)', fontSize: 10 }}
-            yAxis={{ data: ['Value'], stroke: 'var(--text-secondary)', fontSize: 10 }}
-            cellStyle={{ stroke: 'var(--surface-color)', strokeWidth: 2 }}
-            cellSize={30}
-          >
-            <Tooltip contentStyle={{ background: 'var(--surface-color)', border: '1px solid var(--border-color)', borderRadius: 8 }}
-              formatter={(v) => [Number(v).toLocaleString(), 'Value']} />
-          </Heatmap>
+          <div style={{ display: 'grid', gap: 4, padding: '8px 0' }}>
+            {data.map((d, i) => {
+              const intensity = d.value / maxVal;
+              const bgColor = `rgba(59, 130, 246, ${intensity})`;
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: '0.85rem', width: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.label}</span>
+                  <div style={{ flex: 1, height: 32, background: bgColor, borderRadius: 4, display: 'flex', alignItems: 'center', padding: '0 12px', color: intensity > 0.5 ? 'white' : 'inherit' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{Number(d.value).toLocaleString()}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         );
 
       // ── DEFAULT (Bar) ──────────────────────────────────────

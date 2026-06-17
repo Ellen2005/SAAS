@@ -232,7 +232,6 @@ def export_report_pdf(
     supabase = get_supabase()
     user_id = context["user_id"]
     
-    # Build KPI data
     kpi_rows = _safe(
         supabase.table("kpi_results")
         .select("*")
@@ -285,3 +284,49 @@ def export_report_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/chart/svg")
+def export_chart_svg(
+    chart_type: str = Query("bar", description="Chart type"),
+    data: str = Query(..., description="JSON-encoded data array"),
+    title: str = Query("Chart", description="Chart title"),
+    user_id: str = Depends(resolve_user_id),
+):
+    """Export chart as SVG."""
+    try:
+        import json
+        from urllib.parse import quote
+        
+        chart_data = json.loads(data)
+        if not chart_data:
+            raise HTTPException(status_code=400, detail="No data provided")
+        
+        columns = list(chart_data[0].keys())
+        spec = build_chart_from_rows(chart_data, columns, chart_type=chart_type, title=title)
+        
+        if not spec:
+            raise HTTPException(status_code=400, detail="Could not generate chart")
+        
+        chart_config = {
+            "type": spec["type"],
+            "data": {
+                "labels": [d.get("label", "") for d in spec["data"]],
+                "datasets": [{
+                    "label": title,
+                    "data": [d.get("value", 0) for d in spec["data"]],
+                    "backgroundColor": spec.get("colors", [])[:len(spec["data"])],
+                }]
+            },
+            "options": {
+                "title": {"display": True, "text": title},
+                "legend": {"position": "bottom"},
+            }
+        }
+        
+        svg_url = f"https://quickchart.io/chart?c={quote(json.dumps(chart_config))}&w=800&h=400&bkg=white&format=svg"
+        
+        return {"svg_url": svg_url, "chart_spec": spec}
+    except Exception as e:
+        logger.error(f"SVG export error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
