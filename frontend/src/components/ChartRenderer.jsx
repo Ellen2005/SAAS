@@ -23,6 +23,10 @@ import {
   ScatterChart,
   Scatter,
   ZAxis,
+  Treemap,
+  Heatmap,
+  XAxis as RechartsXAxis,
+  YAxis as RechartsYAxis,
 } from 'recharts';
 
 const DEFAULT_COLORS = [
@@ -272,6 +276,37 @@ export default function ChartRenderer({ spec, height = 280 }) {
               formatter={(v) => [Number(v), 'Count']} />
             <Bar dataKey="value" fill={colors[0]} radius={[2, 2, 0, 0]} />
           </BarChart>
+        );
+
+      // ── TREEMAP ─────────────────────────────────────────────
+      case 'treemap':
+        const treemapData = data.map((d, i) => ({
+          name: d.label,
+          size: Math.max(1, d.value),
+          fill: colors[i % colors.length],
+        }));
+        return (
+          <Treemap data={treemapData} dataKey="size" aspectRatio={4/3} stroke="var(--surface-color)" fill="var(--primary-color)">
+            <Tooltip contentStyle={{ background: 'var(--surface-color)', border: '1px solid var(--border-color)', borderRadius: 8 }}
+              formatter={(v, name) => [Number(v).toLocaleString(), name]} />
+          </Treemap>
+        );
+
+      // ── HEATMAP ─────────────────────────────────────────────
+      case 'heatmap':
+        const heatmapData = data.map((d) => ({ x: d.label, y: 'Value', v: d.value }));
+        const uniqueX = [...new Set(heatmapData.map(d => d.x))];
+        return (
+          <Heatmap
+            data={heatmapData}
+            xAxis={{ data: uniqueX, stroke: 'var(--text-secondary)', fontSize: 10 }}
+            yAxis={{ data: ['Value'], stroke: 'var(--text-secondary)', fontSize: 10 }}
+            cellStyle={{ stroke: 'var(--surface-color)', strokeWidth: 2 }}
+            cellSize={30}
+          >
+            <Tooltip contentStyle={{ background: 'var(--surface-color)', border: '1px solid var(--border-color)', borderRadius: 8 }}
+              formatter={(v) => [Number(v).toLocaleString(), 'Value']} />
+          </Heatmap>
         );
 
       // ── DEFAULT (Bar) ──────────────────────────────────────

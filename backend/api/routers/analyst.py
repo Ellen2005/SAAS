@@ -18,6 +18,7 @@ Endpoints:
 from datetime import datetime, timezone
 from typing import Optional
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -361,51 +362,60 @@ def explain_all(user_id: str = Depends(resolve_user_id)):
 @router.get("/governance")
 def get_governance_score(user_id: str = Depends(resolve_user_id)):
     """Compute and return the governance health score."""
-    supabase = get_supabase()
+    try:
+        supabase = get_supabase()
 
-    kpi_rows = _safe(
-        supabase.table("kpi_results")
-        .select("*")
-        .eq("user_id", user_id)
-        .order("recorded_at", desc=True)
-        .limit(200)
-        .execute()
-    )
-    validation_rows = _safe(
-        supabase.table("validation_logs")
-        .select("check_type, status, message")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .limit(20)
-        .execute()
-    )
-    mapping_rows = _safe(
-        supabase.table("field_mappings")
-        .select("id")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
+        kpi_rows = _safe(
+            supabase.table("kpi_results")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("recorded_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        validation_rows = _safe(
+            supabase.table("validation_logs")
+            .select("check_type, status, message")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+        )
+        mapping_rows = _safe(
+            supabase.table("field_mappings")
+            .select("id")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
 
-    df = pd.DataFrame(kpi_rows) if kpi_rows else pd.DataFrame()
-    import pandas as pd
+        df = pd.DataFrame(kpi_rows) if kpi_rows else pd.DataFrame()
 
-    days_stale = 999
-    if kpi_rows:
-        try:
-            latest = pd.to_datetime(kpi_rows[0].get("recorded_at")).date()
-            from datetime import date as _date
-            days_stale = (_date.today() - latest).days
-        except Exception:
-            pass
+        days_stale = 999
+        if kpi_rows:
+            try:
+                latest = pd.to_datetime(kpi_rows[0].get("recorded_at")).date()
+                from datetime import date as _date
+                days_stale = (_date.today() - latest).days
+            except Exception:
+                pass
 
-    score = compute_governance_score(
-        df=df,
-        validation_results=validation_rows,
-        days_since_last_sync=days_stale,
-        has_semantic_mappings=bool(mapping_rows),
-    )
-    return score
+        score = compute_governance_score(
+            df=df,
+            validation_results=validation_rows,
+            days_since_last_sync=days_stale,
+            has_semantic_mappings=bool(mapping_rows),
+        )
+        return score
+    except Exception as e:
+        logger.error(f"Governance score error: {e}")
+        return {
+            "score": 0,
+            "grade": "F",
+            "dimensions": {"completeness": 0, "freshness": 0, "validity": 0, "traceability": 0},
+            "recommendations": [{"priority": "HIGH", "area": "Système", "action": "Erreur lors du calcul du score. Contactez l'administrateur."}],
+            "error": str(e)
+        }
 
 
 # ─── Collaboration — Insight Snapshots ───────────────────────────────────────
@@ -529,7 +539,6 @@ def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"])
             stats = run_full_statistical_analysis(values, "Current KPIs")
 
     # 5. Governance
-    from datetime import date as _date
     days_stale = 999
     try:
         latest = pd.to_datetime(kpi_rows[0].get("recorded_at")).date()

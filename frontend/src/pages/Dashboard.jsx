@@ -37,30 +37,68 @@ const SYNC_STATUS_LABELS = {
 
 // ─── Reusable Metric Card ───────────────────────────────────────────────────
 const MetricCard = ({ label, value, delta, status, icon, color, sparklineData, format }) => {
-  const fmt = format || ((v) => v != null ? Number(v).toLocaleString() : '—');
-  const deltaDisplay = delta != null && delta !== 0;
+  const fmt = format || ((v) => {
+    if (v == null) return '—';
+    const num = Number(v);
+    if (Math.abs(num) >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1)}B`;
+    if (Math.abs(num) >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+    if (Math.abs(num) >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
+    return num.toLocaleString('fr-FR', { maximumFractionDigits: 0 });
+  });
+  const deltaDisplay = delta != null && !isNaN(delta) && delta !== 0;
   const deltaColor = delta > 0 ? '#38a169' : delta < 0 ? '#e53e3e' : 'var(--text-secondary)';
   const statusColor = status === 'CRITICAL' ? '#e53e3e' : status === 'WARNING' ? '#d69e2e' : '#38a169';
   return (
-    <div className="glass-panel" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8, borderLeft: `3px solid ${statusColor}` }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)' }}>{label}</span>
-        {icon && <span style={{ color: 'var(--text-secondary)', opacity: 0.5 }}>{icon}</span>}
+    <div className="glass-panel" style={{ 
+      padding: '16px 18px', 
+      display: 'flex', 
+      flexDirection: 'column', 
+      gap: 6, 
+      borderLeft: `3px solid ${statusColor}`,
+      minWidth: 0,
+      overflow: 'hidden'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <span style={{ 
+          fontSize: '0.72rem', 
+          fontWeight: 600, 
+          textTransform: 'uppercase', 
+          letterSpacing: '0.4px', 
+          color: 'var(--text-secondary)',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis'
+        }}>{label}</span>
+        {icon && <span style={{ color: 'var(--text-secondary)', opacity: 0.4, flexShrink: 0 }}>{icon}</span>}
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: '1.8rem', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1 }}>{fmt(value)}</span>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', lineHeight: 1 }}>
+        <span style={{ 
+          fontSize: '1.6rem', 
+          fontWeight: 800, 
+          letterSpacing: '-0.02em',
+          wordBreak: 'break-all',
+          lineHeight: 1.2
+        }}>{fmt(value)}</span>
         {deltaDisplay && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: deltaColor, fontWeight: 600, fontSize: '0.85rem' }}>
-            {delta > 0 ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+          <span style={{ 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            gap: 2, 
+            color: deltaColor, 
+            fontWeight: 600, 
+            fontSize: '0.78rem',
+            flexShrink: 0
+          }}>
+            {delta > 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
             {Math.abs(delta).toFixed(1)}%
           </span>
         )}
       </div>
       {sparklineData && sparklineData.length > 1 && (
-        <div style={{ height: 32, marginTop: 4 }}>
-          <AreaChart width={200} height={32} data={sparklineData.slice(-14).map((p) => ({ t: p.t?.slice(5,10) || '', v: p.value }))}>
-            <defs><linearGradient id="sprk" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={statusColor} stopOpacity={0.35} /><stop offset="100%" stopColor={statusColor} stopOpacity={0} /></linearGradient></defs>
-            <Area type="monotone" dataKey="v" stroke={statusColor} fill="url(#sprk)" strokeWidth={2} dot={false} />
+        <div style={{ height: 28, marginTop: 2 }}>
+          <AreaChart width={180} height={28} data={sparklineData.slice(-14).map((p) => ({ t: p.t?.slice(5,10) || '', v: p.value }))}>
+            <defs><linearGradient id={`sprk-${label.replace(/\s/g,'')}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={statusColor} stopOpacity={0.3} /><stop offset="100%" stopColor={statusColor} stopOpacity={0} /></linearGradient></defs>
+            <Area type="monotone" dataKey="v" stroke={statusColor} fill={`url(#sprk-${label.replace(/\s/g,'')})`} strokeWidth={1.5} dot={false} />
           </AreaChart>
         </div>
       )}
@@ -168,9 +206,9 @@ const Dashboard = () => {
           <>
             {/* Row 1: Top Metric Cards */}
             {topMetrics.length > 0 && (
-              <section style={{ marginBottom: 24 }}>
-                <h2 style={{ fontSize: '0.9rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)', marginBottom: 12 }}>Key Metrics</h2>
-                <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+              <section style={{ marginBottom: 20 }}>
+                <h2 style={{ fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)', marginBottom: 10 }}>Key Metrics</h2>
+                <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
                   {topMetrics.map((m, i) => (
                     <MetricCard key={i} {...m} />
                   ))}
@@ -181,7 +219,7 @@ const Dashboard = () => {
             {/* Row 2: KPI Cards */}
             {kpiCards.length > 0 && (
               <section style={{ marginBottom: 24 }}>
-                <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+                <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
                   {kpiCards.map((k, i) => (
                     <MetricCard key={i} {...k} />
                   ))}

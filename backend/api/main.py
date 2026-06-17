@@ -38,7 +38,7 @@ from .services.connection_utils import (
 )
 from .services.audit_service import log_config_change
 
-from .routers import departments, users, semantic, validation, admin, heartbeat, templates, introspect, analyst, assistant, analysis, executive_reports  # noqa: F401
+from .routers import departments, users, semantic, validation, admin, heartbeat, templates, introspect, analyst, assistant, analysis, executive_reports, export  # noqa: F401
 from .services.nlq_service import run_nlq
 from .services.custom_report_service import generate_custom_report
 from .services.analysis_engine import run_analysis as run_goal_analysis
@@ -58,17 +58,12 @@ def _is_legacy_demo_kpi(row: dict) -> bool:
 
 def _is_legacy_demo_report(row: dict) -> bool:
     narrative = row.get("narrative") or ""
-    # Only filter reports that contain all three legacy demo markers together
     demo_markers = ("Net Revenue is 190,000", "Inventory Value is", "Support Tickets is 150")
     return all(marker in narrative for marker in demo_markers)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Startup and shutdown lifecycle handler.
-    Validates environment and starts background scheduler.
-    """
     try:
         logger.info("Validating environment...")
         env_validation = validate_environment()
@@ -98,6 +93,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Rate Limiting
+try:
+    from .middleware.rate_limit import RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware)
+except Exception:
+    pass  # Rate limiter optional
+
 # Configure CORS dynamically based on environment
 cors_origins = configure_cors_origins()
 logger.info(f"Configuring CORS for origins: {cors_origins}")
@@ -124,7 +126,6 @@ async def add_security_headers(request, call_next):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
-    """Handle validation errors with detailed response."""
     logger.warning(f"Validation error on {request.url}: {exc}")
     return JSONResponse(
         status_code=422,
@@ -144,7 +145,6 @@ async def validation_exception_handler(request, exc):
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
-    """Handle HTTP exceptions with consistent format."""
     logger.warning(f"HTTP error on {request.url}: {exc.status_code} - {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
@@ -154,7 +154,6 @@ async def http_exception_handler(request, exc):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
-    """Handle unexpected errors and log them."""
     logger.error(f"Unhandled exception on {request.url}: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=500,
@@ -176,6 +175,7 @@ app.include_router(analyst.router)
 app.include_router(assistant.router)
 app.include_router(analysis.router)
 app.include_router(executive_reports.router)
+app.include_router(export.router)
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -208,14 +208,12 @@ class DashboardSummary(BaseModel):
     validation: List[dict] = []
 
 
-# ── Keepalive ping (prevents cold-start on free-tier hosts) ───────────────────
+# ── Keepalive ping ────────────────────────────────────────────────────────────
 
 @app.get("/api/ping", include_in_schema=False)
 def ping():
     return {"ok": True}
 
-
-# ── Favicon (suppresses 404 log noise) ────────────────────────────────────────
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
@@ -223,14 +221,10 @@ def favicon():
     return Response(status_code=204)
 
 
-# ── Root ──────────────────────────────────────────────────────────────────────
-
 @app.get("/")
 def read_root():
     return {"message": "Welcome to SAAS-PWA Backend"}
 
-
-# ── Dashboard Summary ─────────────────────────────────────────────────────────
 
 @app.get("/api/summary", response_model=DashboardSummary)
 def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
@@ -263,41 +257,6 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                 except Exception as parse_err:
                     print(f"KPI parse error: {parse_err} — row: {item}")
 
-        # ── Target vs Actual attainment (no new tables/pages) ─────────────
-        # If the ETL extracted any KPI rows that represent target/expected and actual,
-        # compute attainment % and expose it as a KPI.
-        #
-        # Expected naming convention from extraction/semantic layer:
-        #   - actual KPI:   "total_contributions" (or any kpi_name containing "contributions")
-        #   - target KPI:   "expected_amount" (or any kpi_name containing "expected")
-        #
-        # This block is best-effort and will silently do nothing if data is missing.
-        try:
-            kpi_map = {k.kpi_name.lower(): k for k in kpis}
-            actual = next(
-                (k for k in kpis if "contribution" in (k.kpi_name or "").lower() and "expected" not in (k.kpi_name or "").lower()),
-                None,
-            )
-            target = next(
-                (k for k in kpis if "expected" in (k.kpi_name or "").lower() or "target" in (k.kpi_name or "").lower()),
-                None,
-            )
-            if actual is not None and target is not None:
-                if target.value and target.value != 0:
-                    attainment_pct = (float(actual.value) / float(target.value)) * 100.0
-                    kpis.append(KPIResult(
-                        id="target_attainment",
-                        kpi_name="target_attainment_pct",
-                        value=round(attainment_pct, 2),
-                        dod_pct=None,
-                        wow_pct=None,
-                        avg_7d=None,
-                        status="NORMAL",
-                        recorded_at=str(getattr(kpi_resp, "data", [{}])[0].get("recorded_at", "")) if kpi_resp and hasattr(kpi_resp, "data") else "",
-                    ))
-        except Exception as _e:
-            pass
-
         anomalies = []
         if hasattr(anomaly_resp, "data") and anomaly_resp.data:
             for item in [row for row in anomaly_resp.data if not _is_legacy_demo_kpi(row)]:
@@ -313,24 +272,19 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                 except Exception as parse_err:
                     print(f"Anomaly parse error: {parse_err} — row: {item}")
 
-        # Check if there's a recent analysis result to show instead of the standard narrative
         analysis_resp = supabase.table("analysis_runs").select("*").eq("user_id", user_id).eq("status", "completed").order("completed_at", desc=True).limit(1).execute()
         
         narrative = "No analytics report generated yet. Go to Dashboard and click Sync Now to generate your first report."
         last_refreshed = "Never"
         
-        # Show analysis result if it's more recent than the last report
         if hasattr(analysis_resp, "data") and analysis_resp.data:
             analysis = analysis_resp.data[0]
             analysis_date = analysis.get("completed_at", "")
-            
-            # Check if we should show analysis result instead of report
             show_analysis = True
             if hasattr(report_resp, "data") and report_resp.data:
                 reports = [row for row in report_resp.data if not _is_legacy_demo_report(row)]
                 if reports:
                     report_date = reports[0]["report_date"]
-                    # Compare dates - if analysis is more recent, show it
                     if analysis_date < str(report_date):
                         show_analysis = False
                         narrative = reports[0]["narrative"]
@@ -376,14 +330,8 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
         return fallback_dict
 
 
-# ── KPI Series (sparklines) ───────────────────────────────────────────────────
-
 @app.get("/api/kpis/series")
 def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120):
-    """
-    Returns lightweight time-series points for the user's KPIs.
-    Used for dashboard sparklines and trend arrows.
-    """
     supabase = get_supabase()
     try:
         rows = (
@@ -410,7 +358,6 @@ def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120):
                     "source": row.get("source") or "etl",
                 }
             )
-        # recorded_at was fetched DESC; reverse each series for charting
         for key in list(series.keys()):
             series[key] = list(reversed(series[key]))
         return {"series": series}
@@ -418,11 +365,8 @@ def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120):
         return {"series": {}, "error": str(e)}
 
 
-# ── Report History ────────────────────────────────────────────────────────────
-
 @app.get("/api/reports/history")
 def get_reports_history(limit: int = 50, user_id: str = Depends(resolve_user_id)):
-    """Returns all past daily reports for the user, newest first."""
     supabase = get_supabase()
     try:
         rows = (
@@ -439,16 +383,8 @@ def get_reports_history(limit: int = 50, user_id: str = Depends(resolve_user_id)
         return {"reports": [], "error": str(e)}
 
 
-# ── Report download (printable HTML — universal, no extra deps needed) ────────
-
 @app.get("/api/reports/{report_id}/download")
 def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
-    """Return the report as a standalone, printable HTML document.
-
-    Browsers can save the response as .html or use *Print → Save as PDF* to
-    produce a hard copy. This avoids requiring system-level PDF dependencies
-    (wkhtmltopdf / weasyprint / chromium) on free-tier hosts.
-    """
     from fastapi.responses import Response
     from .services.email_service import generate_professional_html_email
     supabase = get_supabase()
@@ -469,7 +405,6 @@ def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
     )
     kpis = kpi_rows.data if hasattr(kpi_rows, "data") and kpi_rows.data else []
     if not kpis:
-        # Fall back to most recent KPI batch when none exist for that exact date
         recent = (
             supabase.table("kpi_results").select("*")
             .eq("user_id", user_id).order("recorded_at", desc=True).limit(20).execute()
@@ -492,7 +427,6 @@ def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
         report_type="Saved",
         report_period=str(report["report_date"]),
     )
-    # Inject a print-friendly button + page metadata
     print_helper = (
         "<script>window.addEventListener('load',()=>{setTimeout(()=>window.print(),300)});</script>"
         "<style>@media print{.no-print{display:none!important}}</style>"
@@ -507,15 +441,12 @@ def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
     )
 
 
-# ── Report Edit & Resend ─────────────────────────────────────────────────────
-
 @app.patch("/api/reports/{report_id}")
 def edit_report_narrative(
     report_id: str,
     body: dict,
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
-    """Save an edited narrative back to the daily_reports record."""
     narrative = body.get("narrative", "").strip()
     if not narrative:
         raise HTTPException(status_code=400, detail="Narrative cannot be empty.")
@@ -534,7 +465,6 @@ def resend_report(
     background_tasks: BackgroundTasks,
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
-    """Resend a stored report (with any edits) to all notification recipients."""
     supabase = get_supabase()
     try:
         rows = supabase.table("daily_reports").select("*").eq("id", report_id).eq("user_id", context["user_id"]).limit(1).execute()
@@ -563,8 +493,6 @@ def resend_report(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# ── ETL ───────────────────────────────────────────────────────────────────────
 
 class EtlTriggerRequest(BaseModel):
     analysis_goal: Optional[str] = None
@@ -616,7 +544,6 @@ def export_kpis(context: dict = Depends(require_role(["manager", "admin"]))):
 
 @app.get("/api/dashboard/widgets")
 def get_dashboard_widgets(user_id: str = Depends(resolve_user_id)):
-    """CNPS dashboard widget configuration."""
     supabase = get_supabase()
     try:
         defs = supabase.table("kpi_definitions").select("*").order("sort_order").execute()
@@ -642,8 +569,6 @@ def get_etl_status(user_id: str = Depends(resolve_user_id)):
     return {"status": "IDLE"}
 
 
-# ── Forecasts ─────────────────────────────────────────────────────────────────
-
 @app.get("/api/forecasts")
 def get_forecasts(user_id: str = Depends(resolve_user_id)):
     supabase = get_supabase()
@@ -663,8 +588,6 @@ def get_forecasts(user_id: str = Depends(resolve_user_id)):
             and r.get("kpi_name", "").replace("_", " ").title() not in LEGACY_DEMO_KPI_NAMES
         ]
 
-        # Ensure the shape matches what the frontend expects.
-        # Frontend Dashboard.jsx expects: kpi_name, forecast_date, predicted_value, lower_bound, upper_bound.
         forecasts = []
         for f in filtered:
             forecasts.append(
@@ -682,8 +605,6 @@ def get_forecasts(user_id: str = Depends(resolve_user_id)):
     except Exception as e:
         return {"forecasts": [], "error": str(e)}
 
-
-# ── Preferences ───────────────────────────────────────────────────────────────
 
 @app.get("/api/settings/preferences")
 def get_user_preferences(user_id: str = Depends(resolve_user_id)):
@@ -729,8 +650,6 @@ def update_user_preferences(prefs: dict, context: dict = Depends(require_role(["
     return {"status": "success", "preferences": data}
 
 
-# ── Connection ────────────────────────────────────────────────────────────────
-
 @app.post("/api/test-connection")
 def test_db_connection(connection_data: dict):
     enriched = enrich_connection_payload(connection_data)
@@ -741,7 +660,6 @@ def test_db_connection(connection_data: dict):
     if not db_url:
         raise HTTPException(status_code=400, detail="Missing connection string (credentials)")
 
-    # MongoDB test
     if db_type == "mongodb":
         try:
             import pymongo
@@ -853,8 +771,6 @@ def save_db_connection(conn_data: dict, context: dict = Depends(require_role(["m
     return {"status": "success", "message": "Connection details saved successfully."}
 
 
-# ── Unsubscribe ───────────────────────────────────────────────────────────────
-
 @app.get("/api/unsubscribe")
 def unsubscribe(email: str, token: str):
     if not verify_unsubscribe_token(email, token):
@@ -866,8 +782,6 @@ def unsubscribe(email: str, token: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to unsubscribe: {str(e)}")
 
-
-# ── Natural Language Query ───────────────────────────────────────────────────
 
 class NLQRequest(BaseModel):
     question: str
@@ -886,7 +800,6 @@ def build_custom_chart(
     body: CustomChartRequest,
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
-    """Build a chart from NLQ results or a provided read-only SQL query."""
     from .services.chart_service import build_custom_chart_spec
     from sqlalchemy import text as sql_text
 
@@ -943,7 +856,6 @@ def natural_language_query(
     body: NLQRequest,
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
-    """Execute a natural language question against the user's connected database."""
     if not body.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
     supabase = get_supabase()
@@ -951,12 +863,10 @@ def natural_language_query(
     return result
 
 
-# ── Custom Report Generation ──────────────────────────────────────────────────
-
 class CustomReportRequest(BaseModel):
     instruction: str
-    report_scope: str = "my_department"  # my_department | all_departments | specific_departments
-    format_type: str = "narrative"       # narrative | table | bullet_points | executive_brief | detailed
+    report_scope: str = "my_department"
+    format_type: str = "narrative"
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     department_ids: Optional[List[str]] = None
@@ -968,7 +878,6 @@ def create_custom_report(
     body: CustomReportRequest,
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
-    """Generate a custom report based on user-specified parameters."""
     if not body.instruction.strip():
         raise HTTPException(status_code=400, detail="Instruction cannot be empty.")
     supabase = get_supabase()
@@ -1000,7 +909,6 @@ def save_custom_report(
     body: dict,
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
-    """Save a custom-generated report to daily_reports history."""
     narrative = body.get("narrative", "").strip()
     instruction = body.get("instruction", "Custom report")
     if not narrative:
@@ -1017,17 +925,11 @@ def save_custom_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Audit Log ─────────────────────────────────────────────────────────────────
-
 @app.post("/api/admin/test-email")
 def send_test_email(
     body: dict,
     context: dict = Depends(require_role(["admin", "manager"])),
 ):
-    """Send a one-off test email to verify Brevo wiring.
-
-    Body: { "email": "someone@example.com" }
-    """
     to_email = (body or {}).get("email", "").strip()
     if not to_email or "@" not in to_email:
         raise HTTPException(status_code=400, detail="A valid email address is required.")
