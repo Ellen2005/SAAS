@@ -262,6 +262,41 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                 except Exception as parse_err:
                     print(f"KPI parse error: {parse_err} — row: {item}")
 
+        # ── Target vs Actual attainment (no new tables/pages) ─────────────
+        # If the ETL extracted any KPI rows that represent target/expected and actual,
+        # compute attainment % and expose it as a KPI.
+        #
+        # Expected naming convention from extraction/semantic layer:
+        #   - actual KPI:   "total_contributions" (or any kpi_name containing "contributions")
+        #   - target KPI:   "expected_amount" (or any kpi_name containing "expected")
+        #
+        # This block is best-effort and will silently do nothing if data is missing.
+        try:
+            kpi_map = {k.kpi_name.lower(): k for k in kpis}
+            actual = next(
+                (k for k in kpis if "contribution" in (k.kpi_name or "").lower() and "expected" not in (k.kpi_name or "").lower()),
+                None,
+            )
+            target = next(
+                (k for k in kpis if "expected" in (k.kpi_name or "").lower() or "target" in (k.kpi_name or "").lower()),
+                None,
+            )
+            if actual is not None and target is not None:
+                if target.value and target.value != 0:
+                    attainment_pct = (float(actual.value) / float(target.value)) * 100.0
+                    kpis.append(KPIResult(
+                        id="target_attainment",
+                        kpi_name="target_attainment_pct",
+                        value=round(attainment_pct, 2),
+                        dod_pct=None,
+                        wow_pct=None,
+                        avg_7d=None,
+                        status="NORMAL",
+                        recorded_at=str(getattr(kpi_resp, "data", [{}])[0].get("recorded_at", "")) if kpi_resp and hasattr(kpi_resp, "data") else "",
+                    ))
+        except Exception as _e:
+            pass
+
         anomalies = []
         if hasattr(anomaly_resp, "data") and anomaly_resp.data:
             for item in [row for row in anomaly_resp.data if not _is_legacy_demo_kpi(row)]:
