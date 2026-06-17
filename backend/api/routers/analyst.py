@@ -9,6 +9,11 @@ Endpoints:
   GET  /api/analyst/governance     — governance health score
   GET  /api/analyst/snapshots      — collaboration insight snapshots
   POST /api/analyst/snapshots      — save an insight snapshot
+  POST /api/analyst/run-full       — full autonomous analysis pipeline
+  
+  NEW: POST /api/analyst/analyze   — rich 11-point analysis with statistics
+  NEW: POST /api/analyst/stats     — statistical analysis of a dataset
+  NEW: GET  /api/analyst/context   — get analysis context memory
 """
 from datetime import datetime, timezone
 from typing import Optional
@@ -27,6 +32,15 @@ from ..services.ai_analyst_service import (
     compute_governance_score,
     create_insight_snapshot,
     get_insight_snapshots,
+    generate_rich_insight,
+    get_analysis_context,
+)
+from ..services.statistical_engine import (
+    run_full_statistical_analysis,
+    compute_correlation,
+    compute_linear_regression,
+    detect_outliers_zscore,
+    detect_outliers_iqr,
 )
 
 router = APIRouter(prefix="/api/analyst", tags=["ai-analyst"])
@@ -47,10 +61,7 @@ def _to_float(value, default: float = 0.0) -> float:
 
 @router.post("/prepare")
 def prepare_data(context: dict = Depends(require_role(["manager", "admin"]))):
-    """
-    Fetch the user's latest raw KPI data, run auto-preparation,
-    and return a summary of actions taken.
-    """
+    """Fetch the user's latest raw KPI data, run auto-preparation."""
     supabase = get_supabase()
     user_id = context["user_id"]
 
@@ -71,7 +82,6 @@ def prepare_data(context: dict = Depends(require_role(["manager", "admin"]))):
     return {
         "actions": actions,
         "rows_processed": len(df),
-        "columns_processed": len(df.columns),
         "message": f"Auto-preparation complete. {len(actions)} action(s) applied.",
     }
 
@@ -80,10 +90,7 @@ def prepare_data(context: dict = Depends(require_role(["manager", "admin"]))):
 
 @router.post("/model")
 def model_data(context: dict = Depends(require_role(["manager", "admin"]))):
-    """
-    Run auto-modelling on the user's ETL data to detect column roles,
-    KPI candidates, and suggested aggregations.
-    """
+    """Run auto-modelling on the user's ETL data."""
     supabase = get_supabase()
     user_id = context["user_id"]
 
@@ -108,10 +115,7 @@ def model_data(context: dict = Depends(require_role(["manager", "admin"]))):
 
 @router.get("/insights")
 def get_augmented_insights(user_id: str = Depends(resolve_user_id)):
-    """
-    Return proactively generated insights: trend shifts, correlations,
-    concentration risk, data freshness warnings.
-    """
+    """Return proactively generated insights + rich statistics."""
     supabase = get_supabase()
 
     kpi_rows = _safe(
@@ -135,7 +139,6 @@ def get_augmented_insights(user_id: str = Depends(resolve_user_id)):
         return {"insights": [], "message": "No data yet. Run a sync to generate insights."}
 
     import pandas as pd
-    # Build a time-series frame from kpi_results
     df_rows = []
     for r in kpi_rows:
         df_rows.append({
@@ -150,15 +153,130 @@ def get_augmented_insights(user_id: str = Depends(resolve_user_id)):
 
     insights = generate_augmented_insights(df, kpi_rows, anomaly_rows)
 
-    # Enrich each insight with an XAI explanation
     for ins in insights:
         if ins["type"] in ("trend_shift",):
             ins["xai_explanation"] = ins.get("explanation", "")
 
+    # Add statistical analysis
+    stats = None
+    if "value" in df.columns:
+        values = df["value"].dropna().tolist()
+        if values:
+            stats = run_full_statistical_analysis(values, "Current KPIs")
+
     return {
         "insights": insights,
         "insight_count": len(insights),
+        "statistics": stats,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ─── NEW: Rich Analysis Endpoint ──────────────────────────────────────────────
+
+class AnalyzeRequest(BaseModel):
+    question: str
+    data: list = []
+    columns: list = []
+    method: str = "auto"
+
+@router.post("/analyze")
+def analyze_data(
+    body: AnalyzeRequest,
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    """
+    Run rich 11-point analysis on data.
+    
+    Accepts data directly or fetches from user's KPIs.
+    Returns: understanding, method, formula, steps, results, 
+             visualizations, findings, risks, opportunities, 
+             recommendations, confidence_score
+    """
+    supabase = get_supabase()
+    user_id = context["user_id"]
+    
+    # If no data provided, fetch from KPIs
+    if not body.data:
+        rows = _safe(
+            supabase.table("kpi_results")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("recorded_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        if rows:
+            body.data = rows
+            body.columns = ["kpi_name", "value", "recorded_at", "status", "dod_pct", "wow_pct"]
+    
+    if not body.data:
+        return {"error": "No data available for analysis."}
+    
+    # Store in context memory
+    ctx = get_analysis_context()
+    ctx.add_analysis(body.question, f"{len(body.data)} rows", {"row_count": len(body.data)})
+    
+    # Generate rich insight
+    result = generate_rich_insight(
+        question=body.question,
+        data=body.data,
+        columns=body.columns,
+        method=body.method,
+    )
+    
+    return result
+
+
+# ─── NEW: Statistical Analysis Endpoint ──────────────────────────────────────
+
+class StatsRequest(BaseModel):
+    values: list = []
+    dataset_name: str = "Dataset"
+
+@router.post("/stats")
+def compute_statistics(
+    body: StatsRequest,
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    """
+    Run full statistical analysis on a set of values.
+    
+    Returns: descriptive stats (mean, median, mode, variance, std, quartiles),
+             outlier detection (z-score, IQR), confidence intervals, 
+             and formula explanations.
+    """
+    if not body.values:
+        supabase = get_supabase()
+        user_id = context["user_id"]
+        rows = _safe(
+            supabase.table("kpi_results")
+            .select("value")
+            .eq("user_id", user_id)
+            .order("recorded_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        body.values = [_to_float(r.get("value")) for r in rows if r.get("value") is not None]
+    
+    if not body.values:
+        return {"error": "No values provided."}
+    
+    return run_full_statistical_analysis(body.values, body.dataset_name)
+
+
+# ─── NEW: Context Memory Endpoint ─────────────────────────────────────────────
+
+@router.get("/context")
+def get_context(
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    """Get the current analysis context memory (previous questions)."""
+    ctx = get_analysis_context()
+    return {
+        "history": ctx.history,
+        "last_question": ctx.last_question,
+        "active_filters": ctx.filters,
     }
 
 
@@ -242,11 +360,8 @@ def explain_all(user_id: str = Depends(resolve_user_id)):
 
 @router.get("/governance")
 def get_governance_score(user_id: str = Depends(resolve_user_id)):
-    """Compute and return the governance health score for this user's data."""
+    """Compute and return the governance health score."""
     supabase = get_supabase()
-
-    import pandas as pd
-    from datetime import date as _date
 
     kpi_rows = _safe(
         supabase.table("kpi_results")
@@ -271,21 +386,15 @@ def get_governance_score(user_id: str = Depends(resolve_user_id)):
         .limit(1)
         .execute()
     )
-    pref_rows = _safe(
-        supabase.table("user_preferences")
-        .select("last_sync_status")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
 
     df = pd.DataFrame(kpi_rows) if kpi_rows else pd.DataFrame()
+    import pandas as pd
 
-    # Compute days since last sync
     days_stale = 999
     if kpi_rows:
         try:
             latest = pd.to_datetime(kpi_rows[0].get("recorded_at")).date()
+            from datetime import date as _date
             days_stale = (_date.today() - latest).days
         except Exception:
             pass
@@ -311,7 +420,7 @@ class SnapshotCreate(BaseModel):
 
 @router.get("/snapshots")
 def list_snapshots(limit: int = 20, user_id: str = Depends(resolve_user_id)):
-    """List recent insight snapshots for collaboration."""
+    """List recent insight snapshots."""
     supabase = get_supabase()
     snapshots = get_insight_snapshots(supabase, user_id, limit=limit)
     return {"snapshots": snapshots, "count": len(snapshots)}
@@ -319,7 +428,7 @@ def list_snapshots(limit: int = 20, user_id: str = Depends(resolve_user_id)):
 
 @router.post("/snapshots")
 def save_snapshot(body: SnapshotCreate, context: dict = Depends(require_role(["manager", "admin"]))):
-    """Save an insight snapshot for sharing with the team."""
+    """Save an insight snapshot."""
     supabase = get_supabase()
     snapshot = create_insight_snapshot(
         supabase=supabase,
@@ -348,11 +457,11 @@ def delete_snapshot(snapshot_id: str, context: dict = Depends(require_role(["man
 
 @router.post("/run-full")
 def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"]))):
-    """
-    Run the complete autonomous AI analyst pipeline:
+    """Run the complete autonomous AI analyst pipeline.
+    
     1. Auto-prepare data
     2. Auto-model
-    3. Generate augmented insights
+    3. Generate augmented insights + statistics
     4. Compute governance score
     5. Return everything in one response
     """
@@ -393,7 +502,8 @@ def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"])
         return {
             "status": "no_data",
             "message": "No data available. Run a sync first.",
-            "preparation": {}, "model": {}, "insights": [], "governance": {}, "explanations": [],
+            "preparation": {}, "model": {}, "insights": [], 
+            "statistics": {}, "governance": {}, "explanations": [],
         }
 
     df_rows = [{"date": r.get("recorded_at"), "kpi_name": r.get("kpi_name"),
@@ -411,7 +521,14 @@ def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"])
     # 3. Insights
     insights = generate_augmented_insights(df, kpi_rows, anomaly_rows)
 
-    # 4. Governance
+    # 4. Statistics
+    stats = None
+    if "value" in df.columns:
+        values = df["value"].dropna().tolist()
+        if values:
+            stats = run_full_statistical_analysis(values, "Current KPIs")
+
+    # 5. Governance
     from datetime import date as _date
     days_stale = 999
     try:
@@ -421,7 +538,7 @@ def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"])
         pass
     governance = compute_governance_score(df, validation_rows, days_stale, bool(mapping_rows))
 
-    # 5. XAI for top anomalies
+    # 6. XAI for top anomalies
     explanations = [
         {"id": a["id"], "kpi_name": a["kpi_name"], "explanation": explain_anomaly(a)}
         for a in anomaly_rows[:3]
@@ -432,6 +549,7 @@ def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"])
         "preparation": {"actions": prep_actions, "rows": len(df)},
         "model": model,
         "insights": insights,
+        "statistics": stats,
         "governance": governance,
         "explanations": explanations,
         "generated_at": datetime.now(timezone.utc).isoformat(),

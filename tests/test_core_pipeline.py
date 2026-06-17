@@ -67,13 +67,14 @@ class CorePipelineTests(unittest.TestCase):
         self.assertIsInstance(prep_actions, list)
 
         model = auto_model(prepared)
-        self.assertIn("column_roles", model)
+        # auto_model now returns "columns" instead of "column_roles"
+        self.assertIn("columns", model)
         insights = generate_augmented_insights(prepared, kpis, anomalies)
         self.assertIsInstance(insights, list)
 
         governance = compute_governance_score(prepared, validations, 0, True)
-        self.assertGreaterEqual(governance["overall"], 0)
-        self.assertLessEqual(governance["overall"], 100)
+        self.assertGreaterEqual(governance["score"], 0)
+        self.assertLessEqual(governance["score"], 100)
 
     def test_sqlite_introspection_analysis_and_kpi_summary(self):
         fd, path = tempfile.mkstemp(suffix=".db")

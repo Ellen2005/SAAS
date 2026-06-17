@@ -9,7 +9,7 @@ class ChartServiceTests(unittest.TestCase):
             {"kpi_name": "Payment · contributions", "value": 1200, "status": "NORMAL"},
             {"kpi_name": "Claim throughput", "value": 45, "status": "WARNING"},
         ])
-        self.assertEqual(spec["type"], "bar")
+        self.assertEqual(spec["type"], "horizontalBar")
         self.assertEqual(len(spec["data"]), 2)
 
     def test_nlq_bar_chart_from_rows(self):

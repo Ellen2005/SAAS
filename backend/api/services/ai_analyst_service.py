@@ -1,450 +1,637 @@
 """
-AI Analyst Service — autonomous data analysis engine.
+AI Data Analyst Service
+=======================
+Complete autonomous data analysis engine.
 
-Covers:
-  • Auto-modelling        : detect data types, relationships, KPI formulas
-  • Augmented analytics   : proactive insight generation without user prompts
-  • Explainable AI        : plain-language explanations for every finding
-  • Collaboration layer   : shareable insight snapshots with comments
-  • Auto data preparation : null imputation, outlier capping, type coercion
-  • Governance checks     : lineage, freshness, completeness scoring
+Capabilities:
+  1. Auto Data Preparation (clean, impute, cap outliers)
+  2. Auto Modelling (detect column roles, KPI candidates)
+  3. Augmented Analytics (trend shifts, correlations, concentration, freshness)
+  4. Explainable AI (plain-language explanations via Groq/rule-based)
+  5. Governance Scoring (4-dimension health score)
+  6. **Statistical Engine** (mean, median, std, correlation, regression, outliers)
+  7. **Rich Insight Generation** (11-point response format)
+  8. **Context Memory** (remembers previous analyses, datasets)
 """
-from __future__ import annotations
 
+import json
 import logging
-import os
 import uuid
-from datetime import date, datetime, timezone
-import math
-from typing import Any
+from collections import Counter, defaultdict
+from datetime import datetime, timezone, date as date_type
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 
+from .statistical_engine import (
+    run_full_statistical_analysis,
+    compute_correlation,
+    compute_linear_regression,
+    detect_outliers_zscore,
+    detect_outliers_iqr,
+    get_formula,
+    explain_formula,
+)
+
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Auto Data Preparation
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Context Memory ──────────────────────────────────────────────────────────
+
+class AnalysisContext:
+    """Remembers previous analyses, datasets, and questions for follow-up."""
+    
+    def __init__(self):
+        self.history: list[dict] = []
+        self.last_dataset: str = ""
+        self.last_question: str = ""
+        self.last_results: dict = {}
+        self.filters: dict = {}
+    
+    def add_analysis(self, question: str, dataset: str, results: dict, filters: dict = None):
+        self.history.append({
+            "question": question,
+            "dataset": dataset,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "filters": filters or {},
+        })
+        self.last_question = question
+        self.last_dataset = dataset
+        self.last_results = results
+        if filters:
+            self.filters.update(filters)
+        # Keep last 20
+        if len(self.history) > 20:
+            self.history = self.history[-20:]
+    
+    def get_context(self) -> str:
+        """Generate context string for LLM prompts."""
+        if not self.history:
+            return ""
+        last = self.history[-1]
+        parts = [f"Previous analysis: {last['question']}"]
+        if last.get("filters"):
+            parts.append(f"Filters: {json.dumps(last['filters'])}")
+        return ". ".join(parts)
+
+# Global context instance
+_analysis_context = AnalysisContext()
+
+def get_analysis_context() -> AnalysisContext:
+    return _analysis_context
+
+
+# ─── Helper Functions ────────────────────────────────────────────────────────
+
+def _safe(resp) -> list:
+    return resp.data if hasattr(resp, "data") and resp.data else []
+
+
+def _to_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+# ─── 1. Auto Data Preparation ────────────────────────────────────────────────
 
 def auto_prepare(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
     """
-    Clean a raw DataFrame:
-      - Coerce numeric columns
-      - Impute nulls (median for numeric, mode for categorical)
-      - Cap outliers at 3-sigma
-      - Parse date columns
-
-    Returns (cleaned_df, list_of_actions_taken).
+    Clean and prepare raw data.
+    
+    Steps:
+    1. Numeric coercion
+    2. Null imputation (median for numerics, mode for categoricals)
+    3. Outlier capping (3-sigma)
+    4. Date parsing
     """
-    actions: list[dict] = []
-    out = df.copy()
-    if out.empty:
-        return out, actions
+    actions = []
+    frame = df.copy()
+    
+    # Numeric coercion
+    numeric_cols = frame.select_dtypes(include=[np.number]).columns.tolist()
+    for col in frame.columns:
+        if col not in numeric_cols:
+            try:
+                frame[col] = pd.to_numeric(frame[col], errors="coerce")
+                if frame[col].notna().sum() >= len(frame) * 0.5:
+                    actions.append({"action": "coerce", "column": col, "to": "numeric"})
+            except (ValueError, TypeError):
+                pass
+    
+    numeric_cols = frame.select_dtypes(include=[np.number]).columns.tolist()
+    text_cols = frame.select_dtypes(include=["object"]).columns.tolist()
+    
+    # Null imputation for numerics
+    for col in numeric_cols:
+        null_count = frame[col].isna().sum()
+        if null_count > 0:
+            median_val = frame[col].median()
+            frame[col] = frame[col].fillna(median_val)
+            actions.append({"action": "impute", "column": col, "method": "median", "filled": int(null_count)})
+    
+    # Null imputation for text
+    for col in text_cols:
+        null_count = frame[col].isna().sum()
+        if null_count > 0:
+            mode_val = frame[col].mode()
+            if not mode_val.empty:
+                frame[col] = frame[col].fillna(mode_val[0])
+                actions.append({"action": "impute", "column": col, "method": "mode", "filled": int(null_count)})
+    
+    # Outlier capping (3-sigma)
+    for col in numeric_cols:
+        mean = frame[col].mean()
+        std = frame[col].std()
+        if std > 0:
+            before = len(frame[frame[col] > mean + 3 * std]) + len(frame[frame[col] < mean - 3 * std])
+            frame[col] = frame[col].clip(mean - 3 * std, mean + 3 * std)
+            if before > 0:
+                actions.append({"action": "cap_outliers", "column": col, "method": "3-sigma", "capped": int(before)})
+    
+    # Date parsing
+    for col in frame.columns:
+        if col.lower() in ("date", "time", "at", "timestamp", "created_at", "updated_at", "recorded_at"):
+            try:
+                frame[col] = pd.to_datetime(frame[col], errors="coerce")
+                actions.append({"action": "parse_date", "column": col})
+            except Exception:
+                pass
+    
+    return frame, actions
 
-    for col in out.columns:
-        series = out[col]
-        null_count = int(series.isnull().sum())
 
-        # Try numeric coercion
-        coerced = pd.to_numeric(series, errors="coerce")
-        if coerced.notna().sum() > series.notna().sum() * 0.5:
-            out[col] = coerced
-            series = out[col]
-
-        if pd.api.types.is_numeric_dtype(series):
-            if null_count > 0:
-                median_val = series.median()
-                fill_value = 0.0 if pd.isna(median_val) else float(median_val)
-                out[col] = series.fillna(fill_value)
-                actions.append({"col": col, "action": "impute_median", "filled": null_count, "value": round(fill_value, 4)})
-
-            # Outlier capping
-            mu, sd = series.mean(), series.std()
-            if sd and sd > 0:
-                lo, hi = mu - 3 * sd, mu + 3 * sd
-                capped = int(((series < lo) | (series > hi)).sum())
-                if capped:
-                    out[col] = series.clip(lo, hi)
-                    actions.append({"col": col, "action": "cap_outliers", "capped": capped, "range": [round(float(lo), 2), round(float(hi), 2)]})
-        else:
-            if null_count > 0:
-                mode_val = series.mode()
-                fill = mode_val.iloc[0] if not mode_val.empty else "UNKNOWN"
-                out[col] = series.fillna(fill)
-                actions.append({"col": col, "action": "impute_mode", "filled": null_count, "value": str(fill)})
-
-            # Try date parsing on string columns with date-like names
-            if any(kw in col.lower() for kw in ("date", "time", "at", "_on", "created", "updated")):
-                try:
-                    parsed = pd.to_datetime(out[col], errors="coerce")
-                    if parsed.notna().sum() > len(out) * 0.5:
-                        out[col] = parsed
-                        actions.append({"col": col, "action": "parse_datetime"})
-                except Exception:
-                    pass
-
-    return out, actions
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Auto Modelling
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── 2. Auto Modelling ──────────────────────────────────────────────────────
 
 def auto_model(df: pd.DataFrame) -> dict[str, Any]:
     """
-    Detect:
-      - Column roles (id, date, amount, category, text, boolean)
-      - Likely KPI columns (high-variance numeric)
-      - Candidate relationships (FK-like columns)
-      - Suggested aggregations
+    Automatically detect column roles, KPI candidates, and relationships.
     """
-    roles: dict[str, str] = {}
-    kpi_candidates: list[str] = []
-    relationship_hints: list[dict] = []
-
+    if df.empty:
+        return {"message": "Empty dataset", "columns": {}, "kpi_candidates": [], "relationships": []}
+    
+    # Detect column roles
+    columns = {}
     for col in df.columns:
-        series = df[col].dropna()
-        if series.empty:
-            roles[col] = "empty"
-            continue
-        cname = col.lower()
-
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
-            roles[col] = "date"
-        elif pd.api.types.is_bool_dtype(df[col]):
-            roles[col] = "boolean"
-        elif pd.api.types.is_numeric_dtype(df[col]):
-            mean = series.mean()
-            cv = series.std() / mean if mean not in (0, None) and not pd.isna(mean) else 0
-            if any(kw in cname for kw in ("id", "code", "num", "ref", "key")):
-                roles[col] = "identifier"
-            elif cv > 0.1:
-                roles[col] = "metric"
-                kpi_candidates.append(col)
-            else:
-                roles[col] = "dimension_numeric"
+        col_lower = col.lower()
+        
+        if col_lower in ("id", "_id", "user_id", "department_id", "customer_id"):
+            role = "id"
+        elif col_lower in ("date", "time", "at", "timestamp", "created_at", "updated_at", "recorded_at", "year", "month", "day"):
+            role = "date"
+        elif df[col].dtype in (np.int64, np.float64) or pd.to_numeric(df[col], errors="coerce").notna().sum() >= len(df) * 0.7:
+            role = "metric"
+            # Check if it's a KPI candidate (high coefficient of variation)
+            vals = pd.to_numeric(df[col], errors="coerce").dropna()
+            if len(vals) > 2:
+                cv = vals.std() / vals.mean() if vals.mean() != 0 else 0
+                if cv > 0.3:
+                    role = "kpi_candidate"
+        elif df[col].nunique() <= 2:
+            role = "boolean"
+        elif df[col].nunique() <= 20:
+            role = "category"
+        elif df[col].str.len().max() > 100 if df[col].dtype == "object" else False:
+            role = "text"
         else:
-            n_unique = series.nunique()
-            if n_unique <= 20:
-                roles[col] = "category"
-            elif any(kw in cname for kw in ("id", "_id", "code", "ref", "key", "uuid")):
-                roles[col] = "identifier"
-                # Detect FK-like columns
-                if cname.endswith("_id") or cname.endswith("_code"):
-                    ref_table = cname.replace("_id", "").replace("_code", "")
-                    relationship_hints.append({"column": col, "likely_references": ref_table})
-            else:
-                roles[col] = "text"
-
-    # Suggested aggregations
-    suggestions: list[dict] = []
-    date_cols = [c for c, r in roles.items() if r == "date"]
-    metric_cols = [c for c, r in roles.items() if r == "metric"]
-    cat_cols = [c for c, r in roles.items() if r == "category"]
-
-    for m in metric_cols[:3]:
-        for d in date_cols[:1]:
-            suggestions.append({"type": "time_series", "metric": m, "date": d, "agg": "sum"})
-        for c in cat_cols[:2]:
-            suggestions.append({"type": "group_by", "metric": m, "dimension": c, "agg": "sum"})
-
+            role = "text"
+        
+        columns[col] = {
+            "role": role,
+            "dtype": str(df[col].dtype),
+            "unique_values": int(df[col].nunique()),
+            "null_count": int(df[col].isna().sum()),
+            "null_pct": round(float(df[col].isna().sum() / len(df) * 100), 1),
+        }
+    
+    # Detect KPI candidates (numeric columns with high variation)
+    kpi_candidates = []
+    for col, info in columns.items():
+        if info["role"] == "kpi_candidate":
+            vals = pd.to_numeric(df[col], errors="coerce").dropna()
+            kpi_candidates.append({
+                "name": col,
+                "mean": round(float(vals.mean()), 2),
+                "min": round(float(vals.min()), 2),
+                "max": round(float(vals.max()), 2),
+                "suggested_widget": "line" if "date" in str(df.columns).lower() else "bar",
+            })
+    
+    # Detect FK-like relationships
+    relationships = []
+    for col in df.columns:
+        if col.lower().endswith("_id") and col.lower() != "id":
+            target_table = col[:-3]  # Remove "_id" suffix
+            relationships.append({
+                "source_column": col,
+                "suggested_target": target_table,
+                "type": "foreign_key",
+            })
+    
+    # Detect time-series columns
+    date_cols = [col for col, info in columns.items() if info["role"] == "date"]
+    time_series = bool(date_cols)
+    
     return {
-        "column_roles": roles,
+        "columns": columns,
         "kpi_candidates": kpi_candidates,
-        "relationship_hints": relationship_hints,
-        "suggested_aggregations": suggestions,
-        "row_count": len(df),
-        "column_count": len(df.columns),
+        "relationships": relationships,
+        "time_series": time_series,
+        "date_columns": date_cols,
+        "total_columns": len(columns),
+        "total_rows": len(df),
+        "suggested_aggregations": {
+            "time_series": time_series,
+            "group_by": [col for col, info in columns.items() if info["role"] == "category"],
+            "metrics": [col for col, info in columns.items() if info["role"] in ("metric", "kpi_candidate")],
+        },
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Augmented Analytics — proactive insight generation
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── 3. Augmented Insights ──────────────────────────────────────────────────
 
-def generate_augmented_insights(df: pd.DataFrame, kpis: list[dict], anomalies: list[dict]) -> list[dict]:
+def generate_augmented_insights(df: pd.DataFrame, kpis: list, anomalies: list) -> list[dict]:
     """
-    Proactively surface insights the user didn't ask for:
-      - Trend direction changes
-      - Correlation between KPIs
-      - Concentration risk (top-N accounts dominate)
-      - Seasonality signals
-      - Data freshness warnings
+    Generate proactive insights:
+    1. Trend shifts (>15% change)
+    2. Correlations (>0.75)
+    3. Concentration risk (>50% top-5)
+    4. Data freshness (>3 days stale)
     """
-    insights: list[dict] = []
-
-    if df.empty or "kpi_name" not in df.columns:
+    insights = []
+    
+    if df.empty:
         return insights
-
-    # 1. Trend direction change detection
-    for kpi_name in df["kpi_name"].unique():
-        kpi_df = df[df["kpi_name"] == kpi_name].sort_values("date")
-        if len(kpi_df) < 7:
-            continue
-        vals = pd.to_numeric(kpi_df["value"], errors="coerce").dropna().values
-        if len(vals) < 7:
-            continue
-        first_half = vals[:len(vals)//2].mean()
-        second_half = vals[len(vals)//2:].mean()
-        if first_half > 0:
-            change = (second_half - first_half) / first_half
-            if abs(change) > 0.15:
-                direction = "upward" if change > 0 else "downward"
-                insights.append({
-                    "type": "trend_shift",
-                    "kpi": kpi_name,
-                    "severity": "warning" if abs(change) > 0.3 else "info",
-                    "title": f"Trend shift detected in {kpi_name.replace('_', ' ').title()}",
-                    "explanation": (
-                        f"The second half of the observed period shows a {abs(change)*100:.1f}% "
-                        f"{direction} trend compared to the first half. "
-                        f"{'This may indicate a structural change worth investigating.' if abs(change) > 0.3 else 'Monitor closely.'}"
-                    ),
-                    "value": round(float(change), 4),
-                })
-
-    # 2. KPI correlation
-    kpi_names = df["kpi_name"].unique()
-    if len(kpi_names) >= 2:
-        pivot = df.pivot_table(index="date", columns="kpi_name", values="value", aggfunc="sum")
-        pivot = pivot.dropna()
-        if len(pivot) >= 5:
-            for i, k1 in enumerate(kpi_names):
-                for k2 in list(kpi_names)[i+1:]:
-                    if k1 in pivot.columns and k2 in pivot.columns:
-                        try:
-                            corr = float(pivot[k1].corr(pivot[k2]))
-                            if not math.isnan(corr) and abs(corr) > 0.75:
-                                insights.append({
-                                    "type": "correlation",
-                                    "kpi": f"{k1} ↔ {k2}",
-                                    "severity": "info",
-                                    "title": f"Strong correlation: {k1.replace('_',' ').title()} & {k2.replace('_',' ').title()}",
-                                    "explanation": (
-                                        f"These two metrics move together with a correlation of {corr:.2f}. "
-                                        f"{'They likely share a common driver.' if corr > 0 else 'They move inversely — a rise in one predicts a fall in the other.'}"
-                                    ),
-                                    "value": round(corr, 3),
-                                })
-                        except Exception:
-                            pass
-
+    
+    # 1. Trend shifts
+    if "kpi_name" in df.columns and "value" in df.columns and "date" in df.columns:
+        for kpi_name in df["kpi_name"].unique():
+            kpi_df = df[df["kpi_name"] == kpi_name].copy()
+            kpi_df = kpi_df.sort_values("date")
+            if len(kpi_df) >= 4:
+                mid = len(kpi_df) // 2
+                recent = kpi_df.iloc[mid:]["value"].mean()
+                older = kpi_df.iloc[:mid]["value"].mean()
+                if older > 0:
+                    change = ((recent - older) / older) * 100
+                    if abs(change) > 15:
+                        insights.append({
+                            "type": "trend_shift",
+                            "kpi_name": kpi_name,
+                            "severity": "critical" if abs(change) > 30 else "warning",
+                            "description": f"Shift of {change:.1f}% in {kpi_name}",
+                            "details": f"{'Increase' if change > 0 else 'Decrease'} from {older:.2f} to {recent:.2f}",
+                            "change_pct": round(change, 1),
+                            "explanation": f"La métrique {kpi_name} a {'augmenté' if change > 0 else 'diminué'} de {abs(change):.1f}% entre les deux périodes.",
+                        })
+    
+    # 2. Correlations
+    if "kpi_name" in df.columns and "value" in df.columns:
+        pivot = df.pivot_table(index="date", columns="kpi_name", values="value", aggfunc="mean")
+        numeric_cols = pivot.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) >= 2:
+            corr_matrix = pivot[numeric_cols].corr()
+            for i, col1 in enumerate(numeric_cols):
+                for col2 in numeric_cols[i + 1:]:
+                    if i < len(numeric_cols) - 1:
+                        r = corr_matrix.loc[col1, col2]
+                        if abs(r) > 0.75:
+                            insights.append({
+                                "type": "correlation",
+                                "kpi_name": f"{col1} vs {col2}",
+                                "severity": "info",
+                                "description": f"Strong correlation ({r:.2f}) between {col1} and {col2}",
+                                "correlation": round(r, 3),
+                                "explanation": f"Une forte corrélation (r={r:.3f}) existe entre {col1} et {col2}.",
+                            })
+    
     # 3. Concentration risk
     if "customer_id" in df.columns and "value" in df.columns:
-        try:
+        total = df["value"].sum()
+        if total > 0:
             top5 = df.groupby("customer_id")["value"].sum().nlargest(5)
-            total = df["value"].sum()
-            if total > 0:
-                concentration = float(top5.sum() / total)
-                if concentration > 0.5:
-                    insights.append({
-                        "type": "concentration_risk",
-                        "kpi": "revenue_concentration",
-                        "severity": "warning",
-                        "title": "High revenue concentration risk",
-                        "explanation": (
-                            f"Top 5 accounts represent {concentration*100:.1f}% of total value. "
-                            "This concentration creates dependency risk — losing one key account would have outsized impact."
-                        ),
-                        "value": round(concentration, 3),
-                    })
-        except Exception:
-            pass
-
+            top5_pct = top5.sum() / total * 100
+            if top5_pct > 50:
+                insights.append({
+                    "type": "concentration_risk",
+                    "kpi_name": "Top 5 customers",
+                    "severity": "warning",
+                    "description": f"Top 5 entities represent {top5_pct:.1f}% of total value",
+                    "concentration_pct": round(top5_pct, 1),
+                    "explanation": f"Les 5 principales entités représentent {top5_pct:.1f}% de la valeur totale, ce qui présente un risque de concentration.",
+                })
+    
     # 4. Data freshness
     if "date" in df.columns:
         try:
-            latest = pd.to_datetime(df["date"]).max()
-            days_stale = (pd.Timestamp.now() - latest).days
+            latest = pd.to_datetime(df["date"].max())
+            now = pd.Timestamp.now()
+            days_stale = (now - latest).days
             if days_stale > 3:
                 insights.append({
                     "type": "data_freshness",
-                    "kpi": "data_age",
+                    "kpi_name": "Data freshness",
                     "severity": "warning" if days_stale > 7 else "info",
-                    "title": f"Data is {days_stale} days old",
-                    "explanation": (
-                        f"The most recent data point is from {latest.strftime('%Y-%m-%d')}. "
-                        f"{'Consider triggering a sync to get current data.' if days_stale > 7 else 'Data is slightly stale.'}"
-                    ),
-                    "value": days_stale,
+                    "description": f"Data is {days_stale} days stale (last: {latest.date()})",
+                    "days_stale": days_stale,
+                    "explanation": f"Les données n'ont pas été mises à jour depuis {days_stale} jours. Les dernières données datent du {latest.date()}.",
                 })
         except Exception:
             pass
-
+    
     return insights
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Explainable AI
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── 4. Explainable AI ──────────────────────────────────────────────────────
 
-def explain_anomaly(anomaly: dict, historical_context: dict | None = None) -> str:
-    """
-    Generate a plain-language explanation for an anomaly finding.
-    Uses Groq if available, otherwise builds a rule-based explanation.
-    """
-    kpi = anomaly.get("kpi_name", "").replace("_", " ").title()
+def explain_anomaly(anomaly: dict) -> str:
+    """Generate plain-language explanation for an anomaly."""
+    kpi_name = anomaly.get("kpi_name", "Unknown")
     severity = anomaly.get("severity", "WARNING")
-    deviation = anomaly.get("deviation", 0)
-    reason = anomaly.get("context", {}).get("reason", "")
+    deviation = float(anomaly.get("deviation", 0))
+    context = anomaly.get("context", {})
+    reason = context.get("reason", "")
+    
+    sev_labels = {"CRITICAL": "critique", "WARNING": "notable"}
+    sev_label = sev_labels.get(severity, "notable")
+    
+    # Try Groq LLM first
+    try:
+        from .groq_utils import execute_groq_completion
+        prompt = f"""Explain this CNPS data anomaly in simple French (max 3 sentences):
+KPI: {kpi_name}
+Severity: {sev_label}
+Deviation: {deviation:.1f}%
+Context: {reason}
 
-    groq_key = os.getenv("GROQ_API_KEY")
-    if groq_key:
-        try:
-            from .groq_utils import execute_groq_completion, get_groq_model
-            prompt = f"""You are an AI data analyst explaining an anomaly to a non-technical business manager.
-
-ANOMALY:
-- KPI: {kpi}
-- Severity: {severity}
-- Statistical deviation: {deviation:.1f} standard deviations from normal
-- System finding: {reason}
-{f'- Historical context: {historical_context}' if historical_context else ''}
-
-Write a 2-3 sentence plain-English explanation:
-1. What happened (in business terms, not statistics)
-2. Why it matters
-3. What to check first
-
-Be specific, avoid jargon, use the actual KPI name."""
-
-            completion = execute_groq_completion(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=200,
-                model=get_groq_model(),
-            )
-            return completion.choices[0].message.content.strip()
-        except Exception as e:
-            logger.warning(f"Groq explain_anomaly failed: {e}")
-
-    # Rule-based fallback
-    severity_text = "critical issue" if severity == "CRITICAL" else "notable deviation"
-    return (
-        f"{kpi} shows a {severity_text} with a {deviation:.1f}σ deviation from its normal range. "
-        f"{reason} "
-        f"{'Immediate investigation is recommended.' if severity == 'CRITICAL' else 'Monitor this metric closely over the next 24-48 hours.'}"
-    )
+Format: Plain explanation, no technical jargon."""
+        response = execute_groq_completion(prompt, temperature=0.3, max_tokens=150)
+        if response and "error" not in str(response).lower():
+            return response
+    except Exception:
+        pass
+    
+    # Fallback
+    return f"Une anomalie de niveau {sev_label} a été détectée sur {kpi_name} avec un écart de {deviation:.1f}%. {reason}"
 
 
 def explain_kpi_movement(kpi: dict) -> str:
-    """Generate a plain-language explanation for a KPI's current value and trend."""
-    name = kpi.get("kpi_name", "").replace("_", " ").title()
-    value = kpi.get("value", 0)
-    dod = kpi.get("dod_pct", 0) or 0
-    wow = kpi.get("wow_pct", 0) or 0
-    status = kpi.get("status", "NORMAL")
-
-    direction_dod = "increased" if dod > 0 else "decreased"
-    direction_wow = "up" if wow > 0 else "down"
-
-    if status == "CRITICAL":
-        urgency = "This requires immediate attention."
-    elif status == "WARNING":
-        urgency = "This warrants close monitoring."
-    else:
-        urgency = "Performance is within normal parameters."
-
-    return (
-        f"{name} is currently {value:,.2f}, {direction_dod} {abs(dod):.1f}% day-over-day "
-        f"and {direction_wow} {abs(wow):.1f}% week-over-week. {urgency}"
-    )
+    """Generate plain-language explanation for a KPI movement."""
+    kpi_name = kpi.get("kpi_name", "Unknown")
+    value = float(kpi.get("value", 0))
+    dod = float(kpi.get("dod_pct", 0)) if kpi.get("dod_pct") is not None else None
+    wow = float(kpi.get("wow_pct", 0)) if kpi.get("wow_pct") is not None else None
+    
+    parts = [f"{kpi_name} est actuellement à {value:,.2f}."]
+    
+    if dod is not None and abs(dod) > 0.5:
+        direction = "augmenté" if dod > 0 else "diminué"
+        parts.append(f"Par rapport à hier, elle a {direction} de {abs(dod):.1f}%.")
+    
+    if wow is not None and abs(wow) > 0.5:
+        direction = "augmenté" if wow > 0 else "diminué"
+        parts.append(f"Par rapport à la semaine dernière, elle a {direction} de {abs(wow):.1f}%.")
+    
+    return " ".join(parts)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Governance scoring
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── 5. Governance Score ────────────────────────────────────────────────────
 
 def compute_governance_score(
     df: pd.DataFrame,
     validation_results: list,
     days_since_last_sync: int,
     has_semantic_mappings: bool,
-) -> dict[str, Any]:
+) -> dict:
     """
-    Compute a 0-100 governance health score across 4 dimensions:
-      - Completeness (null rates)
-      - Freshness (days since last sync)
-      - Validity (validation pass rate)
-      - Traceability (semantic mappings configured)
+    Compute 4-dimension governance health score.
+    
+    Dimensions:
+    1. Completeness (missing data ratio)
+    2. Freshness (time since last sync)
+    3. Validity (validation pass rate)
+    4. Traceability (field mappings + lineage)
     """
-    scores: dict[str, float] = {}
-
-    # Completeness
+    # 1. Completeness
+    completeness = 100.0
     if not df.empty:
-        null_rate = float(df.isnull().sum().sum()) / max(df.size, 1)
-        scores["completeness"] = round(max(0.0, 1.0 - null_rate * 10) * 100, 1)
+        null_ratio = df.isna().sum().sum() / (df.shape[0] * df.shape[1]) if df.shape[1] > 0 else 0
+        completeness = max(0, round((1 - null_ratio) * 100, 1))
+    
+    # 2. Freshness
+    if days_since_last_sync >= 30:
+        freshness = 0
+    elif days_since_last_sync >= 14:
+        freshness = 25
+    elif days_since_last_sync >= 7:
+        freshness = 50
+    elif days_since_last_sync >= 3:
+        freshness = 75
     else:
-        scores["completeness"] = 0.0
-
-    # Freshness
-    if days_since_last_sync <= 1:
-        scores["freshness"] = 100.0
-    elif days_since_last_sync <= 3:
-        scores["freshness"] = 80.0
-    elif days_since_last_sync <= 7:
-        scores["freshness"] = 60.0
-    elif days_since_last_sync <= 30:
-        scores["freshness"] = 30.0
-    else:
-        scores["freshness"] = 0.0
-
-    # Validity
+        freshness = 100
+    
+    # 3. Validity
+    validity = 100.0
     if validation_results:
-        passed = sum(1 for r in validation_results if getattr(r, "status", r.get("status") if isinstance(r, dict) else "fail") == "pass")
-        scores["validity"] = round(passed / len(validation_results) * 100, 1)
+        passes = sum(1 for r in validation_results if (r.get("status") if isinstance(r, dict) else getattr(r, "status", None)) == "pass")
+        total = len(validation_results)
+        validity = round(passes / total * 100, 1) if total > 0 else 100.0
+    
+    # 4. Traceability
+    traceability = 50.0 if has_semantic_mappings else 0.0
+    if not df.empty and "source_row_id" in df.columns:
+        traceability = max(traceability, 75.0)
+    
+    # Composite score (weighted)
+    weights = {"completeness": 0.25, "freshness": 0.25, "validity": 0.30, "traceability": 0.20}
+    composite = (
+        completeness * weights["completeness"]
+        + freshness * weights["freshness"]
+        + validity * weights["validity"]
+        + traceability * weights["traceability"]
+    )
+    
+    # Letter grade
+    if composite >= 90:
+        grade = "A"
+    elif composite >= 75:
+        grade = "B"
+    elif composite >= 60:
+        grade = "C"
+    elif composite >= 45:
+        grade = "D"
     else:
-        scores["validity"] = 50.0  # unknown
-
-    # Traceability
-    scores["traceability"] = 100.0 if has_semantic_mappings else 40.0
-
-    overall = round(sum(scores.values()) / len(scores), 1)
-
-    grade = "A" if overall >= 90 else "B" if overall >= 75 else "C" if overall >= 60 else "D" if overall >= 40 else "F"
-
+        grade = "F"
+    
     return {
-        "overall": overall,
+        "score": round(composite, 1),
         "grade": grade,
-        "dimensions": scores,
-        "computed_at": datetime.now(timezone.utc).isoformat(),
-        "recommendations": _governance_recommendations(scores),
+        "dimensions": {
+            "completeness": round(completeness, 1),
+            "freshness": round(freshness, 1),
+            "validity": round(validity, 1),
+            "traceability": round(traceability, 1),
+        },
+        "recommendations": _generate_governance_recommendations(completeness, freshness, validity, traceability),
     }
 
 
-def _governance_recommendations(scores: dict[str, float]) -> list[str]:
-    recs = []
-    if scores.get("completeness", 100) < 70:
-        recs.append("High null rates detected — review source data quality and consider imputation rules.")
-    if scores.get("freshness", 100) < 60:
-        recs.append("Data is stale — trigger a sync or check your scheduled sync configuration.")
-    if scores.get("validity", 100) < 70:
-        recs.append("Validation checks are failing — review schema mappings and data types.")
-    if scores.get("traceability", 100) < 60:
-        recs.append("Semantic mappings are incomplete — configure field mappings in Settings for better lineage tracking.")
-    if not recs:
-        recs.append("Governance health is good. Continue monitoring regularly.")
-    return recs
+def _generate_governance_recommendations(
+    completeness: float, freshness: float, validity: float, traceability: float,
+) -> list:
+    recommendations = []
+    if completeness < 80:
+        recommendations.append({
+            "priority": "HIGH",
+            "area": "Complétude",
+            "action": "Corriger les données manquantes dans vos sources de données.",
+        })
+    if freshness < 50:
+        recommendations.append({
+            "priority": "HIGH",
+            "area": "Actualité",
+            "action": "Augmenter la fréquence de synchronisation des données.",
+        })
+    if validity < 80:
+        recommendations.append({
+            "priority": "MEDIUM",
+            "area": "Validité",
+            "action": "Examiner les échecs de validation et corriger les données sources.",
+        })
+    if traceability < 50:
+        recommendations.append({
+            "priority": "MEDIUM",
+            "area": "Traçabilité",
+            "action": "Configurer les mappings sémantiques pour améliorer la traçabilité.",
+        })
+    if not recommendations:
+        recommendations.append({
+            "priority": "LOW",
+            "area": "Général",
+            "action": "Continuer la maintenance régulière pour maintenir la note de gouvernance.",
+        })
+    return recommendations
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Collaboration — insight snapshots
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── 7. Rich Insight Generation (11-Point Format) ───────────────────────────
 
-def create_insight_snapshot(
-    supabase,
-    user_id: str,
-    title: str,
-    content: str,
-    insight_type: str,
-    kpi_name: str | None = None,
-    metadata: dict | None = None,
+def generate_rich_insight(
+    question: str,
+    data: list[dict],
+    columns: list[str],
+    method: str,
+    sql: str = None,
 ) -> dict:
-    """Persist a shareable insight snapshot to the database."""
-    record = {
-        "id": str(uuid.uuid4()),
+    """
+    Generate a comprehensive insight response with 11 points.
+    
+    1. Understanding
+    2. Method Used
+    3. Formula Used
+    4. Processing Steps
+    5. Results
+    6. Visualizations (chart spec)
+    7. Key Findings
+    8. Risks
+    9. Opportunities
+    10. Recommendations
+    11. Confidence Score
+    """
+    from .chart_service import build_chart_from_rows
+    
+    # Extract numeric values
+    all_values = []
+    for row in data:
+        for col in columns:
+            try:
+                val = float(row.get(col, 0))
+                all_values.append(val)
+            except (TypeError, ValueError):
+                pass
+    
+    # Run statistical analysis
+    stats = run_full_statistical_analysis(all_values, label=question[:60]) if all_values else {}
+    
+    # Build chart
+    chart_spec = build_chart_from_rows(data, columns, title=question[:80])
+    
+    # Key findings from stats
+    findings = []
+    if stats and "descriptive" in stats:
+        desc = stats["descriptive"]
+        if isinstance(desc.get("mean"), dict):
+            mean_val = desc["mean"].get("result", 0)
+            findings.append(f"La valeur moyenne est de {mean_val:,.2f}.")
+        if "min" in desc and "max" in desc:
+            findings.append(f"Les valeurs s'échelonnent de {desc['min']:,.2f} à {desc['max']:,.2f}.")
+        if isinstance(desc.get("std_dev"), dict):
+            std_val = desc["std_dev"].get("result", 0)
+            findings.append(f"L'écart-type est de {std_val:,.2f}.")
+        if isinstance(desc.get("quartiles"), dict):
+            q_res = desc["quartiles"].get("result", {})
+            if q_res:
+                findings.append(f"La médiane est de {q_res.get('Q2 (Median)', 'N/A')}.")
+    
+    # Risks
+    risks = []
+    if stats and "outliers" in stats:
+        zscore_outliers = stats["outliers"].get("zscore", {}).get("result", {}).get("count", 0)
+        iqr_outliers = stats["outliers"].get("iqr", {}).get("result", {}).get("count", 0)
+        total_outliers = max(zscore_outliers, iqr_outliers)
+        if total_outliers > 0:
+            risks.append(f"{total_outliers} valeur(s) anormale(s) détectée(s). Investigation recommandée.")
+    
+    # Opportunities
+    opportunities = []
+    if len(data) > 5:
+        opportunities.append("Analyser la tendance sur une période plus longue pour identifier des patterns saisonniers.")
+    if len(columns) > 2:
+        opportunities.append("Explorer les relations entre les différentes colonnes pour découvrir des corrélations cachées.")
+    
+    # Confidence
+    confidence = min(0.95, 0.5 + len(data) * 0.01) if data else 0
+    if method == "nlq":
+        confidence = min(confidence, 0.85)  # NLQ has inherent uncertainty
+    
+    return {
+        "understanding": f"J'ai analysé votre question: '{question}'. Les données comportent {len(data)} lignes et {len(columns)} colonnes.",
+        "method_used": method,
+        "formula_used": explain_formula(question, method.split("_")[0] if "_" in method else method),
+        "processing_steps": [
+            f"Récupération de {len(data)} enregistrements",
+            "Identification des colonnes numériques et catégorielles",
+            f"Application de la méthode: {method}",
+            "Génération des visualisations et statistiques",
+        ],
+        "results": {
+            "row_count": len(data),
+            "column_count": len(columns),
+            "columns": columns,
+            "statistics": stats.get("descriptive", {}),
+        },
+        "visualizations": chart_spec,
+        "key_findings": findings,
+        "risks": risks,
+        "opportunities": opportunities,
+        "recommendations": [
+            "Configurer des alertes automatiques pour les variations significatives",
+            "Planifier des analyses régulières pour suivre les tendances",
+        ],
+        "confidence_score": round(confidence, 3),
+        "sql_used": sql,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ─── Insight Snapshots ──────────────────────────────────────────────────────
+
+def create_insight_snapshot(supabase, user_id: str, title: str, content: str,
+                            insight_type: str = "manual", kpi_name: str = None,
+                            metadata: dict = None) -> dict:
+    """Save an insight snapshot to the database."""
+    snapshot = {
         "user_id": user_id,
         "title": title,
         "content": content,
@@ -454,16 +641,16 @@ def create_insight_snapshot(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        supabase.table("insight_snapshots").insert(record).execute()
+        supabase.table("insight_snapshots").insert(snapshot).execute()
     except Exception as e:
-        logger.warning(f"insight_snapshots insert failed (table may not exist yet): {e}")
-    return record
+        logger.warning(f"Failed to save insight snapshot: {e}")
+    return snapshot
 
 
-def get_insight_snapshots(supabase, user_id: str, limit: int = 20) -> list[dict]:
-    """Retrieve recent insight snapshots for a user."""
+def get_insight_snapshots(supabase, user_id: str, limit: int = 20) -> list:
+    """Retrieve insight snapshots."""
     try:
-        resp = (
+        rows = _safe(
             supabase.table("insight_snapshots")
             .select("*")
             .eq("user_id", user_id)
@@ -471,7 +658,7 @@ def get_insight_snapshots(supabase, user_id: str, limit: int = 20) -> list[dict]
             .limit(limit)
             .execute()
         )
-        return resp.data if hasattr(resp, "data") and resp.data else []
+        return rows
     except Exception as e:
-        logger.warning(f"insight_snapshots fetch failed: {e}")
+        logger.warning(f"Failed to get insight snapshots: {e}")
         return []
