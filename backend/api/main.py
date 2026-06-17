@@ -38,7 +38,7 @@ from .services.connection_utils import (
 )
 from .services.audit_service import log_config_change
 
-from .routers import departments, users, semantic, validation, admin, heartbeat, templates, introspect, analyst, assistant, analysis, executive_reports, export  # noqa: F401
+from .routers import departments, users, semantic, validation, admin, heartbeat, templates, introspect, analyst, assistant, analysis, executive_reports, export, dashboards, webhooks  # noqa: F401
 from .services.nlq_service import run_nlq
 from .services.custom_report_service import generate_custom_report
 from .services.analysis_engine import run_analysis as run_goal_analysis
@@ -176,6 +176,8 @@ app.include_router(assistant.router)
 app.include_router(analysis.router)
 app.include_router(executive_reports.router)
 app.include_router(export.router)
+app.include_router(dashboards.router)
+app.include_router(webhooks.router)
 
 
 # ── Models ────────────────────────────────────────────────────────────────────

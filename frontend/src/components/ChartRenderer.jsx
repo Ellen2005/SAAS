@@ -229,11 +229,11 @@ export default function ChartRenderer({ spec, height = 280 }) {
 
       // ── GAUGE (simulated with a horizontal bar) ────────────
       case 'gauge':
-        const maxVal = Math.max(...data.map((d) => d.value), 1);
+        const gaugeMax = Math.max(...data.map((d) => d.value), 1);
         return (
           <div style={{ display: 'grid', gap: 12, padding: '8px 0' }}>
             {data.map((d, i) => {
-              const pct = (d.value / maxVal) * 100;
+              const pct = (d.value / gaugeMax) * 100;
               const color = pct > 80 ? colors[1] : pct > 50 ? colors[2] : colors[4];
               return (
                 <div key={i}>
@@ -293,11 +293,11 @@ export default function ChartRenderer({ spec, height = 280 }) {
 
       // ── HEATMAP (simulated with colored bars) ──────────────
       case 'heatmap':
-        const maxVal = Math.max(...data.map(d => d.value), 1);
+        const heatmapMax = Math.max(...data.map(d => d.value), 1);
         return (
           <div style={{ display: 'grid', gap: 4, padding: '8px 0' }}>
             {data.map((d, i) => {
-              const intensity = d.value / maxVal;
+              const intensity = d.value / heatmapMax;
               const bgColor = `rgba(59, 130, 246, ${intensity})`;
               return (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
