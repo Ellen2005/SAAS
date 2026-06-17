@@ -15,7 +15,9 @@ Endpoints:
   NEW: POST /api/analyst/stats     — statistical analysis of a dataset
   NEW: GET  /api/analyst/context   — get analysis context memory
 """
+import logging
 from datetime import datetime, timezone
+from datetime import date as _date
 from typing import Optional
 
 import pandas as pd
@@ -45,7 +47,7 @@ from ..services.statistical_engine import (
 )
 
 router = APIRouter(prefix="/api/analyst", tags=["ai-analyst"])
-
+logger = logging.getLogger(__name__)
 
 def _safe(resp) -> list:
     return resp.data if hasattr(resp, "data") and resp.data else []

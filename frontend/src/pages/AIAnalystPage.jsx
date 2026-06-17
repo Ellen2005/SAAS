@@ -324,7 +324,7 @@ export default function AIAnalystPage() {
                 </div>
                 {isOpen && (
                   <div style={{ marginTop: 12, padding: '12px 0 0', borderTop: '1px solid var(--border-color)' }}>
-                    <p style={{ color: 'var(--text-primary)', lineHeight: 1.7 }}>{ins.explanation}</p>
+<p style={{ color: 'var(--text-primary)', lineHeight: 1.7 }}>{typeof ins.explanation === 'string' ? ins.explanation : (ins.explanation?.reason || ins.explanation?.text || JSON.stringify(ins.explanation))}</p>
                     {ins.xai_explanation && ins.xai_explanation !== ins.explanation && (
                       <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: 8, fontStyle: 'italic' }}>
                         {ins.xai_explanation}
@@ -503,9 +503,19 @@ export default function AIAnalystPage() {
                   <BookOpen size={16} /> Recommendations
                 </h3>
                 <ul style={{ paddingLeft: 20, margin: 0 }}>
-                  {(governance.recommendations || []).map((rec, i) => (
-                    <li key={i} style={{ marginBottom: 8, color: 'var(--text-primary)', lineHeight: 1.6 }}>{rec}</li>
-                  ))}
+                  {(governance.recommendations || []).map((rec, i) => {
+                    const rendered =
+                      typeof rec === 'string' || typeof rec === 'number'
+                        ? rec
+                        : (rec?.priority && rec?.area && rec?.action)
+                          ? `${rec.priority}: ${rec.area} — ${rec.action}`
+                          : JSON.stringify(rec);
+                    return (
+                      <li key={i} style={{ marginBottom: 8, color: 'var(--text-primary)', lineHeight: 1.6 }}>
+                        {rendered}
+                      </li>
+                    );
+                  })}
                 </ul>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: 12 }}>
                   Computed at {new Date(governance.computed_at).toLocaleString()}

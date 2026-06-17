@@ -1,4 +1,6 @@
 // French/English translations for CNPS Analytics
+import { useState } from 'react';
+
 export const translations = {
   en: {
     // Navigation
@@ -247,6 +249,10 @@ export const translations_fr = translations.fr;
 
 // Hook for using translations
 export function useLang() {
+  // Import is intentionally kept here so this file can be used independently.
+  // (Dashboard uses useLang().)
+  // eslint-disable-next-line no-unused-vars
+
   const [lang, setLang] = useState('fr'); // Default to French for CNPS
   
   const t = (key) => {
