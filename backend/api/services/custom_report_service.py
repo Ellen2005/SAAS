@@ -4,7 +4,9 @@ Generates on-demand reports based on user-specified parameters, scope, and forma
 """
 import os
 import logging
-from datetime import datetime, date, UTC
+from datetime import datetime, date, timezone
+
+UTC = timezone.utc
 
 logger = logging.getLogger(__name__)
 
@@ -180,3 +182,4 @@ def _fallback_report(kpis, anomalies, instruction, today) -> str:
     if anomalies:
         lines.append(f"\n{len(anomalies)} anomaly/anomalies detected.")
     return "\n".join(lines)
+
