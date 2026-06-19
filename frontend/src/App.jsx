@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { LogOut, Shield, Brain, Moon, Sun } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
@@ -80,6 +80,23 @@ function AppShell() {
   const { t } = useLang();
   useInactivityTimeout(!!user);
 
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem('ea-theme');
+    if (saved) return saved === 'dark';
+    return true; // Default dark mode (original blue theme)
+  });
+
+  // Apply theme class to root element
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.remove('light-theme');
+      localStorage.setItem('ea-theme', 'dark');
+    } else {
+      document.documentElement.classList.add('light-theme');
+      localStorage.setItem('ea-theme', 'light');
+    }
+  }, [isDark]);
+
   const handleLogout = async () => {
     try {
       localStorage.removeItem('saas.dashboard.lastSummary.v1');
@@ -144,7 +161,16 @@ function AppShell() {
                       <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_settings')}</NavLink>
                     </>
                   )}
-                  <button onClick={handleLogout} className="btn btn-outline" style={{ padding: '8px 12px', marginLeft: '16px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
+                  <button 
+                    onClick={() => setIsDark(!isDark)} 
+                    className="ea-btn ea-btn-ghost ea-btn-sm" 
+                    style={{ marginLeft: '12px' }}
+                    title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                    aria-label="Toggle theme"
+                  >
+                    {isDark ? <Sun size={16} /> : <Moon size={16} />}
+                  </button>
+                  <button onClick={handleLogout} className="btn btn-outline" style={{ padding: '8px 12px', marginLeft: '8px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
                     <LogOut size={14} /> {t('nav_logout')}
                   </button>
                 </div>
