@@ -31,6 +31,8 @@ const CustomReportPage = lazy(() => import('./pages/CustomReportPage'));
 const SchemaExplorer = lazy(() => import('./pages/SchemaExplorer'));
 const AIAnalystPage = lazy(() => import('./pages/AIAnalystPage'));
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage'));
+const ExecutiveAnalyticsPage = lazy(() => import('./pages/ExecutiveAnalyticsPage'));
+const DataQualityPage = lazy(() => import('./pages/DataQualityPage'));
 
 const PageLoader = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', color: 'var(--text-secondary)' }}>
@@ -155,6 +157,8 @@ function AppShell() {
                       <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <Brain size={13} /> AI Analyst
                       </NavLink>
+                      <NavLink to="/executive" className={({ isActive }) => isActive ? 'active' : ''}>Executive</NavLink>
+                      <NavLink to="/data-quality" className={({ isActive }) => isActive ? 'active' : ''}>Data Quality</NavLink>
                       <NavLink to="/explorer" className={({ isActive }) => isActive ? 'active' : ''}>Schema</NavLink>
                       <NavLink to="/query" className={({ isActive }) => isActive ? 'active' : ''}>{t('nlq_title')}</NavLink>
                       <NavLink to="/validation" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_validation')}</NavLink>
@@ -217,6 +221,12 @@ function AppShell() {
                     } />
                     <Route path="/admin/templates" element={
                       <RoleGuard allowedRoles={['admin']}><AdminTemplates /></RoleGuard>
+                    } />
+                    <Route path="/executive" element={
+                      <RoleGuard allowedRoles={['manager', 'admin']}><ExecutiveAnalyticsPage /></RoleGuard>
+                    } />
+                    <Route path="/data-quality" element={
+                      <RoleGuard allowedRoles={['manager', 'admin']}><DataQualityPage /></RoleGuard>
                     } />
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
                   </Routes>
