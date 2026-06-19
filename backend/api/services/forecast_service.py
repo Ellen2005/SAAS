@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime, UTC
+from datetime import datetime, timezone
+UTC = timezone.utc
 
 import pandas as pd
 
