@@ -4,8 +4,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime, UTC
+from datetime import datetime, timezone
+UTC = timezone.utc
 import os
+import re
 import logging
 from contextlib import asynccontextmanager
 from sqlalchemy import create_engine
@@ -43,6 +45,36 @@ from .services.nlq_service import run_nlq
 from .services.custom_report_service import generate_custom_report
 from .services.analysis_engine import run_analysis as run_goal_analysis
 from .services.export_service import export_kpis_csv
+
+# ── SQL Injection Prevention ──────────────────────────────────────────────────
+_SQL_FORBIDDEN_KEYWORDS = re.compile(
+    r'\b(DROP\s|ALTER\s|CREATE\s|DELETE\s|INSERT\s|UPDATE\s|TRUNCATE\s|'
+    r'EXEC\s|EXECUTE\s|GRANT\s|REVOKE\s|SHUTDOWN|KILL\s|XP_|MERGE\s|'
+    r'REPLACE\s|LOAD\s|INTO\s|INFORMATION_SCHEMA\.|PG_SLEEP|WAITFOR\s|DELAY|BENCHMARK)\b',
+    re.IGNORECASE
+)
+
+_SQL_SAFE_PREFIXES = frozenset({"SELECT", "WITH", "EXPLAIN", "DESCRIBE", "SHOW", "PRAGMA"})
+
+
+def validate_sql_read_only(sql: str) -> tuple[bool, str]:
+    """Validate that SQL is read-only and safe for execution. Returns (is_safe, error_message)."""
+    if not sql or not sql.strip():
+        return False, "SQL query is empty."
+    stripped = sql.strip()
+    upper = stripped.upper()
+    if not upper.startswith(tuple(_SQL_SAFE_PREFIXES)):
+        return False, "Only SELECT/WITH/DESCRIBE/SHOW/PRAGMA queries allowed."
+    if _SQL_FORBIDDEN_KEYWORDS.search(stripped):
+        return False, "SQL contains forbidden destructive operations."
+    cleaned = re.sub(r"'[^']*'", '', re.sub(r'--.*$', '', stripped, flags=re.MULTILINE))
+    semi_pos = cleaned.find(';')
+    if semi_pos != -1 and semi_pos < len(cleaned.rstrip(';')) - 1:
+        return False, "Multi-statement SQL is not allowed."
+    if re.search(r'UNION\s+(ALL\s+)?(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b', upper):
+        return False, "UNION with DDL/DML is forbidden."
+    return True, ""
+
 
 LEGACY_DEMO_KPI_NAMES = frozenset({
     "net_revenue", "inventory_value", "support_tickets",
@@ -119,6 +151,8 @@ async def add_security_headers(request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 
@@ -214,7 +248,7 @@ class DashboardSummary(BaseModel):
 
 @app.get("/api/ping", include_in_schema=False)
 def ping():
-    return {"ok": True}
+    return {"ok": True, "timestamp": datetime.now(UTC).isoformat()}
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -225,7 +259,7 @@ def favicon():
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to SAAS-PWA Backend"}
+    return {"message": "Welcome to Enterprise Analytics Platform"}
 
 
 @app.get("/api/summary", response_model=DashboardSummary)
@@ -256,8 +290,8 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                         status=str(item.get("status") or "NORMAL"),
                         recorded_at=str(item.get("recorded_at", "")),
                     ))
-                except Exception as parse_err:
-                    print(f"KPI parse error: {parse_err} — row: {item}")
+                except (ValueError, TypeError) as parse_err:
+                    logger.warning(f"KPI parse error: {parse_err} — row: {item}")
 
         anomalies = []
         if hasattr(anomaly_resp, "data") and anomaly_resp.data:
@@ -271,8 +305,8 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                         context=item.get("context") or {},
                         detected_at=str(item.get("detected_at", "")),
                     ))
-                except Exception as parse_err:
-                    print(f"Anomaly parse error: {parse_err} — row: {item}")
+                except (ValueError, TypeError) as parse_err:
+                    logger.warning(f"Anomaly parse error: {parse_err} — row: {item}")
 
         analysis_resp = supabase.table("analysis_runs").select("*").eq("user_id", user_id).eq("status", "completed").order("completed_at", desc=True).limit(1).execute()
         
@@ -325,11 +359,9 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
             summary_dict["snapshot_chart"] = None
         return summary_dict
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Summary Fetch Error: {e}")
-        fallback = DashboardSummary(kpis=[], anomalies=[], narrative=f"System Error: {str(e)}.", last_refreshed="ERROR")
-        fallback_dict = fallback.model_dump()
-        fallback_dict["validation"] = []
-        return fallback_dict
+        logger.error(f"Summary Fetch Error: {e}", exc_info=True)
+        fallback = DashboardSummary(kpis=[], anomalies=[], narrative="Unable to fetch dashboard summary.", last_refreshed="ERROR")
+        return fallback.model_dump()
 
 
 @app.get("/api/kpis/series")
@@ -364,6 +396,7 @@ def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120):
             series[key] = list(reversed(series[key]))
         return {"series": series}
     except Exception as e:
+        logger.error(f"KPI series error: {e}")
         return {"series": {}, "error": str(e)}
 
 
@@ -382,6 +415,7 @@ def get_reports_history(limit: int = 50, user_id: str = Depends(resolve_user_id)
         reports = rows.data if hasattr(rows, "data") and rows.data else []
         return {"reports": [row for row in reports if not _is_legacy_demo_report(row)]}
     except Exception as e:
+        logger.error(f"Reports history error: {e}")
         return {"reports": [], "error": str(e)}
 
 
@@ -605,6 +639,7 @@ def get_forecasts(user_id: str = Depends(resolve_user_id)):
 
         return {"forecasts": forecasts}
     except Exception as e:
+        logger.error(f"Forecasts error: {e}")
         return {"forecasts": [], "error": str(e)}
 
 
@@ -811,6 +846,11 @@ def build_custom_chart(
     sql_used = body.sql
 
     if body.sql and body.sql.strip():
+        # Validate SQL for injection
+        is_safe, error_msg = validate_sql_read_only(body.sql)
+        if not is_safe:
+            raise HTTPException(status_code=400, detail=error_msg)
+        
         conn_resp = supabase.table("database_connections").select("*").eq("user_id", context["user_id"]).limit(1).execute()
         if not conn_resp.data:
             raise HTTPException(status_code=400, detail="No database connection configured.")
@@ -818,9 +858,7 @@ def build_custom_chart(
         conn_info = maybe_decrypt_connection_row(conn_resp.data[0])
         db_type = (conn_info.get("db_type") or "postgresql").lower()
         credentials = conn_info.get("credentials") or ""
-        sql_upper = body.sql.strip().upper()
-        if not sql_upper.startswith(("SELECT", "WITH", "PRAGMA")):
-            raise HTTPException(status_code=400, detail="Only read-only SELECT/PRAGMA queries allowed.")
+        
         from .services.connection_utils import normalize_credentials, sqlalchemy_engine_kwargs
         engine = create_engine(
             normalize_credentials(credentials, db_type),
@@ -920,7 +958,7 @@ def save_custom_report(
         supabase.table("daily_reports").insert({
             "user_id": context["user_id"],
             "narrative": f"[Custom: {instruction[:80]}]\n\n{narrative}",
-            "report_date": datetime.now().date().isoformat(),
+            "report_date": datetime.now(UTC).date().isoformat(),
         }).execute()
         return {"status": "saved"}
     except Exception as e:
@@ -947,7 +985,7 @@ def send_test_email(
         sender_email = os.getenv("EMAIL_SENDER_ADDRESS", "noreply@saas-analytics.com")
         sender_name = os.getenv("EMAIL_SENDER_NAME", "SAAS Analytics")
         html = (
-            "<h2>SaaS Analytics — Test Email</h2>"
+            "<h2>Enterprise Analytics — Test Email</h2>"
             f"<p>Hello! This is a test email confirming Brevo is configured correctly "
             f"for user <b>{context['user_id']}</b>.</p>"
             "<p>If you received this, your nightly briefings will deliver successfully.</p>"
@@ -955,7 +993,7 @@ def send_test_email(
         resp = client.send_transac_email(sib_api_v3_sdk.SendSmtpEmail(
             to=[{"email": to_email}],
             sender={"name": sender_name, "email": sender_email},
-            subject="SaaS Analytics — test email",
+            subject="Enterprise Analytics — test email",
             html_content=html,
         ))
         return {"status": "sent", "message_id": resp.message_id, "to": to_email}
@@ -972,4 +1010,5 @@ def get_audit_log(limit: int = 50, context: dict = Depends(require_role(["manage
         rows = supabase.table("audit_logs").select("*").eq("user_id", context["user_id"]).order("created_at", desc=True).limit(limit).execute()
         return {"logs": rows.data if hasattr(rows, "data") and rows.data else []}
     except Exception as e:
+        logger.error(f"Audit log error: {e}")
         return {"logs": [], "error": str(e)}

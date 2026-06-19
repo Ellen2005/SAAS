@@ -7,7 +7,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, UTC
+from datetime import datetime, timezone
+UTC = timezone.utc
 from typing import Any
 
 from .groq_utils import execute_groq_completion, get_groq_model
