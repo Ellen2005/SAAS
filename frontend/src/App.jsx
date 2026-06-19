@@ -1,6 +1,6 @@
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
-import { LogOut, Shield, Brain } from 'lucide-react';
+import { LogOut, Shield, Brain, Moon, Sun } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { AuthProvider, useAuth } from './lib/authContext.jsx';
 import { LangProvider, useLang } from './lib/i18n.jsx';
@@ -13,6 +13,7 @@ import ReloadPrompt from './components/ReloadPrompt';
 import OfflineBanner from './components/OfflineBanner';
 import InactivityWarning from './components/InactivityWarning';
 import AssistantBot from './components/AssistantBot';
+import './styles/enterprise-theme.css';
 
 const Settings = lazy(() => import('./pages/Settings'));
 const ValidationHistory = lazy(() => import('./pages/ValidationHistory'));
