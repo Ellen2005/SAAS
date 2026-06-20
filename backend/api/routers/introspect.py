@@ -54,6 +54,8 @@ def discover_schema(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=502, detail=f"Introspection failed: {exc}")
 
     _SCHEMA_CACHE[user_id] = schema
