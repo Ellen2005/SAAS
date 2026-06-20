@@ -32,6 +32,7 @@ from .core.auth import require_role, resolve_user_id
 from .services.email_service import send_automated_briefing, verify_unsubscribe_token
 from .core.scheduler import start_scheduler, shutdown_scheduler
 from .services.etl_service import run_user_etl_pipeline, _get_free_local_port, _replace_db_url_host_port, _start_ssh_tunnel, update_sync_status
+from .services.cache_service import get_cached, set_cached, invalidate_user_cache
 from .services.connection_utils import (
     detect_db_type,
     enrich_connection_payload,
@@ -282,6 +283,12 @@ def read_root():
 
 @app.get("/api/summary", response_model=DashboardSummary)
 def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
+    # Try cache first
+    cache_key_str = f"summary:{user_id}"
+    cached = get_cached(cache_key_str)
+    if cached:
+        return cached
+    
     supabase = get_supabase()
     try:
         kpi_resp = supabase.table("kpi_results").select("*").eq("user_id", user_id).order("recorded_at", desc=True).limit(25).execute()
@@ -375,6 +382,8 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
         except Exception:
             summary_dict["kpi_mode"] = {"mode": "auto"}
             summary_dict["snapshot_chart"] = None
+        # Cache result for 2 minutes
+        set_cached(cache_key_str, summary_dict, ttl=120)
         return summary_dict
     except Exception as e:
         logger.error(f"Summary Fetch Error: {e}", exc_info=True)
@@ -384,14 +393,22 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
 
 @app.get("/api/kpis/series")
 def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120):
+    # Try cache first
+    cache_key_str = f"kpi_series:{user_id}:{limit}"
+    cached = get_cached(cache_key_str)
+    if cached:
+        return cached
+    
     supabase = get_supabase()
     try:
+        # Pagination: fetch in chunks if needed
+        fetch_limit = min(800, max(50, limit * 10))
         rows = (
             supabase.table("kpi_results")
             .select("kpi_name, value, recorded_at, source")
             .eq("user_id", user_id)
             .order("recorded_at", desc=True)
-            .limit(max(50, min(800, limit * 10)))
+            .limit(fetch_limit)
             .execute()
         )
         raw = rows.data if hasattr(rows, "data") and rows.data else []
@@ -412,6 +429,9 @@ def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120):
             )
         for key in list(series.keys()):
             series[key] = list(reversed(series[key]))
+        
+        # Cache for 1 minute
+        set_cached(cache_key_str, {"series": series}, ttl=60)
         return {"series": series}
     except Exception as e:
         logger.error(f"KPI series error: {e}")
