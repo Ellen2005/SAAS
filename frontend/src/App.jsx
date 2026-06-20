@@ -155,14 +155,12 @@ function AppShell() {
                   {isManager && (
                     <>
                       <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <Brain size={13} /> AI Analyst
+                        <Brain size={13} /> Analyst
                       </NavLink>
-                      <NavLink to="/executive" className={({ isActive }) => isActive ? 'active' : ''}>Executive</NavLink>
-                      <NavLink to="/data-quality" className={({ isActive }) => isActive ? 'active' : ''}>Data Quality</NavLink>
                       <NavLink to="/explorer" className={({ isActive }) => isActive ? 'active' : ''}>Schema</NavLink>
-                      <NavLink to="/query" className={({ isActive }) => isActive ? 'active' : ''}>{t('nlq_title')}</NavLink>
-                      <NavLink to="/validation" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_validation')}</NavLink>
-                      <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_settings')}</NavLink>
+                      <NavLink to="/query" className={({ isActive }) => isActive ? 'active' : ''}>Ask your data</NavLink>
+                      <NavLink to="/validation" className={({ isActive }) => isActive ? 'active' : ''}>Validation</NavLink>
+                      <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}>Settings</NavLink>
                     </>
                   )}
                   <button 
