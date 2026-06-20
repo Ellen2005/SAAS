@@ -139,6 +139,14 @@ try:
 except Exception:
     pass  # CSRF middleware optional
 
+# Security Hardening
+try:
+    from .middleware.security import CSPMiddleware, RefreshTokenMiddleware
+    app.add_middleware(CSPMiddleware)
+    app.add_middleware(RefreshTokenMiddleware)
+except Exception:
+    pass  # Security middleware optional
+
 # Configure CORS dynamically based on environment
 cors_origins = configure_cors_origins()
 logger.info(f"Configuring CORS for origins: {cors_origins}")
