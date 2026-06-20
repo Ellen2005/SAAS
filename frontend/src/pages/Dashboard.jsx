@@ -129,6 +129,7 @@ const Dashboard = () => {
   const [widgets, setWidgets] = useState([]);
   const [series, setSeries] = useState({});
   const [activeTab, setActiveTab] = useState('overview');
+  const [executiveData, setExecutiveData] = useState(null);
   
   // Refs for cleanup and closure safety
   const fetchDataRef = useRef(null);
@@ -176,6 +177,15 @@ const Dashboard = () => {
     if (user) fetchData();
     return () => { mountedRef.current = false; };
   }, [user, fetchData]);
+
+  // Fetch executive data when executive tab is active
+  useEffect(() => {
+    if (activeTab === 'executive' && user) {
+      apiJson('/api/executive/overview')
+        .then(data => setExecutiveData(data))
+        .catch(() => setExecutiveData(null));
+    }
+  }, [activeTab, user]);
   
   useEffect(() => {
     document.title = 'Dashboard - Enterprise Analytics Platform';
@@ -396,6 +406,92 @@ const Dashboard = () => {
           </>
         );
 
+      case 'executive':
+        return (
+          <div className="ea-card" style={{ marginBottom: 24 }}>
+            <div className="ea-card-body">
+              <h3 style={{ fontSize: '1.1rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                📋 Executive Overview
+              </h3>
+              {executiveData ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
+                    <div className="ea-kpi-card">
+                      <div className="ea-kpi-label">Health Score</div>
+                      <div className="ea-kpi-value" style={{ color: executiveData.health_score >= 70 ? '#10b981' : executiveData.health_score >= 50 ? '#f59e0b' : '#ef4444' }}>
+                        {executiveData.health_score}/100
+                      </div>
+                    </div>
+                    <div className="ea-kpi-card">
+                      <div className="ea-kpi-label">Total KPIs</div>
+                      <div className="ea-kpi-value">{executiveData.kpi_count}</div>
+                    </div>
+                    <div className="ea-kpi-card">
+                      <div className="ea-kpi-label">Normal</div>
+                      <div className="ea-kpi-value" style={{ color: '#10b981' }}>{executiveData.status_summary?.NORMAL || 0}</div>
+                    </div>
+                    <div className="ea-kpi-card">
+                      <div className="ea-kpi-label">Warnings</div>
+                      <div className="ea-kpi-value" style={{ color: '#f59e0b' }}>{executiveData.status_summary?.WARNING || 0}</div>
+                    </div>
+                    <div className="ea-kpi-card">
+                      <div className="ea-kpi-label">Critical</div>
+                      <div className="ea-kpi-value" style={{ color: '#ef4444' }}>{executiveData.status_summary?.CRITICAL || 0}</div>
+                    </div>
+                  </div>
+
+                  {executiveData.risk_indicators && executiveData.risk_indicators.length > 0 && (
+                    <section style={{ marginBottom: 20 }}>
+                      <h4 style={{ marginBottom: 10, color: 'var(--ea-danger)' }}>⚠️ Risk Indicators</h4>
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {executiveData.risk_indicators.map((risk, i) => (
+                          <div key={i} className="ea-alert ea-alert-danger" style={{ margin: 0 }}>
+                            <strong>{risk.category}:</strong> {risk.indicator}
+                            <div style={{ fontSize: '0.82rem', marginTop: 4 }}>Action: {risk.action}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {executiveData.anomalies && executiveData.anomalies.length > 0 && (
+                    <section style={{ marginBottom: 20 }}>
+                      <h4 style={{ marginBottom: 10 }}>Recent Anomalies</h4>
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {executiveData.anomalies.slice(0, 5).map((a) => (
+                          <div key={a.id} className="ea-alert ea-alert-warning" style={{ margin: 0 }}>
+                            <strong>{a.kpi_name?.replace(/_/g, ' ')}</strong>
+                            <span style={{ marginLeft: 8, color: 'var(--ea-text-secondary)' }}>{a.context?.reason}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {executiveData.recent_reports && executiveData.recent_reports.length > 0 && (
+                    <section>
+                      <h4 style={{ marginBottom: 10 }}>Recent Reports</h4>
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        {executiveData.recent_reports.map((r, i) => (
+                          <div key={i} style={{ fontSize: '0.85rem', color: 'var(--ea-text-secondary)' }}>
+                            {r.report_date}: {r.narrative?.slice(0, 100)}...
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
+              ) : (
+                <div className="ea-empty-state">
+                  <div className="ea-empty-state-icon"><BarChart2 size={28} /></div>
+                  <h3 className="ea-empty-state-title">No Executive Data</h3>
+                  <p className="ea-empty-state-description">Sync your data to generate executive insights.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+
       default:
         return null;
     }
@@ -441,9 +537,9 @@ const Dashboard = () => {
 
         {/* Tabs */}
         <div className="ea-tabs">
-          {['overview', 'analytics'].map((tab) => (
+          {['overview', 'analytics', 'executive'].map((tab) => (
             <button key={tab} className={`ea-tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-              {tab === 'overview' ? '📊 Overview' : '🔍 Analytics'}
+              {tab === 'overview' ? '📊 Overview' : tab === 'analytics' ? '🔍 Analytics' : '📋 Executive'}
             </button>
           ))}
         </div>

@@ -1,10 +1,10 @@
 import { supabase } from './supabaseClient'
 
-// Empty VITE_API_URL => same-origin `/api` (Vite dev proxy → backend :8000)
+// Empty VITE_API_URL => same-origin `/api` (Vite dev proxy → backend :5000)
 export const API_URL =
   import.meta.env.VITE_API_URL === ''
     ? ''
-    : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
+    : (import.meta.env.VITE_API_URL || 'http://localhost:5000')
 
 // Cache the session in memory so every apiFetch doesn't await getSession()
 let _cachedSession = null

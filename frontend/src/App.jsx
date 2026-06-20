@@ -77,67 +77,6 @@ function AdminSubNav() {
   );
 }
 
-function DashboardSubNav() {
-  const location = useLocation();
-  if (!location.pathname.startsWith('/dashboard')) return null;
-
-  const links = [
-    { to: '/dashboard', label: 'Overview' },
-    { to: '/executive', label: 'Executive' },
-  ];
-
-  return (
-    <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', padding: '4px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
-      {links.map(link => (
-        <NavLink
-          key={link.to}
-          to={link.to}
-          end={link.to === '/dashboard'}
-          style={({ isActive }) => ({
-            padding: '8px 16px', borderRadius: '8px', fontSize: '0.85rem',
-            textDecoration: 'none', fontWeight: 500,
-            background: isActive ? 'var(--primary-color)' : 'transparent',
-            color: isActive ? 'white' : 'var(--text-secondary)',
-            transition: 'all 0.2s ease',
-          })}
-        >
-          {link.label}
-        </NavLink>
-      ))}
-    </div>
-  );
-}
-
-function ValidationSubNav() {
-  const location = useLocation();
-  if (!location.pathname.startsWith('/validation')) return null;
-
-  const links = [
-    { to: '/validation', label: 'Validation' },
-    { to: '/data-quality', label: 'Data Quality' },
-  ];
-
-  return (
-    <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', padding: '4px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
-      {links.map(link => (
-        <NavLink
-          key={link.to}
-          to={link.to}
-          end={link.to === '/validation'}
-          style={({ isActive }) => ({
-            padding: '8px 16px', borderRadius: '8px', fontSize: '0.85rem',
-            textDecoration: 'none', fontWeight: 500,
-            background: isActive ? 'var(--primary-color)' : 'transparent',
-            color: isActive ? 'white' : 'var(--text-secondary)',
-            transition: 'all 0.2s ease',
-          })}
-        >
-          {link.label}
-        </NavLink>
-      ))}
-    </div>
-  );
-}
 
 function AppShell() {
   const { user, departmentName, loading, isAdmin, isManager } = useAuth();
@@ -219,11 +158,9 @@ function AppShell() {
                       <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <Brain size={13} /> Analyst
                       </NavLink>
-                      <NavLink to="/executive" className={({ isActive }) => isActive ? 'active' : ''}>Executive</NavLink>
                       <NavLink to="/explorer" className={({ isActive }) => isActive ? 'active' : ''}>Schema</NavLink>
                       <NavLink to="/query" className={({ isActive }) => isActive ? 'active' : ''}>Ask your data</NavLink>
                       <NavLink to="/validation" className={({ isActive }) => isActive ? 'active' : ''}>Validation</NavLink>
-                      <NavLink to="/data-quality" className={({ isActive }) => isActive ? 'active' : ''} style={{ fontSize: '0.8rem', opacity: 0.9 }}>Quality</NavLink>
                       <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}>Settings</NavLink>
                     </>
                   )}
@@ -244,8 +181,6 @@ function AppShell() {
 
               <main style={{ padding: '32px', maxWidth: '1440px', margin: '0 auto' }}>
                 {isAdmin && <AdminSubNav />}
-                <DashboardSubNav />
-                <ValidationSubNav />
                 <Suspense fallback={<PageLoader />}>
                   <Routes>
                     <Route path="/dashboard" element={<Dashboard />} />

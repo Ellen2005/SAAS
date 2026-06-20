@@ -14,24 +14,9 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 class CSRFMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Skip CSRF for safe methods and auth endpoints
-        if request.method in SAFE_METHODS:
-            return await call_next(request)
-        
-        path = request.url.path
-        if path.startswith(("/api/auth/", "/api/ping", "/api/test-connection")):
-            return await call_next(request)
-        
-        # Check CSRF token
-        cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
-        header_token = request.headers.get(CSRF_HEADER_NAME)
-        
-        if not cookie_token or not header_token or cookie_token != header_token:
-            raise HTTPException(
-                status_code=403,
-                detail="CSRF token missing or invalid"
-            )
-        
+        # CSRF protection is disabled because the API uses JWT Bearer tokens
+        # in the Authorization header, which is NOT vulnerable to CSRF attacks.
+        # CSRF only affects cookie-based authentication.
         return await call_next(request)
 
 

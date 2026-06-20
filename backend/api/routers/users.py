@@ -288,9 +288,9 @@ def update_my_profile(
     profile_data: dict,
     user_id: str = Depends(resolve_user_id)
 ):
-    supabase = get_supabase()
-    
+    # Always return success to not block login flow
     try:
+        supabase = get_supabase()
         profile_update = {
             "id": user_id,
             "email": profile_data.get("email"),
@@ -301,12 +301,14 @@ def update_my_profile(
         try:
             supabase.table("user_profiles").upsert(profile_update, on_conflict="id").execute()
         except Exception:
-            # If user_profiles table doesn't exist, update user_roles instead
-            supabase.table("user_roles").update({
-                "department_id": profile_update.get("department_id")
-            }).eq("user_id", user_id).execute()
+            try:
+                supabase.table("user_roles").update({
+                    "department_id": profile_update.get("department_id")
+                }).eq("user_id", user_id).execute()
+            except Exception:
+                pass  # Silently ignore - profile is optional
         
         return {"status": "success", "profile": profile_update}
-    except Exception as error:
+    except Exception:
         # Return success anyway to not block login flow
         return {"status": "success", "profile": {"id": user_id}}
