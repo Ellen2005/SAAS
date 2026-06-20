@@ -132,6 +132,13 @@ try:
 except Exception:
     pass  # Rate limiter optional
 
+# CSRF Protection
+try:
+    from .middleware.csrf import CSRFMiddleware
+    app.add_middleware(CSRFMiddleware)
+except Exception:
+    pass  # CSRF middleware optional
+
 # Configure CORS dynamically based on environment
 cors_origins = configure_cors_origins()
 logger.info(f"Configuring CORS for origins: {cors_origins}")
