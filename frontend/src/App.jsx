@@ -157,9 +157,11 @@ function AppShell() {
                       <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <Brain size={13} /> Analyst
                       </NavLink>
+                      <NavLink to="/executive" className={({ isActive }) => isActive ? 'active' : ''}>Executive</NavLink>
                       <NavLink to="/explorer" className={({ isActive }) => isActive ? 'active' : ''}>Schema</NavLink>
                       <NavLink to="/query" className={({ isActive }) => isActive ? 'active' : ''}>Ask your data</NavLink>
                       <NavLink to="/validation" className={({ isActive }) => isActive ? 'active' : ''}>Validation</NavLink>
+                      <NavLink to="/data-quality" className={({ isActive }) => isActive ? 'active' : ''} style={{ fontSize: '0.8rem', opacity: 0.9 }}>Quality</NavLink>
                       <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}>Settings</NavLink>
                     </>
                   )}
