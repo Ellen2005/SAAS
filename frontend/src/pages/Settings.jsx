@@ -150,7 +150,8 @@ const Settings = () => {
       return `mssql+pymssql://${user}:${pass}@${hostPart}:${portPart}/${dbPart}`;
     }
     if (dbType === 'oracle') {
-      return `oracle+oracledb://${user}:${pass}@${hostPart}:${portPart}/${dbPart}`;
+      // Oracle PDBs require service_name syntax (not SID)
+      return `oracle+oracledb://${user}:${pass}@${hostPart}:${portPart}/?service_name=${dbPart}`;
     }
     return `postgresql+psycopg2://${user}:${pass}@${hostPart}:${portPart}/${dbPart}`;
   };

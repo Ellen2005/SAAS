@@ -47,9 +47,26 @@ def normalize_credentials(credentials: str, db_type: str) -> str:
         return f"mssql+pymssql://{cred.split('://', 1)[-1]}" if "://" not in cred else cred
     if db_type == "oracle":
         if lowered.startswith("oracle+"):
+            # Convert SID-based URLs to service_name for Oracle PDBs
+            if "?service_name=" not in lowered:
+                # Check if it has a path (SID) instead of query param
+                parsed = urlparse(cred)
+                path = parsed.path or ""
+                if path and path != "/" and "/" not in path:
+                    # This is a SID - convert to service_name
+                    sid = path.lstrip("/")
+                    cred = cred.replace(f"/{sid}", f"/?service_name={sid}")
             return cred
         if lowered.startswith("oracle://"):
-            return cred.replace("oracle://", "oracle+oracledb://", 1)
+            cred = cred.replace("oracle://", "oracle+oracledb://", 1)
+            # Convert SID to service_name
+            if "?service_name=" not in cred.lower():
+                parsed = urlparse(cred)
+                path = parsed.path or ""
+                if path and path != "/" and "/" not in path:
+                    sid = path.lstrip("/")
+                    cred = cred.replace(f"/{sid}", f"/?service_name={sid}")
+            return cred
         return f"oracle+oracledb://{cred.split('://', 1)[-1]}" if "://" not in cred else cred
     if db_type == "postgresql" and lowered.startswith("postgres://"):
         return cred.replace("postgres://", "postgresql://", 1)
@@ -130,5 +147,10 @@ def sqlalchemy_engine_kwargs(credentials: str, db_type: str) -> dict:
             "pool_pre_ping": True,
         }
     if db_type == "oracle":
-        return {"connect_args": {"connect_timeout": 10}, "pool_pre_ping": True}
+        return {
+            "connect_args": {
+                "connect_timeout": 10,
+            },
+            "pool_pre_ping": True,
+        }
     return {"connect_args": {"connect_timeout": 10}, "pool_pre_ping": True}
