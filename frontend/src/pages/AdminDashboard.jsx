@@ -16,13 +16,14 @@ const AdminDashboard = () => {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [summary, validation] = await Promise.all([
-          apiJson('/api/admin/summary'),
+        // Load validation first (faster), then summary
+        const [validation, summary] = await Promise.all([
           apiJson('/api/admin/validation/scorecard'),
+          apiJson('/api/admin/summary'),
         ]);
 
-        setData(summary);
         setScorecard(validation.scorecard || []);
+        setData(summary);
 
         if (summary.timeline?.length) {
           setSelectedPeriod(summary.timeline[summary.timeline.length - 1]);
@@ -42,17 +43,16 @@ const AdminDashboard = () => {
     setSyncing(true);
     try {
       await fetch('/api/etl/trigger', { method: 'POST' });
-      // Wait a moment then reload data
+      // Wait for ETL to complete, then reload
       setTimeout(() => {
-        setLoading(true);
         const loadData = async () => {
           try {
-            const [summary, validation] = await Promise.all([
-              apiJson('/api/admin/summary'),
+            const [validation, summary] = await Promise.all([
               apiJson('/api/admin/validation/scorecard'),
+              apiJson('/api/admin/summary'),
             ]);
-            setData(summary);
             setScorecard(validation.scorecard || []);
+            setData(summary);
             if (summary.timeline?.length) {
               setSelectedPeriod(summary.timeline[summary.timeline.length - 1]);
             }
@@ -60,10 +60,11 @@ const AdminDashboard = () => {
             console.error('Failed to reload admin dashboard', error);
           } finally {
             setLoading(false);
+            setSyncing(false);
           }
         };
         loadData();
-      }, 2000);
+      }, 3000);
     } catch (error) {
       console.error('Sync failed', error);
       setSyncing(false);
