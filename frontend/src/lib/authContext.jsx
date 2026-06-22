@@ -31,7 +31,7 @@ export function AuthProvider({ children }) {
   }, [clearCache]);
 
   // Fetch role from backend — returns the resolved role
-  const fetchUserRole = useCallback(async (currentUser): Promise<string> => {
+  const fetchUserRole = useCallback(async (currentUser) => {
     let resolvedRole = 'manager';
     try {
       const data = await apiJson('/api/users/me');

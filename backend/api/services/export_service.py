@@ -140,6 +140,44 @@ def export_kpis_excel(user_id: str, supabase) -> bytes:
         raise
 
 
+def export_analysis_runs_csv(user_id: str, supabase) -> bytes:
+    """Export analysis runs as CSV."""
+    try:
+        rows = (
+            supabase.table("analysis_runs")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("started_at", desc=True)
+            .limit(1000)
+            .execute()
+        )
+        analyses = rows.data if hasattr(rows, "data") and rows.data else []
+        
+        if not analyses:
+            return b"No analysis data available"
+        
+        # Create CSV
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=[
+            "id", "goal_text", "status", "result_summary", "started_at", "completed_at"
+        ])
+        writer.writeheader()
+        for analysis in analyses:
+            writer.writerow({
+                "id": analysis.get("id", ""),
+                "goal_text": analysis.get("goal_text", ""),
+                "status": analysis.get("status", ""),
+                "result_summary": analysis.get("result_summary", ""),
+                "started_at": analysis.get("started_at", ""),
+                "completed_at": analysis.get("completed_at", ""),
+            })
+        
+        return output.getvalue().encode("utf-8")
+    except Exception as e:
+        logger.error(f"Analysis CSV export error: {e}")
+        raise
+
+
 def export_report_as_excel(report: dict, supabase) -> bytes:
     """Export a report as Excel with narrative and KPIs."""
     if not OPENPYXL_AVAILABLE:
