@@ -8,6 +8,10 @@ import { useLang } from '../lib/i18n';
 import ValidationWarnings from '../components/ValidationWarnings';
 import ChartRenderer from '../components/ChartRenderer';
 import MapVisualization from '../components/MapVisualization';
+import ErrorBoundary from '../components/ErrorBoundary';
+import OnboardingTour from '../components/OnboardingTour';
+import DashboardCustomizer from '../components/DashboardCustomizer';
+import { useRealTimeData } from '../hooks/useRealTimeData';
 
 const DASHBOARD_CACHE_KEY = 'saas.dashboard.lastSummary.v2';
 const METRICS_CACHE_KEY = 'saas.dashboard.metricsCache.v1';
@@ -140,6 +144,8 @@ const Dashboard = () => {
   const [dateRange, setDateRange] = useState('30'); // days
   const [selectedKpi, setSelectedKpi] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [showCustomizer, setShowCustomizer] = useState(false);
+  const [dashboardLayout, setDashboardLayout] = useState(null);
   
   // Refs for cleanup and closure safety
   const fetchDataRef = useRef(null);
@@ -152,6 +158,19 @@ const Dashboard = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Real-time data streaming
+  useRealTimeData(user?.id, {
+    onData: (data) => {
+      if (data.type === 'kpi-update') {
+        // Refresh dashboard when KPIs update
+        fetchDataRef.current?.();
+      }
+    },
+    onError: (err) => {
+      console.log('Real-time connection lost, falling back to polling');
+    },
+  });
 
   // Keepalive - consume response properly
   useEffect(() => {
@@ -217,6 +236,18 @@ const Dashboard = () => {
         intervalRef.current = null;
       }
     };
+  }, []);
+
+  // Load saved dashboard layout
+  useEffect(() => {
+    const saved = localStorage.getItem('dashboard_layout');
+    if (saved) {
+      try {
+        setDashboardLayout(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse saved layout:', e);
+      }
+    }
   }, []);
 
   // ── Forecast chart data ───────────────────────────────────────
@@ -339,6 +370,11 @@ const Dashboard = () => {
     setSelectedKpi(kpi);
     // Navigate to analytics tab to see detailed view
     setActiveTab('analytics');
+  }, []);
+
+  const handleSaveLayout = useCallback((layout) => {
+    setDashboardLayout(layout);
+    localStorage.setItem('dashboard_layout', JSON.stringify(layout));
   }, []);
 
   // ── Tab content ───────────────────────────────────────────────
@@ -698,6 +734,16 @@ const Dashboard = () => {
               {tab === 'overview' ? '📊 Overview' : tab === 'analytics' ? '🔍 Analytics' : '📋 Executive'}
             </button>
           ))}
+          {isManager && (
+            <button
+              className="ea-tab"
+              onClick={() => setShowCustomizer(true)}
+              style={{ marginLeft: 'auto' }}
+              title="Customize Dashboard"
+            >
+              ⚙️ Customize
+            </button>
+          )}
         </div>
 
         {!hasData && isManager && (
@@ -712,6 +758,20 @@ const Dashboard = () => {
         )}
 
         {renderTabContent()}
+        
+        {/* Onboarding Tour */}
+        <OnboardingTour
+          onComplete={() => console.log('Onboarding completed')}
+          onSkip={() => console.log('Onboarding skipped')}
+        />
+
+        {/* Dashboard Customizer */}
+        <DashboardCustomizer
+          isOpen={showCustomizer}
+          onClose={() => setShowCustomizer(false)}
+          onSave={handleSaveLayout}
+          currentLayout={dashboardLayout}
+        />
         
         <style>{`@keyframes ea-spin{100%{transform:rotate(360deg)}}@keyframes ea-pulse{0%,100%{opacity:1}50%{opacity:0.5}}
           @media (max-width: 768px) {
