@@ -30,11 +30,13 @@ export function AuthProvider({ children }) {
     setDepartmentName(null);
   }, [clearCache]);
 
-  // Fetch role from backend — non-blocking, runs after UI is already shown
-  const fetchUserRole = useCallback(async (currentUser) => {
+  // Fetch role from backend — returns the resolved role
+  const fetchUserRole = useCallback(async (currentUser): Promise<string> => {
+    let resolvedRole = 'manager';
     try {
       const data = await apiJson('/api/users/me');
-      setRole(data.role || 'manager');
+      resolvedRole = data.role || 'manager';
+      setRole(resolvedRole);
       setDepartmentId(data.department_id ?? null);
       setDepartmentName(data.department_name ?? null);
       
@@ -57,7 +59,7 @@ export function AuthProvider({ children }) {
       // Cache role so next load is instant
       try {
         localStorage.setItem('saas.user.role.v1', JSON.stringify({
-          role: data.role || 'manager',
+          role: resolvedRole,
           department_id: data.department_id,
           department_name: data.department_name,
         }));
@@ -68,14 +70,16 @@ export function AuthProvider({ children }) {
         const cached = localStorage.getItem('saas.user.role.v1');
         if (cached) {
           const parsed = JSON.parse(cached);
-          setRole(parsed.role || 'manager');
+          resolvedRole = parsed.role || 'manager';
+          setRole(resolvedRole);
           setDepartmentId(parsed.department_id ?? null);
           setDepartmentName(parsed.department_name ?? null);
-          return;
+          return resolvedRole;
         }
       } catch { /* ignore */ }
       setRole('manager');
     }
+    return resolvedRole;
   }, []);
 
   useEffect(() => {
@@ -87,18 +91,34 @@ export function AuthProvider({ children }) {
         if (session?.user) {
           setUser(session.user);
           // Try to restore cached role instantly before the API responds
+          let roleResolved = false;
+          let cachedRole = 'manager';
           try {
             const cached = localStorage.getItem('saas.user.role.v1');
             if (cached) {
               const parsed = JSON.parse(cached);
-              setRole(parsed.role || 'manager');
+              cachedRole = parsed.role || 'manager';
+              setRole(cachedRole);
               setDepartmentId(parsed.department_id ?? null);
               setDepartmentName(parsed.department_name ?? null);
+              roleResolved = true;
             }
           } catch { /* ignore */ }
-          setLoading(false);
-          // Fetch fresh role in background — does NOT block UI
-          fetchUserRole(session.user);
+          
+          // Always fetch fresh role, but only block UI if no cache
+          if (roleResolved) {
+            // Cache found — UI can render immediately with correct role
+            setLoading(false);
+            // Fetch fresh role in background to update if needed (non-blocking)
+            fetchUserRole(session.user);
+          } else {
+            // No cache — fetch role before allowing UI to render
+            fetchUserRole(session.user).then(() => {
+              setLoading(false);
+            }).catch(() => {
+              setLoading(false);
+            });
+          }
         } else {
           resetAuthState();
           setLoading(false);
@@ -119,10 +139,13 @@ export function AuthProvider({ children }) {
           setUser(session.user);
           if (!resolvedRef.current) {
             resolvedRef.current = true;
+          }
+          // Always refresh role on auth change — block UI until role is resolved
+          try {
+            await fetchUserRole(session.user);
+          } finally {
             setLoading(false);
           }
-          // Always refresh role on auth change (non-blocking)
-          fetchUserRole(session.user);
         } else {
           resetAuthState();
           if (!resolvedRef.current) {
