@@ -352,7 +352,7 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                         last_refreshed = str(reports[0]["report_date"])
             
             if show_analysis:
-                narrative = f"**Latest Analysis:** {analysis.get('goal_text', 'Analysis completed')}\n\n{analysis.get('result_summary', 'Analysis completed successfully.')}"
+                narrative = f"Latest Analysis: {analysis.get('goal_text', 'Analysis completed')}\n\n{analysis.get('result_summary', 'Analysis completed successfully.')}"
                 last_refreshed = analysis_date[:10] if analysis_date else "Recent"
         elif hasattr(report_resp, "data") and report_resp.data:
             reports = [row for row in report_resp.data if not _is_legacy_demo_report(row)]
@@ -460,6 +460,7 @@ def get_reports_history(limit: int = 50, user_id: str = Depends(resolve_user_id)
 @app.get("/api/reports/{report_id}/download")
 def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
     from fastapi.responses import Response
+    from .services.executive_report_service import render_html_to_pdf
     from .services.email_service import generate_professional_html_email
     supabase = get_supabase()
 
@@ -501,6 +502,22 @@ def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
         report_type="Saved",
         report_period=str(report["report_date"]),
     )
+
+    # Try to render as PDF, fall back to HTML with print helper
+    try:
+        pdf_bytes = render_html_to_pdf(html)
+        # Check if we got actual PDF bytes (not HTML fallback)
+        if pdf_bytes[:4] == b'%PDF':
+            filename = f"report-{report['report_date']}.pdf"
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+    except Exception:
+        pass
+
+    # Fallback to HTML with print-to-PDF helper
     print_helper = (
         "<script>window.addEventListener('load',()=>{setTimeout(()=>window.print(),300)});</script>"
         "<style>@media print{.no-print{display:none!important}}</style>"
@@ -513,6 +530,55 @@ def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
         media_type="text/html",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.post("/api/reports/generate")
+def generate_report(background_tasks: BackgroundTasks, context: dict = Depends(require_role(["manager", "admin"]))):
+    """Generate a new AI narrative report based on current KPI data."""
+    supabase = get_supabase()
+    user_id = context["user_id"]
+    try:
+        from .services.etl_service import run_user_etl_pipeline
+        from .services.narrative_service import generate_live_narrative
+        from datetime import date
+        
+        # Run ETL first to get fresh data
+        run_user_etl_pipeline(user_id)
+        
+        # Fetch latest KPIs
+        kpi_rows = supabase.table("kpi_results").select("*").eq("user_id", user_id).order("recorded_at", desc=True).limit(20).execute()
+        kpis = kpi_rows.data if hasattr(kpi_rows, "data") and kpi_rows.data else []
+        
+        # Fetch anomalies
+        anomaly_rows = supabase.table("anomaly_records").select("*").eq("user_id", user_id).order("detected_at", desc=True).limit(10).execute()
+        anomalies = anomaly_rows.data if hasattr(anomaly_rows, "data") and anomaly_rows.data else []
+        
+        report_date = date.today().isoformat()
+        
+        # Generate narrative
+        narrative = generate_live_narrative(
+            kpi_data=kpis,
+            anomaly_data=anomalies,
+            tone="insight-driven",
+            company_name=os.getenv("INSTITUTION_NAME", "CNPS"),
+            report_period=report_date,
+            report_type="Daily",
+        )
+        
+        # Save as daily report
+        supabase.table("daily_reports").insert({
+            "user_id": user_id,
+            "narrative": narrative,
+            "report_date": report_date,
+        }).execute()
+        
+        # Invalidate cache
+        invalidate_user_cache(user_id)
+        
+        return {"status": "generated", "report_date": report_date}
+    except Exception as e:
+        logger.error(f"Report generation error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
 
 
 @app.patch("/api/reports/{report_id}")

@@ -53,7 +53,7 @@ const Settings = () => {
 
   const [themeMode, setThemeMode] = useState(() => {
     try {
-      return localStorage.getItem('saas.theme') || 'dark';
+      return localStorage.getItem('ea-theme') || 'dark';
     } catch {
       return 'dark';
     }
@@ -61,8 +61,12 @@ const Settings = () => {
 
   useEffect(() => {
     try {
-      document.documentElement.classList.toggle('light-theme', themeMode === 'light');
-      localStorage.setItem('saas.theme', themeMode);
+      if (themeMode === 'light') {
+        document.documentElement.classList.add('light-theme');
+      } else {
+        document.documentElement.classList.remove('light-theme');
+      }
+      localStorage.setItem('ea-theme', themeMode);
     } catch {
       // Ignore when localStorage is unavailable.
     }

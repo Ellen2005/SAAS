@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, Search, BarChart2, Shield, Activity } from 'lucide-react';
+import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, Search, BarChart2, Shield, Activity, Download, CheckCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 import { useAuth } from '../lib/authContext';
@@ -124,6 +124,7 @@ const Dashboard = () => {
   const [data, setData] = useState(() => readCache(DASHBOARD_CACHE_KEY) || EMPTY_DATA);
   const [loading, setLoading] = useState(!readCache(DASHBOARD_CACHE_KEY));
   const [syncing, setSyncing] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Syncing...');
   const [forecasts, setForecasts] = useState([]);
   const [widgets, setWidgets] = useState([]);
@@ -296,6 +297,26 @@ const Dashboard = () => {
       .catch(() => setSyncing(false));
   }, [syncing]);
 
+  // ── Generate Report handler ──────────────────────────────────
+  const handleGenerateReport = useCallback(() => {
+    if (reporting || !fetchDataRef.current) return;
+    setReporting(true);
+    setStatusMessage('Generating report...');
+    
+    apiFetch('/api/reports/generate', { method: 'POST' })
+      .then(() => {
+        setTimeout(() => {
+          if (fetchDataRef.current) fetchDataRef.current();
+          setReporting(false);
+          setStatusMessage('Report generated');
+        }, 3000);
+      })
+      .catch((err) => {
+        console.error('Report generation error:', err);
+        setReporting(false);
+      });
+  }, [reporting]);
+
   // ── Tab content ───────────────────────────────────────────────
   const renderTabContent = () => {
     switch (activeTab) {
@@ -343,17 +364,25 @@ const Dashboard = () => {
       case 'analytics':
         return (
           <>
+            {/* AI Narrative - Clean without asterisks */}
             {data.narrative && (
               <section className="ea-card" style={{ marginBottom: 24, borderLeft: '4px solid var(--ea-primary)' }}>
                 <div className="ea-card-body">
                   <h3 style={{ fontSize: '1.1rem', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Sparkles size={18} color="var(--ea-primary)" /> AI Narrative
                   </h3>
-                  <p style={{ fontSize: '1rem', lineHeight: 1.7 }}>{data.narrative}</p>
+                  <div style={{ fontSize: '1rem', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                    {data.narrative
+                      .replace(/\*\*(.*?)\*\*/g, '$1')
+                      .replace(/\*(.*?)\*/g, '$1')
+                      .replace(/__(.*?)__/g, '$1')
+                    }
+                  </div>
                 </div>
               </section>
             )}
 
+            {/* Forecasts Chart */}
             {chartData.length > 0 && forecastKpiNames.length > 0 && (
               <section className="ea-chart-container" style={{ marginBottom: 24 }}>
                 <h3 className="ea-chart-title">
@@ -374,6 +403,7 @@ const Dashboard = () => {
               </section>
             )}
 
+            {/* Anomalies */}
             {data.anomalies.length > 0 && (
               <section className="ea-card" style={{ borderLeft: '4px solid var(--ea-danger)', marginBottom: 24 }}>
                 <div className="ea-card-body">
@@ -394,8 +424,10 @@ const Dashboard = () => {
               </section>
             )}
 
+            {/* Validation warnings */}
             {data.validation?.length > 0 && <ValidationWarnings validations={data.validation} />}
 
+            {/* Empty state */}
             {!data.narrative && !chartData.length && !data.anomalies.length && (
               <div className="ea-empty-state">
                 <div className="ea-empty-state-icon"><BarChart2 size={28} /></div>
@@ -518,6 +550,11 @@ const Dashboard = () => {
             <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/reports')}>
               <FileText size={15} /> Reports
             </button>
+            {/* Generate Report Button - Always visible */}
+            <button className="ea-btn ea-btn-primary" onClick={handleGenerateReport} disabled={reporting || syncing} style={{ background: 'linear-gradient(135deg, var(--ea-primary), #8b5cf6)' }}>
+              <FileText size={15} style={{ animation: reporting ? 'ea-pulse 1s ease-in-out infinite' : 'none' }} />
+              {reporting ? 'Generating...' : 'Generate Report'}
+            </button>
             {isManager && (
               <>
                 <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/query')}>
@@ -526,7 +563,7 @@ const Dashboard = () => {
                 <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/reports/custom')}>
                   <Sparkles size={15} /> Custom Report
                 </button>
-                <button className="ea-btn ea-btn-primary" onClick={handleSync} disabled={syncing}>
+                <button className="ea-btn ea-btn-secondary" onClick={handleSync} disabled={syncing}>
                   <RefreshCcw size={15} style={{ animation: syncing ? 'ea-spin 1s linear infinite' : 'none' }} />
                   {syncing ? statusMessage : 'Sync Now'}
                 </button>
@@ -557,7 +594,7 @@ const Dashboard = () => {
 
         {renderTabContent()}
         
-        <style>{'@keyframes ea-spin{100%{transform:rotate(360deg)}}'}</style>
+        <style>{'@keyframes ea-spin{100%{transform:rotate(360deg)}}@keyframes ea-pulse{0%,100%{opacity:1}50%{opacity:0.5}}'}</style>
       </div>
     </DashboardErrorBoundary>
   );

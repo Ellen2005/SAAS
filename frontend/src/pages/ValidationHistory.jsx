@@ -57,7 +57,8 @@ const ValidationHistory = () => {
         </p>
       </header>
 
-      <section className="glass-panel">
+      <section className="ea-card">
+        <div className="ea-card-body">
         <div style={{ display: 'grid', gap: '12px' }}>
           {logs.map((log) => (
             <div
@@ -90,8 +91,9 @@ const ValidationHistory = () => {
           ))}
 
           {logs.length === 0 && (
-            <p style={{ color: 'var(--text-secondary)' }}>No validation logs yet. Run a sync to populate this history.</p>
+            <p style={{ color: 'var(--ea-text-secondary)' }}>No validation logs yet. Run a sync to populate this history.</p>
           )}
+        </div>
         </div>
       </section>
     </div>
