@@ -392,9 +392,9 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
 
 
 @app.get("/api/kpis/series")
-def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120):
+def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120, days: int = None):
     # Try cache first
-    cache_key_str = f"kpi_series:{user_id}:{limit}"
+    cache_key_str = f"kpi_series:{user_id}:{limit}:{days}"
     cached = get_cached(cache_key_str)
     if cached:
         return cached
@@ -403,14 +403,21 @@ def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120):
     try:
         # Pagination: fetch in chunks if needed
         fetch_limit = min(800, max(50, limit * 10))
-        rows = (
+        query = (
             supabase.table("kpi_results")
             .select("kpi_name, value, recorded_at, source")
             .eq("user_id", user_id)
             .order("recorded_at", desc=True)
             .limit(fetch_limit)
-            .execute()
         )
+        
+        # Apply date range filter if days parameter is provided
+        if days and days > 0:
+            from datetime import datetime, timedelta
+            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+            query = query.gte("recorded_at", cutoff_date)
+        
+        rows = query.execute()
         raw = rows.data if hasattr(rows, "data") and rows.data else []
         series: dict[str, list[dict]] = {}
         for row in raw:
@@ -710,16 +717,23 @@ def get_etl_status(user_id: str = Depends(resolve_user_id)):
 
 
 @app.get("/api/forecasts")
-def get_forecasts(user_id: str = Depends(resolve_user_id)):
+def get_forecasts(user_id: str = Depends(resolve_user_id), days: int = None):
     supabase = get_supabase()
     try:
-        rows = (
+        query = (
             supabase.table("kpi_forecasts")
             .select("*")
             .eq("user_id", user_id)
             .order("forecast_date")
-            .execute()
         )
+        
+        # Apply date range filter if days parameter is provided
+        if days and days > 0:
+            from datetime import datetime, timedelta
+            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+            query = query.gte("forecast_date", cutoff_date)
+        
+        rows = query.execute()
         raw = rows.data if hasattr(rows, "data") and rows.data else []
         filtered = [
             r

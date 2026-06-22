@@ -131,6 +131,7 @@ const Dashboard = () => {
   const [series, setSeries] = useState({});
   const [activeTab, setActiveTab] = useState('overview');
   const [executiveData, setExecutiveData] = useState(null);
+  const [dateRange, setDateRange] = useState('30'); // days
   
   // Refs for cleanup and closure safety
   const fetchDataRef = useRef(null);
@@ -149,7 +150,7 @@ const Dashboard = () => {
       if (!user) return;
       const [result, forecastResult, widgetResult] = await Promise.all([
         apiJson('/api/summary'),
-        apiJson('/api/forecasts'),
+        apiJson(`/api/forecasts?days=${dateRange}`),
         apiJson('/api/dashboard/widgets').catch(() => ({ widgets: [] })),
       ]);
       if (!mountedRef.current) return;
@@ -157,7 +158,7 @@ const Dashboard = () => {
       writeCache(DASHBOARD_CACHE_KEY, result);
       setForecasts(forecastResult.forecasts || []);
       setWidgets(widgetResult.widgets || []);
-      const seriesResult = await apiJson('/api/kpis/series?limit=30').catch(() => ({ series: {} }));
+      const seriesResult = await apiJson(`/api/kpis/series?limit=30&days=${dateRange}`).catch(() => ({ series: {} }));
       if (!mountedRef.current) return;
       setSeries(seriesResult.series || {});
     } catch (err) {
@@ -177,7 +178,7 @@ const Dashboard = () => {
   useEffect(() => {
     if (user) fetchData();
     return () => { mountedRef.current = false; };
-  }, [user, fetchData]);
+  }, [user, fetchData, dateRange]);
 
   // Fetch executive data when executive tab is active
   useEffect(() => {
@@ -546,10 +547,36 @@ const Dashboard = () => {
                 : 'No report generated yet'}
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/reports')}>
-              <FileText size={15} /> Reports
-            </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--ea-bg-hover)', borderRadius: 8, border: '1px solid var(--ea-border)' }}>
+            {[
+              { value: '7', label: '7D' },
+              { value: '30', label: '30D' },
+              { value: '90', label: '90D' },
+              { value: '365', label: '1Y' },
+            ].map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setDateRange(option.value)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: dateRange === option.value ? 'var(--ea-primary)' : 'transparent',
+                  color: dateRange === option.value ? 'white' : 'var(--ea-text-primary)',
+                  fontWeight: 500,
+                  fontSize: '0.8rem',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/reports')}>
+            <FileText size={15} /> Reports
+          </button>
             {/* Generate Report Button - Always visible */}
             <button className="ea-btn ea-btn-primary" onClick={handleGenerateReport} disabled={reporting || syncing} style={{ background: 'linear-gradient(135deg, var(--ea-primary), #8b5cf6)' }}>
               <FileText size={15} style={{ animation: reporting ? 'ea-pulse 1s ease-in-out infinite' : 'none' }} />
