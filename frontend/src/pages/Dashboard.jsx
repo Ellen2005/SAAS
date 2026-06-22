@@ -7,6 +7,7 @@ import { apiFetch, apiJson, API_URL } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import ValidationWarnings from '../components/ValidationWarnings';
 import ChartRenderer from '../components/ChartRenderer';
+import MapVisualization from '../components/MapVisualization';
 
 const DASHBOARD_CACHE_KEY = 'saas.dashboard.lastSummary.v2';
 const METRICS_CACHE_KEY = 'saas.dashboard.metricsCache.v1';
@@ -36,7 +37,7 @@ const SYNC_STATUS_LABELS = {
 };
 
 // ─── Reusable Enterprise KPI Card ──────────────────────────────────────────
-const MetricCard = ({ label, value, delta, status, icon, color, sparklineData, format }) => {
+const MetricCard = ({ label, value, delta, status, icon, color, sparklineData, format, onClick }) => {
   const fmt = format || ((v) => {
     if (v == null) return '—';
     const num = Number(v);
@@ -46,11 +47,16 @@ const MetricCard = ({ label, value, delta, status, icon, color, sparklineData, f
     return num.toLocaleString('fr-FR', { maximumFractionDigits: 0 });
   });
   const deltaDisplay = delta != null && !isNaN(delta) && delta !== 0;
-  const deltaColor = delta > 0 ? '#10b981' : delta < 0 ? '#ef4444' : '#475569';
   const statusColor = status === 'CRITICAL' ? '#ef4444' : status === 'WARNING' ? '#f59e0b' : '#10b981';
 
   return (
-    <div className="ea-kpi-card" role="region" aria-label={`KPI Card: ${label}`}>
+    <div 
+      className="ea-kpi-card" 
+      role="region" 
+      aria-label={`KPI Card: ${label}`}
+      onClick={onClick}
+      style={{ cursor: onClick ? 'pointer' : 'default' }}
+    >
       <div className="ea-kpi-label">{label}</div>
       <div className="ea-kpi-value">{fmt(value)}</div>
       {deltaDisplay && (
@@ -132,11 +138,20 @@ const Dashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [executiveData, setExecutiveData] = useState(null);
   const [dateRange, setDateRange] = useState('30'); // days
+  const [selectedKpi, setSelectedKpi] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   
   // Refs for cleanup and closure safety
   const fetchDataRef = useRef(null);
   const intervalRef = useRef(null);
   const mountedRef = useRef(true);
+
+  // Handle responsive layout
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Keepalive - consume response properly
   useEffect(() => {
@@ -170,7 +185,7 @@ const Dashboard = () => {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [user]);
+  }, [user, dateRange]);
   
   // Store fetchData in ref for polling
   fetchDataRef.current = fetchData;
@@ -256,6 +271,7 @@ const Dashboard = () => {
       delta: k.dod_pct,
       status: k.status,
       sparklineData: series[k.kpi_name] || [],
+      kpi_name: k.kpi_name,
     }));
   }, [data.kpis, series]);
 
@@ -318,6 +334,13 @@ const Dashboard = () => {
       });
   }, [reporting]);
 
+  // ── KPI drill-down handler ────────────────────────────────────
+  const handleKpiClick = useCallback((kpi) => {
+    setSelectedKpi(kpi);
+    // Navigate to analytics tab to see detailed view
+    setActiveTab('analytics');
+  }, []);
+
   // ── Tab content ───────────────────────────────────────────────
   const renderTabContent = () => {
     switch (activeTab) {
@@ -328,15 +351,15 @@ const Dashboard = () => {
               <section style={{ marginBottom: 24 }}>
                 <h3 style={{ fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ea-text-secondary)', marginBottom: 12 }}>Key Metrics</h3>
                 <div className="ea-dashboard-grid ea-grid-kpis">
-                  {topMetrics.map((m, i) => <MetricCard key={i} {...m} />)}
+                  {topMetrics.map((m, i) => <MetricCard key={i} {...m} onClick={() => handleKpiClick(m)} />)}
                 </div>
               </section>
             )}
 
             {kpiCards.length > 0 && (
               <section style={{ marginBottom: 24 }}>
-                <div className="ea-dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
-                  {kpiCards.map((k, i) => <MetricCard key={i} {...k} />)}
+                <div className="ea-dashboard-grid" style={{ gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+                  {kpiCards.map((k, i) => <MetricCard key={i} {...k} onClick={() => handleKpiClick(k)} />)}
                 </div>
               </section>
             )}
@@ -365,6 +388,51 @@ const Dashboard = () => {
       case 'analytics':
         return (
           <>
+            {/* Selected KPI Detail */}
+            {selectedKpi && (
+              <section className="ea-card" style={{ marginBottom: 24, borderLeft: '4px solid var(--ea-primary)' }}>
+                <div className="ea-card-body">
+                  <h3 style={{ fontSize: '1.1rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <BarChart2 size={18} color="var(--ea-primary)" /> {selectedKpi.label} - Detailed View
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
+                    <div className="ea-kpi-card">
+                      <div className="ea-kpi-label">Current Value</div>
+                      <div className="ea-kpi-value">{typeof selectedKpi.value === 'number' ? selectedKpi.value.toLocaleString() : selectedKpi.value}</div>
+                    </div>
+                    {selectedKpi.delta != null && (
+                      <div className="ea-kpi-card">
+                        <div className="ea-kpi-label">Day-over-Day</div>
+                        <div className="ea-kpi-value" style={{ color: selectedKpi.delta >= 0 ? '#10b981' : '#ef4444' }}>
+                          {selectedKpi.delta >= 0 ? '+' : ''}{selectedKpi.delta.toFixed(1)}%
+                        </div>
+                      </div>
+                    )}
+                    <div className="ea-kpi-card">
+                      <div className="ea-kpi-label">Status</div>
+                      <div className="ea-kpi-value" style={{ color: selectedKpi.status === 'CRITICAL' ? '#ef4444' : selectedKpi.status === 'WARNING' ? '#f59e0b' : '#10b981' }}>
+                        {selectedKpi.status}
+                      </div>
+                    </div>
+                  </div>
+                  {selectedKpi.sparklineData && selectedKpi.sparklineData.length > 0 && (
+                    <div style={{ marginTop: 16, height: 200 }}>
+                      <ChartRenderer 
+                        spec={{
+                          type: 'line',
+                          data: selectedKpi.sparklineData.map(p => ({ date: p.t, value: p.value })),
+                          title: 'Historical Trend',
+                          xKey: 'date',
+                          yKey: 'value',
+                        }}
+                        height={200}
+                      />
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
             {/* AI Narrative - Clean without asterisks */}
             {data.narrative && (
               <section className="ea-card" style={{ marginBottom: 24, borderLeft: '4px solid var(--ea-primary)' }}>
@@ -382,6 +450,30 @@ const Dashboard = () => {
                 </div>
               </section>
             )}
+
+            {/* Map Visualization */}
+            <section className="ea-chart-container" style={{ marginBottom: 24 }}>
+              <h3 className="ea-chart-title">
+                🗺️ Regional Performance
+              </h3>
+              <p style={{ fontSize: '0.82rem', marginBottom: 16, color: 'var(--ea-text-secondary)' }}>Geographic distribution of key metrics</p>
+              <MapVisualization 
+                data={[
+                  { region_id: 'douala', region_name: 'Douala', value: 4500000 },
+                  { region_id: 'yaounde', region_name: 'Yaoundé', value: 3800000 },
+                  { region_id: 'bafoussam', region_name: 'Bafoussam', value: 2100000 },
+                  { region_id: 'garoua', region_name: 'Garoua', value: 1800000 },
+                  { region_id: 'maroua', region_name: 'Maroua', value: 1200000 },
+                  { region_id: 'bamenda', region_name: 'Bamenda', value: 1900000 },
+                  { region_id: 'ebolowa', region_name: 'Ebolowa', value: 1500000 },
+                  { region_id: 'bertoua', region_name: 'Bertoua', value: 1600000 },
+                ]}
+                onRegionClick={(region) => {
+                  alert(`Region: ${region.name}\nValue: ${region.value?.toLocaleString()}\n\nClick OK to see detailed analytics for this region.`);
+                }}
+                height={350}
+              />
+            </section>
 
             {/* Forecasts Chart */}
             {chartData.length > 0 && forecastKpiNames.length > 0 && (
@@ -448,7 +540,7 @@ const Dashboard = () => {
               </h3>
               {executiveData ? (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
                     <div className="ea-kpi-card">
                       <div className="ea-kpi-label">Health Score</div>
                       <div className="ea-kpi-value" style={{ color: executiveData.health_score >= 70 ? '#10b981' : executiveData.health_score >= 50 ? '#f59e0b' : '#ef4444' }}>
@@ -540,7 +632,7 @@ const Dashboard = () => {
         {/* Header */}
         <div style={{ marginBottom: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div>
-            <h1 style={{ fontSize: '1.6rem', margin: 0 }}>Dashboard</h1>
+            <h1 style={{ fontSize: isMobile ? '1.3rem' : '1.6rem', margin: 0 }}>Dashboard</h1>
             <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--ea-text-secondary)' }}>
               {data.last_refreshed && data.last_refreshed !== 'Never' && data.last_refreshed !== 'ERROR'
                 ? `Last updated: ${data.last_refreshed}`
@@ -621,7 +713,12 @@ const Dashboard = () => {
 
         {renderTabContent()}
         
-        <style>{'@keyframes ea-spin{100%{transform:rotate(360deg)}}@keyframes ea-pulse{0%,100%{opacity:1}50%{opacity:0.5}}'}</style>
+        <style>{`@keyframes ea-spin{100%{transform:rotate(360deg)}}@keyframes ea-pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+          @media (max-width: 768px) {
+            .ea-dashboard-grid { grid-template-columns: 1fr !important; }
+            .ea-tabs { flex-wrap: wrap; }
+            .ea-tab { flex: 1; min-width: 80px; font-size: 0.75rem; }
+          }`}</style>
       </div>
     </DashboardErrorBoundary>
   );

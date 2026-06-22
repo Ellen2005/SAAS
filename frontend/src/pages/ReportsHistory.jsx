@@ -66,6 +66,15 @@ const ReportsHistory = () => {
     }
   };
 
+  const handleExcelExport = async (reportId) => {
+    try {
+      const url = `${API_URL}/api/export/reports/${reportId}/excel`;
+      window.open(url, '_blank');
+    } catch (err) {
+      alert(`Excel export failed: ${err.message}`);
+    }
+  };
+
   const handleResend = async (reportId) => {
     setSending(reportId);
     try {
@@ -142,9 +151,17 @@ const ReportsHistory = () => {
                       className="btn btn-outline"
                       onClick={() => handleDownload(report.id, report.report_date)}
                       style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}
-                      title="Download a printable copy of this report"
+                      title="Download as PDF"
                     >
-                      <Download size={14} /> Download
+                      <Download size={14} /> PDF
+                    </button>
+                    <button
+                      className="btn btn-outline"
+                      onClick={() => handleExcelExport(report.id)}
+                      style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}
+                      title="Export as Excel"
+                    >
+                      <FileSpreadsheet size={14} /> Excel
                     </button>
                     {isManager && (
                       <>
