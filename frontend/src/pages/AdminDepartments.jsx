@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, Plus, Trash2, RefreshCcw, Clock, Users } from 'lucide-react';
+import { Building2, Plus, Trash2, RefreshCcw, Clock, Users, Edit3, Grid3x3 } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
 
 const AdminDepartments = () => {
   const [departments, setDepartments] = useState([]);
+  const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [showEdit, setShowEdit] = useState(null);
   const [newDept, setNewDept] = useState({ name: '', description: '', heartbeat_schedule: 'daily', heartbeat_time: '06:00' });
+  const [editDept, setEditDept] = useState({ template_id: '' });
 
   const fetchDepartments = async () => {
     try {
@@ -19,7 +22,19 @@ const AdminDepartments = () => {
     }
   };
 
-  useEffect(() => { fetchDepartments(); }, []);
+  const fetchTemplates = async () => {
+    try {
+      const data = await apiJson('/api/admin/semantic/templates');
+      setTemplates(data.templates || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => { 
+    fetchDepartments();
+    fetchTemplates();
+  }, []);
 
   const handleCreate = async () => {
     try {
@@ -29,6 +44,18 @@ const AdminDepartments = () => {
       });
       setShowCreate(false);
       setNewDept({ name: '', description: '', heartbeat_schedule: 'daily', heartbeat_time: '06:00' });
+      fetchDepartments();
+    } catch (err) { console.error(err); }
+  };
+
+  const handleUpdate = async (deptId) => {
+    try {
+      await apiFetch(`/api/admin/departments/${deptId}`, {
+        method: 'PUT',
+        body: JSON.stringify(editDept)
+      });
+      setShowEdit(null);
+      setEditDept({ template_id: '' });
       fetchDepartments();
     } catch (err) { console.error(err); }
   };
@@ -97,6 +124,49 @@ const AdminDepartments = () => {
         </div>
       )}
 
+      {/* Assign Semantic Template Modal */}
+      {showEdit && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}
+          onClick={() => setShowEdit(null)}
+        >
+          <div className="glass-panel" style={{ maxWidth: '500px', width: '92%' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Grid3x3 size={18} /> Assign Semantic Template
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Select a semantic template to assign to this department. Users in this department will use this template for their field mappings.
+            </p>
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <label>Semantic Template</label>
+              <select 
+                value={editDept.template_id} 
+                onChange={e => setEditDept({ ...editDept, template_id: e.target.value })}
+                style={{ width: '100%' }}
+              >
+                <option value="">-- No template (clear assignment) --</option>
+                {templates.map(tpl => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {tpl.name} {tpl.description ? `- ${tpl.description}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {templates.length === 0 && (
+              <p style={{ fontSize: '0.8rem', color: 'var(--status-warning)', marginBottom: '12px' }}>
+                No semantic templates found. Create one first in <strong>Admin → Semantic</strong>.
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-outline" onClick={() => setShowEdit(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => handleUpdate(showEdit)}>
+                Assign Template
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Department Table */}
       <div style={{ display: 'grid', gap: '16px' }}>
         {departments.map(dept => (
@@ -104,7 +174,7 @@ const AdminDepartments = () => {
             <div>
               <h3 style={{ fontSize: '1rem', marginBottom: '4px' }}>{dept.name}</h3>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{dept.description || 'No description'}</p>
-              <div style={{ display: 'flex', gap: '16px', marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', gap: '16px', marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <Clock size={14} /> {dept.heartbeat_schedule} at {dept.heartbeat_time}
                 </span>
@@ -112,10 +182,22 @@ const AdminDepartments = () => {
                   <Users size={14} /> {dept.user_count} user(s)
                 </span>
                 <span>Last sync: {dept.last_sync || 'Never'}</span>
-                {dept.instance_template_name && <span>Template: {dept.instance_template_name}</span>}
+                {dept.instance_template_name && <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--status-normal)', padding: '2px 8px', background: 'rgba(16,185,129,0.1)', borderRadius: '4px' }}>Instance: {dept.instance_template_name}</span>}
+                {dept.template_name ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--primary-color)', padding: '2px 8px', background: 'rgba(59,130,246,0.1)', borderRadius: '4px' }}>
+                    <Grid3x3 size={12} /> Semantic: {dept.template_name}
+                  </span>
+                ) : (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--status-warning)', padding: '2px 8px', background: 'rgba(245,158,11,0.1)', borderRadius: '4px' }}>
+                    <Grid3x3 size={12} /> No semantic template
+                  </span>
+                )}
               </div>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-outline" onClick={() => { setShowEdit(dept.id); setEditDept({ template_id: dept.template_id || '' }); }} style={{ padding: '8px', fontSize: '0.8rem' }} title="Assign Semantic Template">
+                <Grid3x3 size={16} />
+              </button>
               <button className="btn btn-outline" onClick={() => handleTriggerHeartbeat(dept.id)} style={{ padding: '8px', fontSize: '0.8rem' }} title="Trigger ETL">
                 <RefreshCcw size={16} />
               </button>
