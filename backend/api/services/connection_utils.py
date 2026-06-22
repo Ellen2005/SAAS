@@ -149,7 +149,7 @@ def sqlalchemy_engine_kwargs(credentials: str, db_type: str) -> dict:
     if db_type == "oracle":
         return {
             "connect_args": {
-                "connect_timeout": 10,
+                "tcp_connect_timeout": 10,
             },
             "pool_pre_ping": True,
         }

@@ -129,13 +129,22 @@ const Settings = () => {
   }, [user]);
 
   const buildCredentialString = () => {
+    // Use Direct URI if provided - ALWAYS takes priority
     if (directUri.trim()) return directUri.trim();
+    
+    // Otherwise build from individual form fields
     const user = encodeURIComponent(dbUser.trim());
     const pass = encodeURIComponent(dbPass.trim());
     const hostPart = host.trim();
     const defaultPort = dbType === 'oracle' ? '1521' : '5432';
     const portPart = port.trim() || defaultPort;
     const dbPart = dbName.trim() || (dbType === 'oracle' ? 'orcl' : 'postgres');
+    
+    // Only build from form fields if user & host are filled
+    if (!user || !pass || !hostPart) {
+      return directUri.trim() || '';
+    }
+    
     if (dbType === 'mongodb') {
       const auth = user ? `${user}:${pass}@` : '';
       return `mongodb://${auth}${hostPart}:${portPart}/${dbPart}`;
@@ -150,7 +159,6 @@ const Settings = () => {
       return `mssql+pymssql://${user}:${pass}@${hostPart}:${portPart}/${dbPart}`;
     }
     if (dbType === 'oracle') {
-      // Oracle PDBs require service_name syntax (not SID)
       return `oracle+oracledb://${user}:${pass}@${hostPart}:${portPart}/?service_name=${dbPart}`;
     }
     return `postgresql+psycopg2://${user}:${pass}@${hostPart}:${portPart}/${dbPart}`;
