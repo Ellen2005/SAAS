@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GripVertical, Plus, Trash2, Settings2, Save, RotateCcw } from 'lucide-react';
+import { GripVertical, Plus, Trash2, Settings2, Save, RotateCcw, X } from 'lucide-react';
 
 const DEFAULT_LAYOUT = {
   widgets: [
