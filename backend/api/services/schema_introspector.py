@@ -680,6 +680,8 @@ def run_analysis(
                     sql = f'SELECT date_trunc(\'month\', "{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24'
                 elif dialect == "mysql":
                     sql = f"SELECT DATE_FORMAT(`{dt}`, '%Y-%m-01') AS bucket, SUM(`{amt}`) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24"
+                elif dialect == "oracle":
+                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-MM\') AS bucket, SUM({amt}) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-MM\') ORDER BY bucket DESC FETCH FIRST 24 ROWS ONLY'
                 else:
                     sql = f'SELECT strftime(\'%Y-%m-01\',"{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24'
                 rows = [
@@ -700,6 +702,8 @@ def run_analysis(
                     sql = f'SELECT date_trunc(\'week\', "{dt}") AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26'
                 elif dialect == "mysql":
                     sql = f"SELECT DATE_FORMAT(`{dt}`, '%Y-%u') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26"
+                elif dialect == "oracle":
+                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-WW\') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-WW\') ORDER BY bucket DESC FETCH FIRST 26 ROWS ONLY'
                 else:
                     sql = f'SELECT strftime(\'%Y-W%W\',"{dt}") AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26'
                 rows = [
@@ -716,7 +720,10 @@ def run_analysis(
                 }
 
             if kind == "anomaly_zscore" and amt:
-                sql = f'SELECT * FROM {ident} ORDER BY 1 DESC LIMIT 5000'
+                if dialect == "oracle":
+                    sql = f'SELECT * FROM {ident} ORDER BY 1 DESC FETCH FIRST 5000 ROWS ONLY'
+                else:
+                    sql = f'SELECT * FROM {ident} ORDER BY 1 DESC LIMIT 5000'
                 # Pull data and let pandas do the z-score (works across dialects).
                 import pandas as pd
                 df = pd.read_sql(sql, conn)
@@ -762,9 +769,12 @@ def run_analysis(
                     cname = col["name"]
                     if any(p in str(col.get("type")).lower() for p in ("char", "text", "string", "enum")):
                         try:
-                            sql = f'SELECT "{cname}" AS bucket, COUNT(*) AS total FROM {ident} GROUP BY "{cname}" ORDER BY total DESC LIMIT 12'
-                            if dialect == "mysql":
+                            if dialect == "oracle":
+                                sql = f'SELECT {cname} AS bucket, COUNT(*) AS total FROM {ident} GROUP BY {cname} ORDER BY total DESC FETCH FIRST 12 ROWS ONLY'
+                            elif dialect == "mysql":
                                 sql = f"SELECT `{cname}` AS bucket, COUNT(*) AS total FROM {ident} GROUP BY `{cname}` ORDER BY total DESC LIMIT 12"
+                            else:
+                                sql = f'SELECT "{cname}" AS bucket, COUNT(*) AS total FROM {ident} GROUP BY "{cname}" ORDER BY total DESC LIMIT 12'
                             res = conn.execute(text(sql)).fetchall()
                             if 2 <= len(res) <= 12:
                                 groups.append({
@@ -782,6 +792,8 @@ def run_analysis(
                     sql = f'SELECT date_trunc(\'month\', "{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket'
                 elif dialect == "mysql":
                     sql = f"SELECT DATE_FORMAT(`{dt}`, '%Y-%m-01') AS bucket, SUM(`{amt}`) AS total FROM {ident} GROUP BY bucket ORDER BY bucket"
+                elif dialect == "oracle":
+                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-MM\') AS bucket, SUM({amt}) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-MM\') ORDER BY bucket'
                 else:
                     sql = f'SELECT strftime(\'%Y-%m-01\',"{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket'
                 history = [
@@ -822,7 +834,10 @@ def run_analysis(
                 }
 
             if kind == "overview":
-                sql = f"SELECT * FROM {ident} LIMIT 10"
+                if dialect == "oracle":
+                    sql = f"SELECT * FROM {ident} FETCH FIRST 10 ROWS ONLY"
+                else:
+                    sql = f"SELECT * FROM {ident} LIMIT 10"
                 res = conn.execute(text(sql))
                 cols = list(res.keys())
                 rows = [{c: _jsonable(v) for c, v in zip(cols, r)} for r in res.fetchall()]
