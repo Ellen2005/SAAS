@@ -182,6 +182,7 @@ const Dashboard = () => {
   const fetchData = useCallback(async () => {
     try {
       if (!user) return;
+      setLoading(true);
       const [result, forecastResult, widgetResult] = await Promise.all([
         apiJson('/api/summary'),
         apiJson(`/api/forecasts?days=${dateRange}`),
