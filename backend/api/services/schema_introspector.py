@@ -692,12 +692,12 @@ def run_analysis(
 
         with engine.connect() as conn:
             if kind == "time_series_sum" and amt and dt:
-                if dialect == "postgresql":
-                    sql = f'SELECT date_trunc(\'month\', "{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24'
+                if dialect == "oracle":
+                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-MM\') AS bucket, SUM({amt}) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-MM\'), bucket ORDER BY bucket DESC FETCH FIRST 24 ROWS ONLY'
                 elif dialect == "mysql":
                     sql = f"SELECT DATE_FORMAT(`{dt}`, '%Y-%m-01') AS bucket, SUM(`{amt}`) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24"
-                elif dialect == "oracle":
-                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-MM\') AS bucket, SUM({amt}) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-MM\') ORDER BY bucket DESC FETCH FIRST 24 ROWS ONLY'
+                elif dialect == "postgresql":
+                    sql = f'SELECT date_trunc(\'month\', "{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24'
                 else:
                     sql = f'SELECT strftime(\'%Y-%m-01\',"{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24'
                 rows = [
@@ -714,12 +714,12 @@ def run_analysis(
                 }
 
             if kind == "count_over_time" and dt:
-                if dialect == "postgresql":
-                    sql = f'SELECT date_trunc(\'week\', "{dt}") AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26'
+                if dialect == "oracle":
+                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-WW\') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-WW\'), bucket ORDER BY bucket DESC FETCH FIRST 26 ROWS ONLY'
                 elif dialect == "mysql":
                     sql = f"SELECT DATE_FORMAT(`{dt}`, '%Y-%u') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26"
-                elif dialect == "oracle":
-                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-WW\') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-WW\') ORDER BY bucket DESC FETCH FIRST 26 ROWS ONLY'
+                elif dialect == "postgresql":
+                    sql = f'SELECT date_trunc(\'week\', "{dt}") AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26'
                 else:
                     sql = f'SELECT strftime(\'%Y-W%W\',"{dt}") AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26'
                 rows = [
@@ -760,10 +760,12 @@ def run_analysis(
                 }
 
             if kind == "missing_recent" and dt:
-                if dialect == "postgresql":
-                    sql = f'SELECT MAX("{dt}") AS last_seen, COUNT(*) AS total FROM {ident}'
+                if dialect == "oracle":
+                    sql = f'SELECT MAX({dt}) AS last_seen, COUNT(*) AS total FROM {ident}'
                 elif dialect == "mysql":
                     sql = f"SELECT MAX(`{dt}`) AS last_seen, COUNT(*) AS total FROM {ident}"
+                elif dialect == "postgresql":
+                    sql = f'SELECT MAX("{dt}") AS last_seen, COUNT(*) AS total FROM {ident}'
                 else:
                     sql = f'SELECT MAX("{dt}") AS last_seen, COUNT(*) AS total FROM {ident}'
                 row = conn.execute(text(sql)).fetchone()
@@ -804,12 +806,12 @@ def run_analysis(
                 return {"kind": kind, "title": analysis.get("title"), "groups": groups}
 
             if kind == "liability_forecast" and amt and dt:
-                if dialect == "postgresql":
-                    sql = f'SELECT date_trunc(\'month\', "{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket'
+                if dialect == "oracle":
+                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-MM\') AS bucket, SUM({amt}) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-MM\'), bucket ORDER BY bucket'
                 elif dialect == "mysql":
                     sql = f"SELECT DATE_FORMAT(`{dt}`, '%Y-%m-01') AS bucket, SUM(`{amt}`) AS total FROM {ident} GROUP BY bucket ORDER BY bucket"
-                elif dialect == "oracle":
-                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-MM\') AS bucket, SUM({amt}) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-MM\') ORDER BY bucket'
+                elif dialect == "postgresql":
+                    sql = f'SELECT date_trunc(\'month\', "{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket'
                 else:
                     sql = f'SELECT strftime(\'%Y-%m-01\',"{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket'
                 history = [
