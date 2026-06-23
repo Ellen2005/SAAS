@@ -37,6 +37,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         client_ip = request.client.host if request.client else "unknown"
         path = request.url.path
         
+        # Skip rate limiting for SSE/stream endpoints (long-lived connections)
+        if path.startswith("/api/realtime/stream"):
+            return await call_next(request)
+        
         # Find applicable limit
         limit, window = None, None
         for prefix, (max_requests, window_secs) in self.limits.items():
