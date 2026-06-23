@@ -27,9 +27,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, limits: Dict[str, Tuple[int, int]] = None):
         super().__init__(app)
         self.limits = limits or {
-            "/api/auth/": (5, 60),      # 5 per minute
-            "/api/admin/": (50, 60),    # 50 per minute
-            "/api/": (100, 60),         # 100 per minute
+            "/api/auth/": (10, 60),     # 10 per minute
+            "/api/admin/": (100, 60),   # 100 per minute
+            "/api/": (300, 60),         # 300 per minute
         }
         self.clients: Dict[str, list] = defaultdict(list)
     

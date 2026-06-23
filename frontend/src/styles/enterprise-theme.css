@@ -8,8 +8,8 @@
 :root {
   --ea-bg: #0f172a;
   --ea-bg-card: #1e293b;
-  --ea-bg-hover: #334155;
-  --ea-bg-active: #475569;
+  --ea-bg-hover: #1e3a5f;
+  --ea-bg-active: #2563eb;
   --ea-bg-sidebar: #0f172a;
   --ea-bg-nav: #0f172a;
   
@@ -45,8 +45,8 @@
   --ea-text-inverse: #0f172a;
   --ea-text-link: #60a5fa;
   
-  --ea-border: #334155;
-  --ea-border-light: #1e293b;
+  --ea-border: #1e3a5f;
+  --ea-border-light: #2563eb;
   --ea-border-focus: #3b82f6;
   
   /* ── Typography ────────────────────────────────────────────────────── */
