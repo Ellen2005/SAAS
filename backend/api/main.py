@@ -272,6 +272,35 @@ def ping():
     return {"ok": True, "timestamp": datetime.now(UTC).isoformat()}
 
 
+# ── Real-time SSE Stream ──────────────────────────────────────────────────────
+
+@app.get("/api/realtime/stream")
+def realtime_stream(user_id: str, background_tasks: BackgroundTasks):
+    """Server-Sent Events stream for real-time dashboard updates."""
+    from fastapi.responses import StreamingResponse
+    import asyncio
+    import json
+    
+    async def event_generator():
+        try:
+            while True:
+                # Send heartbeat every 5 seconds
+                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now(UTC).isoformat()})}\n\n"
+                await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            pass
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     from fastapi.responses import Response
