@@ -294,7 +294,12 @@ def introspect_sql(
                             if est and est[0] is not None and int(est[0]) > 0:
                                 row_count = int(est[0])
                         if row_count is None:
-                            count_q = f'SELECT COUNT(*) FROM "{schema}"."{name}"' if schema else f'SELECT COUNT(*) FROM "{name}"'
+                            if dialect == "oracle":
+                                count_q = f"SELECT COUNT(*) FROM {schema.upper()}.{name.upper()}" if schema else f"SELECT COUNT(*) FROM {name.upper()}"
+                            elif dialect == "mysql":
+                                count_q = f"SELECT COUNT(*) FROM `{schema}`.`{name}`" if schema else f"SELECT COUNT(*) FROM `{name}`"
+                            else:
+                                count_q = f'SELECT COUNT(*) FROM "{schema}"."{name}"' if schema else f'SELECT COUNT(*) FROM "{name}"'
                             row_count = int(conn.execute(text(count_q)).scalar() or 0)
                     except Exception as exc:
                         logger.debug(f"row count failed {qualified}: {exc}")
@@ -303,11 +308,17 @@ def introspect_sql(
                     samples: list[dict] = []
                     if sample_rows > 0:
                         try:
-                            if engine.dialect.name == "oracle":
+                            if dialect == "oracle":
                                 sel = (
-                                    f'SELECT * FROM "{schema}"."{name}" FETCH FIRST :n ROWS ONLY'
+                                    f"SELECT * FROM {schema.upper()}.{name.upper()} FETCH FIRST :n ROWS ONLY"
                                     if schema
-                                    else f'SELECT * FROM "{name}" FETCH FIRST :n ROWS ONLY'
+                                    else f"SELECT * FROM {name.upper()} FETCH FIRST :n ROWS ONLY"
+                                )
+                            elif dialect == "mysql":
+                                sel = (
+                                    f"SELECT * FROM `{schema}`.`{name}` LIMIT :n"
+                                    if schema
+                                    else f"SELECT * FROM `{name}` LIMIT :n"
                                 )
                             else:
                                 sel = (
@@ -623,6 +634,11 @@ def _split_qualified(qname: str) -> tuple[str | None, str]:
 
 
 def _qident(schema: str | None, name: str, dialect: str) -> str:
+    if dialect == "oracle":
+        # Oracle uses unquoted identifiers (uppercase by default)
+        if schema:
+            return f"{schema.upper()}.{name.upper()}"
+        return name.upper()
     q = '"' if dialect != "mysql" else "`"
     if schema:
         return f"{q}{schema}{q}.{q}{name}{q}"
