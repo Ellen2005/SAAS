@@ -853,8 +853,11 @@ def test_db_connection(connection_data: dict):
         return {"status": "success", "message": "Connection verified!"}
     except Exception as e:
         import traceback
+        err_msg = str(e)
+        if "ORA-01109" in err_msg:
+            err_msg += "\n\nYour Oracle PDB is not OPEN. Run this in SQL*Plus as sysdba:\n  ALTER PLUGGABLE DATABASE ORCLPDB OPEN;\n  ALTER PLUGGABLE DATABASE ORCLPDB SAVE STATE;"
         traceback.print_exc()
-        return {"status": "error", "message": f"Database Error: {str(e)}"}
+        return {"status": "error", "message": f"Database Error: {err_msg}"}
     finally:
         if engine is not None:
             try:
