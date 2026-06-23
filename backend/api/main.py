@@ -849,7 +849,10 @@ def test_db_connection(connection_data: dict):
         )
         with engine.connect() as conn:
             from sqlalchemy import text
-            conn.execute(text("SELECT 1"))
+            if db_type == "oracle":
+                conn.execute(text("SELECT 1 FROM DUAL"))
+            else:
+                conn.execute(text("SELECT 1"))
         return {"status": "success", "message": "Connection verified!"}
     except Exception as e:
         import traceback
