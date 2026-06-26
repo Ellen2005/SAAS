@@ -30,7 +30,6 @@ const NLQPage = lazy(() => import('./pages/NLQPage'));
 const CustomReportPage = lazy(() => import('./pages/CustomReportPage'));
 const SchemaExplorer = lazy(() => import('./pages/SchemaExplorer'));
 const AIAnalystPage = lazy(() => import('./pages/AIAnalystPage'));
-const AnalysisPage = lazy(() => import('./pages/AnalysisPage'));
 const ExecutiveAnalyticsPage = lazy(() => import('./pages/ExecutiveAnalyticsPage'));
 const DataQualityPage = lazy(() => import('./pages/DataQualityPage'));
 

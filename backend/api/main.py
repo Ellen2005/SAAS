@@ -130,23 +130,26 @@ app = FastAPI(
 try:
     from .middleware.rate_limit import RateLimitMiddleware
     app.add_middleware(RateLimitMiddleware)
+    logger.info("Rate limit middleware loaded")
 except Exception:
-    pass  # Rate limiter optional
+    logger.warning("Rate limiter not available", exc_info=True)
 
 # CSRF Protection
 try:
     from .middleware.csrf import CSRFMiddleware
     app.add_middleware(CSRFMiddleware)
+    logger.info("CSRF middleware loaded")
 except Exception:
-    pass  # CSRF middleware optional
+    logger.warning("CSRF middleware not available", exc_info=True)
 
 # Security Hardening
 try:
     from .middleware.security import CSPMiddleware, RefreshTokenMiddleware
     app.add_middleware(CSPMiddleware)
     app.add_middleware(RefreshTokenMiddleware)
+    logger.info("Security middleware loaded")
 except Exception:
-    pass  # Security middleware optional
+    logger.warning("Security middleware not available", exc_info=True)
 
 # Configure CORS dynamically based on environment
 cors_origins = configure_cors_origins()
@@ -275,17 +278,26 @@ def ping():
 # ── Real-time SSE Stream ──────────────────────────────────────────────────────
 
 @app.get("/api/realtime/stream")
-def realtime_stream(user_id: str, background_tasks: BackgroundTasks):
+async def realtime_stream(user_id: str):
     """Server-Sent Events stream for real-time dashboard updates."""
     from fastapi.responses import StreamingResponse
     import asyncio
     import json
     
     async def event_generator():
+        supabase = get_supabase()
+        last_check = datetime.now(UTC)
         try:
             while True:
-                # Send heartbeat every 5 seconds
-                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now(UTC).isoformat()})}\n\n"
+                now = datetime.now(UTC)
+                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': now.isoformat()})}\n\n"
+                if (now - last_check).total_seconds() >= 15:
+                    try:
+                        resp = supabase.table("kpi_results").select("count", count="exact").eq("user_id", user_id).limit(1).execute()
+                        yield f"data: {json.dumps({'type': 'kpi-count', 'count': len(resp.data) if hasattr(resp, 'data') else 0, 'timestamp': now.isoformat()})}\n\n"
+                    except Exception:
+                        pass
+                    last_check = now
                 await asyncio.sleep(5)
         except asyncio.CancelledError:
             pass
@@ -315,7 +327,7 @@ def read_root():
 @app.get("/api/summary", response_model=DashboardSummary)
 def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
     # Try cache first
-    cache_key_str = f"summary:{user_id}"
+    cache_key_str = f"v1:summary:{user_id}"
     cached = get_cached(cache_key_str)
     if cached:
         return cached
@@ -425,7 +437,7 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
 @app.get("/api/kpis/series")
 def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120, days: int = None):
     # Try cache first
-    cache_key_str = f"kpi_series:{user_id}:{limit}:{days}"
+    cache_key_str = f"v1:kpi_series:{user_id}:{limit}:{days}"
     cached = get_cached(cache_key_str)
     if cached:
         return cached

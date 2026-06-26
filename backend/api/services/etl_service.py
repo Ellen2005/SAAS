@@ -220,7 +220,6 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
 
     if db_url:
         tunnel_proc = None
-        engine = None
         try:
             safe_url = db_url.split("@")[-1] if "@" in db_url else "external source"
             print(f"[{datetime.now().isoformat()}] Fetching source data for user {user_id} from {safe_url}...")
@@ -246,10 +245,8 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                 db_url_for_queries = db_url
 
             db_type_for_engine = detect_db_type(db_url_for_queries, db_type)
-            engine = create_engine(
-                normalize_credentials(db_url_for_queries, db_type_for_engine),
-                **sqlalchemy_engine_kwargs(db_url_for_queries, db_type_for_engine),
-            )
+            from .connection_pool import get_engine
+            engine = get_engine(db_url_for_queries, db_type_for_engine)
 
             # Generic introspection-driven extraction. Discover one
             #    amount-like + date-like column per "interesting" table and
@@ -326,11 +323,6 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
         except Exception as error:
             print(f"[{datetime.now().isoformat()}] Extraction error for user {user_id}: {error}.")
         finally:
-            if engine is not None:
-                try:
-                    engine.dispose()
-                except Exception:
-                    pass
             if tunnel_proc is not None:
                 try:
                     tunnel_proc.terminate()

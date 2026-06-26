@@ -4,15 +4,10 @@ from ..core.supabase_client import get_supabase
 
 
 def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
-    """
-    Extracts user from Supabase JWT token passed in Authorization header.
-    """
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
-
     token = authorization.replace("Bearer ", "")
     supabase = get_supabase()
-
     try:
         user_resp = supabase.auth.get_user(token)
         if not user_resp or not hasattr(user_resp, "user") or not user_resp.user:
@@ -22,49 +17,23 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
 
-def resolve_user_id(
-    authorization: Optional[str] = Header(None),
-    x_user_id: Optional[str] = Header(None),
-    user_id: Optional[str] = Query(None),
-) -> str:
-    """
-    Resolve the acting user.
-    Preferred order:
-    1. Verified Supabase bearer token
-    2. X-User-Id header
-    3. user_id query param
-    """
-    if authorization:
-        try:
-            user = get_current_user(authorization)
-            if isinstance(user, dict):
-                resolved = user.get("id") or user.get("user_id")
-            else:
-                resolved = getattr(user, "id", None) or getattr(user, "user_id", None)
-            if resolved:
-                return str(resolved)
-        except HTTPException:
-            if x_user_id:
-                return x_user_id
-            if user_id:
-                return user_id
-
-    if x_user_id:
-        return x_user_id
-
-    if user_id:
-        return user_id
-
-    raise HTTPException(status_code=401, detail="Missing authenticated user context")
+def resolve_user_id(authorization: Optional[str] = Header(None)) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    user = get_current_user(authorization)
+    if isinstance(user, dict):
+        resolved = user.get("id") or user.get("user_id")
+    else:
+        resolved = getattr(user, "id", None) or getattr(user, "user_id", None)
+    if not resolved:
+        raise HTTPException(status_code=401, detail="Unable to resolve user from token")
+    return str(resolved)
 
 
 def get_user_role(user_id: str) -> Optional[str]:
-    """Returns the user's highest role: admin > manager > viewer, or None."""
     supabase = get_supabase()
     try:
-        resp = (
-            supabase.table("user_roles").select("role").eq("user_id", user_id).execute()
-        )
+        resp = supabase.table("user_roles").select("role").eq("user_id", user_id).execute()
         if hasattr(resp, "data") and resp.data:
             roles = [r["role"] for r in resp.data]
             if "admin" in roles:
@@ -79,15 +48,9 @@ def get_user_role(user_id: str) -> Optional[str]:
 
 
 def get_user_department(user_id: str) -> Optional[str]:
-    """Returns the user's department_id (first non-null), or None."""
     supabase = get_supabase()
     try:
-        resp = (
-            supabase.table("user_roles")
-            .select("department_id")
-            .eq("user_id", user_id)
-            .execute()
-        )
+        resp = supabase.table("user_roles").select("department_id").eq("user_id", user_id).execute()
         if hasattr(resp, "data") and resp.data:
             for r in resp.data:
                 if r.get("department_id"):
@@ -98,34 +61,20 @@ def get_user_department(user_id: str) -> Optional[str]:
 
 
 def get_user_info(user_id: str) -> dict:
-    """Returns full user role info: role, department_id, department_name. Single DB call."""
     supabase = get_supabase()
-    info = {
-        "user_id": user_id,
-        "role": None,
-        "department_id": None,
-        "department_name": None,
-    }
-
+    info = {"user_id": user_id, "role": None, "department_id": None, "department_name": None}
     try:
-        resp = (
-            supabase.table("user_roles")
-            .select("role, department_id, departments(name)")
-            .eq("user_id", user_id)
-            .execute()
-        )
+        resp = supabase.table("user_roles").select("role, department_id, departments(name)").eq("user_id", user_id).execute()
         if hasattr(resp, "data") and resp.data:
             roles = resp.data
             role_order = {"admin": 0, "manager": 1, "viewer": 2}
             best = min(roles, key=lambda r: role_order.get(r["role"], 99))
             info["role"] = best["role"]
             info["department_id"] = best.get("department_id")
-            # department name resolved via join — no extra query needed
             if best.get("departments"):
                 info["department_name"] = best["departments"].get("name")
     except Exception:
         pass
-
     return info
 
 
@@ -139,11 +88,6 @@ def is_manager_or_above(user_id: str) -> bool:
 
 
 def require_role(allowed_roles: list):
-    """
-    FastAPI dependency that checks if the current user has one of the allowed roles.
-    Uses a single get_user_info call instead of separate get_user_role + get_user_info.
-    """
-
     def role_checker(resolved_user_id: str = Depends(resolve_user_id)):
         user_info = get_user_info(resolved_user_id)
         role = user_info.get("role")
@@ -158,5 +102,4 @@ def require_role(allowed_roles: list):
             "department_id": user_info.get("department_id"),
             "department_name": user_info.get("department_name"),
         }
-
     return role_checker

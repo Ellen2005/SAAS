@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-
 from supabase import create_client
 from dotenv import load_dotenv
 
@@ -73,7 +72,6 @@ class MockSupabaseAuthAdmin:
     def list_users(self, *args, **kwargs):
         class Result:
             users = []
-
         return Result()
 
 
@@ -84,7 +82,6 @@ class MockSupabaseAuth:
     def get_user(self, token):
         class Result:
             user = None
-
         return Result()
 
 
@@ -96,15 +93,27 @@ class MockSupabaseClient:
         return MockSupabaseTable(name)
 
 
+_client_cache = {}
+
+
+def _build_client(url: str, key: str):
+    key_id = f"{url}:{key[:16]}"
+    if key_id not in _client_cache:
+        _client_cache[key_id] = create_client(url, key)
+    return _client_cache[key_id]
+
+
 def get_supabase():
-    """
-    Returns the real Supabase client when keys are present.
-    The fallback client is empty and never returns demo/business data.
-    """
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
-    
     if not supabase_url or not supabase_key:
         return MockSupabaseClient()
-        
-    return create_client(supabase_url, supabase_key)
+    return _build_client(supabase_url, supabase_key)
+
+
+def get_anon_supabase():
+    supabase_url = os.getenv("SUPABASE_URL")
+    anon_key = os.getenv("VITE_SUPABASE_ANON_KEY")
+    if not supabase_url or not anon_key:
+        return MockSupabaseClient()
+    return _build_client(supabase_url, anon_key)

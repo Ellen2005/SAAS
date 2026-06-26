@@ -30,6 +30,10 @@ def _get_db_schema_hint(engine) -> str:
         return "(schema unavailable)"
 
 
+def _sanitize_identifier(name: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_.]", "", name)
+
+
 def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
     """Deterministic support-guide queries when no LLM key is configured."""
     q = question.lower()
@@ -110,6 +114,7 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
     match = re.search(r"(?:describe|columns? (?:of|for)|schema (?:of|for))\s+([a-zA-Z0-9_.]+)", q)
     if match:
         table = match.group(1).strip(".")
+        table = _sanitize_identifier(table)
         if "." in table:
             schema_name, table_name = table.split(".", 1)
         else:
@@ -132,11 +137,12 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
                 f"WHERE table_name = UPPER('{table_name}') ORDER BY column_id"
             ), f"Describing columns for {table_name}."
         if dialect == "sqlite":
-            return f"PRAGMA table_info({table_name!r});", f"Describing columns for {table_name}."
+            return f"PRAGMA table_info('{table_name}');", f"Describing columns for {table_name}."
 
     match = re.search(r"(?:show|sample|preview).{0,20}(?:from\s+)?([a-zA-Z0-9_.]+)", q)
     if match:
         table = match.group(1).strip(".")
+        table = _sanitize_identifier(table)
         if table not in {"rows", "records", "data", "table", "tables"}:
             ident = (
                 ".".join(f'"{part}"' for part in table.split("."))
@@ -305,11 +311,11 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
         return _run_mongo_nlq(question, credentials)
 
     # 3. SQL path
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import text
     from ..services.etl_service import _get_free_local_port, _start_ssh_tunnel, _replace_db_url_host_port
+    from ..services.connection_pool import get_engine
 
     tunnel_proc = None
-    engine = None
     try:
         db_url = credentials
         if connection_method == "ssh_tunnel":
@@ -324,11 +330,7 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
             )
             db_url = _replace_db_url_host_port(credentials, "127.0.0.1", int(local_port))
 
-        from .connection_utils import normalize_credentials, sqlalchemy_engine_kwargs
-        engine = create_engine(
-            normalize_credentials(db_url, db_type),
-            **sqlalchemy_engine_kwargs(db_url, db_type),
-        )
+        engine = get_engine(db_url, db_type)
         schema_hint = _get_db_schema_hint(engine)
         assistant_note = "I generated a read-only query from your question and ran it against the connected database."
         sql = None
@@ -432,11 +434,6 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
             "sql": None,
         }
     finally:
-        if engine:
-            try:
-                engine.dispose()
-            except Exception:
-                pass
         if tunnel_proc:
             try:
                 tunnel_proc.terminate()

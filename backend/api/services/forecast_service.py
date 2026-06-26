@@ -71,5 +71,15 @@ def store_forecasts(supabase, user_id: str, department_id, forecasts: list):
         f["department_id"] = department_id
     try:
         supabase.table("kpi_forecasts").insert(forecasts).execute()
+        _cleanup_old_forecasts(supabase, user_id)
     except Exception as e:
         logger.error(f"Failed to store forecasts: {e}")
+
+
+def _cleanup_old_forecasts(supabase, user_id: str, max_age_days: int = 60):
+    from datetime import timedelta
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
+        supabase.table("kpi_forecasts").delete().eq("user_id", user_id).lt("generated_at", cutoff).execute()
+    except Exception as e:
+        logger.warning(f"Forecast cleanup failed: {e}")

@@ -208,9 +208,9 @@ def _extra_details_for_preset(*, user_id: str, preset_slug: str, supabase) -> di
     return {}
 
 def _execute_sql(user_id: str, sql: str, supabase) -> tuple[list[str], list[dict]]:
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import text
     from .connection_crypto import maybe_decrypt_connection_row
-    from .connection_utils import normalize_credentials, sqlalchemy_engine_kwargs
+    from .connection_pool import get_engine
     from .etl_service import _get_free_local_port, _start_ssh_tunnel, _replace_db_url_host_port
 
     conn_resp = supabase.table("database_connections").select("*").eq("user_id", user_id).limit(1).execute()
@@ -229,7 +229,6 @@ def _execute_sql(user_id: str, sql: str, supabase) -> tuple[list[str], list[dict
         raise ValueError("Goal-driven SQL analysis requires a SQL database.")
 
     tunnel_proc = None
-    engine = None
     try:
         db_url = credentials
         if connection_method == "ssh_tunnel":
@@ -243,10 +242,7 @@ def _execute_sql(user_id: str, sql: str, supabase) -> tuple[list[str], list[dict
             )
             db_url = _replace_db_url_host_port(credentials, "127.0.0.1", int(local_port))
 
-        engine = create_engine(
-            normalize_credentials(db_url, db_type),
-            **sqlalchemy_engine_kwargs(db_url, db_type),
-        )
+        engine = get_engine(db_url, db_type)
         sql = _validate_readonly_sql(sql)
         with engine.connect() as conn:
             result = conn.execute(text(sql))
@@ -262,11 +258,6 @@ def _execute_sql(user_id: str, sql: str, supabase) -> tuple[list[str], list[dict
                 rows.append(record)
             return cols, rows
     finally:
-        if engine is not None:
-            try:
-                engine.dispose()
-            except Exception:
-                pass
         if tunnel_proc is not None:
             try:
                 tunnel_proc.terminate()
@@ -334,9 +325,8 @@ def run_analysis(
             rows = nlq_result["rows"]
             plan = {"summary_hint": goal_text, "chart_type": "bar", "sql": nlq_result.get("sql")}
         else:
-            from sqlalchemy import create_engine
             from .connection_crypto import maybe_decrypt_connection_row
-            from .connection_utils import normalize_credentials, sqlalchemy_engine_kwargs
+            from .connection_pool import get_engine
 
             conn_resp = supabase.table("database_connections").select("*").eq("user_id", user_id).limit(1).execute()
             if not (hasattr(conn_resp, "data") and conn_resp.data):
@@ -346,12 +336,8 @@ def run_analysis(
             conn_info = maybe_decrypt_connection_row(conn_resp.data[0])
             db_type = (conn_info.get("db_type") or "sqlite").lower()
             db_url = conn_info.get("credentials", "")
-            engine = create_engine(
-                normalize_credentials(db_url, db_type),
-                **sqlalchemy_engine_kwargs(db_url, db_type),
-            )
+            engine = get_engine(db_url, db_type)
             schema_hint = _get_db_schema_hint(engine)
-            engine.dispose()
 
             plan = _plan_analysis_goal(goal_text, schema_hint, db_type)
             sql = plan.get("sql") or _rule_based_sql(goal_text, db_type)

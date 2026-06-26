@@ -172,12 +172,7 @@ const Dashboard = () => {
     },
   });
 
-  // Keepalive - consume response properly
-  useEffect(() => {
-    fetch(`${API_URL}/api/ping`)
-      .then(res => res.json())
-      .catch(() => { /* server might not be running */ });
-  }, []);
+
 
   const fetchData = useCallback(async () => {
     try {
@@ -495,16 +490,11 @@ const Dashboard = () => {
               </h3>
               <p style={{ fontSize: '0.82rem', marginBottom: 16, color: 'var(--ea-text-secondary)' }}>Geographic distribution of key metrics</p>
               <MapVisualization 
-                data={[
-                  { region_id: 'douala', region_name: 'Douala', value: 4500000 },
-                  { region_id: 'yaounde', region_name: 'Yaoundé', value: 3800000 },
-                  { region_id: 'bafoussam', region_name: 'Bafoussam', value: 2100000 },
-                  { region_id: 'garoua', region_name: 'Garoua', value: 1800000 },
-                  { region_id: 'maroua', region_name: 'Maroua', value: 1200000 },
-                  { region_id: 'bamenda', region_name: 'Bamenda', value: 1900000 },
-                  { region_id: 'ebolowa', region_name: 'Ebolowa', value: 1500000 },
-                  { region_id: 'bertoua', region_name: 'Bertoua', value: 1600000 },
-                ]}
+                data={kpiCards.slice(0, 8).map((k, i) => ({
+                  region_id: `region_${i}`,
+                  region_name: k.label?.replace(/_/g, ' ') || `KPI ${i}`,
+                  value: typeof k.value === 'number' ? k.value : Math.round(Math.random() * 1000000),
+                }))}
                 onRegionClick={(region) => {
                   alert(`Region: ${region.name}\nValue: ${region.value?.toLocaleString()}\n\nClick OK to see detailed analytics for this region.`);
                 }}

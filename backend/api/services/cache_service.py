@@ -122,6 +122,6 @@ def set_cached(key: str, value: Any, ttl: int = _cache_ttl):
     cache.set(key, value, ttl)
 
 
-def invalidate_user_cache(user_id: str, prefix: str):
-    """Invalidate user cache."""
+def invalidate_user_cache(user_id: str, prefix: str = "summary"):
+    """Invalidate user cache for the given prefix (default: "summary")."""
     cache.invalidate_user(user_id, prefix)
