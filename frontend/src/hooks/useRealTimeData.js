@@ -24,90 +24,103 @@ export function useRealTimeData(userId, options = {}) {
   const connect = useCallback(() => {
     if (!userId) return;
 
-    try {
-      // Close existing connection
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-
-      const url = `${import.meta.env.VITE_API_URL || ''}${endpoint}?user_id=${userId}`;
-      const eventSource = new EventSource(url);
-      eventSourceRef.current = eventSource;
-
-      eventSource.onopen = () => {
-        setIsConnected(true);
-        reconnectCountRef.current = 0;
-        onConnect?.();
-      };
-
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          setLastUpdate(new Date());
-          onData?.(data);
-        } catch (err) {
-          console.error('Failed to parse SSE data:', err);
-        }
-      };
-
-      eventSource.onerror = (err) => {
-        console.error('SSE connection error:', err);
-        setIsConnected(false);
-        onError?.(err);
-        eventSource.close();
-
-        // Auto-reconnect with exponential backoff
-        if (reconnectCountRef.current < maxReconnectAttempts) {
-          const delay = reconnectInterval * Math.pow(1.5, reconnectCountRef.current);
-          reconnectTimeoutRef.current = setTimeout(() => {
-            reconnectCountRef.current++;
-            connect();
-          }, delay);
-        } else {
-          onDisconnect?.();
-        }
-      };
-
-      // Handle custom event types
-      eventSource.addEventListener('kpi-update', (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          setLastUpdate(new Date());
-          onData?.({ type: 'kpi-update', ...data });
-        } catch (err) {
-          console.error('Failed to parse KPI update:', err);
-        }
-      });
-
-      eventSource.addEventListener('anomaly-alert', (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          setLastUpdate(new Date());
-          onData?.({ type: 'anomaly-alert', ...data });
-        } catch (err) {
-          console.error('Failed to parse anomaly alert:', err);
-        }
-      });
-
-      eventSource.addEventListener('report-generated', (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          setLastUpdate(new Date());
-          onData?.({ type: 'report-generated', ...data });
-        } catch (err) {
-          console.error('Failed to parse report event:', err);
-        }
-      });
-
-    } catch (err) {
-      console.error('Failed to establish SSE connection:', err);
-      onError?.(err);
+    // Close existing connection
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
     }
+
+    // Reset connection state
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    const url = `${import.meta.env.VITE_API_URL || ''}${endpoint}?user_id=${userId}`;
+    const eventSource = new EventSource(url);
+    eventSourceRef.current = eventSource;
+
+    eventSource.onopen = () => {
+      setIsConnected(true);
+      reconnectCountRef.current = 0;
+      onConnect?.();
+    };
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setLastUpdate(new Date());
+        onData?.(data);
+      } catch (err) {
+        console.error('Failed to parse SSE data:', err);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.error('SSE connection error:', err);
+      setIsConnected(false);
+      onError?.(err);
+      eventSource.close();
+
+      // Auto-reconnect with exponential backoff
+      if (reconnectCountRef.current < maxReconnectAttempts) {
+        const delay = reconnectInterval * Math.pow(1.5, reconnectCountRef.current);
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectCountRef.current++;
+          // reconnect by re-creating EventSource (inline)
+          if (!userId) return;
+          try {
+            if (eventSourceRef.current) {
+              eventSourceRef.current.close();
+              eventSourceRef.current = null;
+            }
+            const url = `${import.meta.env.VITE_API_URL || ''}${endpoint}?user_id=${userId}`;
+            eventSourceRef.current = new EventSource(url);
+          } catch {
+            // noop
+          }
+        }, delay);
+
+      } else {
+        onDisconnect?.();
+      }
+    };
+
+    // Handle custom event types
+    eventSource.addEventListener('kpi-update', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setLastUpdate(new Date());
+        onData?.({ type: 'kpi-update', ...data });
+      } catch (err) {
+        console.error('Failed to parse KPI update:', err);
+      }
+    });
+
+    eventSource.addEventListener('anomaly-alert', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setLastUpdate(new Date());
+        onData?.({ type: 'anomaly-alert', ...data });
+      } catch (err) {
+        console.error('Failed to parse anomaly alert:', err);
+      }
+    });
+
+    eventSource.addEventListener('report-generated', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setLastUpdate(new Date());
+        onData?.({ type: 'report-generated', ...data });
+      } catch (err) {
+        console.error('Failed to parse report event:', err);
+      }
+    });
   }, [userId, endpoint, reconnectInterval, maxReconnectAttempts, onData, onError, onConnect, onDisconnect]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -193,8 +206,19 @@ export function useWebSocket(url, options = {}) {
           const delay = reconnectInterval * Math.pow(1.5, reconnectCountRef.current);
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectCountRef.current++;
-            connect();
+            // reconnect by re-creating WebSocket (inline)
+            if (!url) return;
+            try {
+              if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
+              }
+              wsRef.current = new WebSocket(url);
+            } catch {
+              // noop
+            }
           }, delay);
+
         }
       };
     } catch (err) {
@@ -206,6 +230,7 @@ export function useWebSocket(url, options = {}) {
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
     if (wsRef.current) {
       wsRef.current.close();
@@ -214,12 +239,6 @@ export function useWebSocket(url, options = {}) {
     setIsConnected(false);
     onDisconnect?.();
   }, [onDisconnect]);
-
-  const send = useCallback((data) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(data));
-    }
-  }, []);
 
   useEffect(() => {
     if (url) {
@@ -230,6 +249,12 @@ export function useWebSocket(url, options = {}) {
     };
   }, [url, connect, disconnect]);
 
+  const send = useCallback((data) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(data));
+    }
+  }, []);
+
   return {
     isConnected,
     lastMessage,
@@ -238,3 +263,4 @@ export function useWebSocket(url, options = {}) {
     disconnect,
   };
 }
+
