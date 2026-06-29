@@ -1046,10 +1046,26 @@ def build_custom_chart(
             **sqlalchemy_engine_kwargs(credentials, db_type),
         )
         try:
+            from decimal import Decimal as _Decimal
             with engine.connect() as conn:
                 result = conn.execute(sql_text(body.sql))
-                columns = list(result.keys())
-                rows = [dict(zip(columns, r)) for r in result.fetchmany(200)]
+                columns = [c.lower() for c in list(result.keys())]
+                rows = []
+                for r in result.fetchmany(200):
+                    record = {}
+                    for col, val in zip(columns, r):
+                        if hasattr(val, "isoformat"):
+                            record[col] = val.isoformat()
+                        elif isinstance(val, _Decimal):
+                            record[col] = float(val)
+                        elif hasattr(val, "__float__") and not isinstance(val, bool):
+                            try:
+                                record[col] = float(val)
+                            except (TypeError, ValueError):
+                                record[col] = str(val)
+                        else:
+                            record[col] = val
+                    rows.append(record)
         finally:
             engine.dispose()
     else:

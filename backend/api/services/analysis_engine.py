@@ -51,15 +51,23 @@ def _preset_goal_map() -> dict[str, str]:
 
 
 def _plan_analysis_goal(goal_text: str, schema_hint: str, db_type: str) -> dict[str, Any]:
+    oracle_rules = ""
+    if db_type == "oracle":
+        oracle_rules = """
+- For Oracle: Use FETCH FIRST N ROWS ONLY (NOT LIMIT), TRUNC(col,'MM') (NOT DATE_TRUNC), SYSDATE (NOT NOW), TO_CHAR for date formatting.
+- Do NOT use semicolons at the end of queries.
+- Qualify all column names with table aliases when using JOINs to avoid ambiguity."""
+
     prompt = f"""You are a CNPS institutional analytics planner.
 Given the analysis goal and database schema, output a single JSON object:
 {{"sql": "<read-only SELECT>", "summary_hint": "<one line>", "chart_type": "bar|line|pie|table", "x_column": "...", "y_column": "..."}}
 
 Rules:
-- SQL must be read-only SELECT only for {db_type}
+- SQL must be read-only SELECT only for {db_type} database
 - Limit rows to 100
 - Use actual table/column names from schema
 - Goal: {goal_text}
+{oracle_rules}
 
 Schema:
 {schema_hint}
@@ -112,26 +120,19 @@ def _rule_based_sql(goal_text: str, db_type: str) -> str | None:
 
 
 def _build_chart(rows: list[dict], plan: dict) -> dict:
+    from .chart_service import build_chart_from_rows
     if not rows:
         return {"type": "table", "data": [], "title": "No data"}
     cols = list(rows[0].keys())
-    x_col = plan.get("x_column") or cols[0]
-    y_col = plan.get("y_column") or (cols[1] if len(cols) > 1 else cols[0])
-    chart_type = plan.get("chart_type") or "bar"
-    data = []
-    for row in rows[:50]:
-        data.append({
-            "name": str(row.get(x_col, "")),
-            str(y_col): row.get(y_col),
-            **{k: v for k, v in row.items()},
-        })
-    return {
-        "type": chart_type if chart_type in ("bar", "line", "pie", "area") else "bar",
-        "data": data,
-        "title": plan.get("summary_hint", "Analysis results"),
-        "xKey": "name",
-        "yKey": str(y_col),
-    }
+    chart_type = plan.get("chart_type") or "auto"
+    chart = build_chart_from_rows(
+        rows, cols,
+        chart_type=chart_type,
+        title=plan.get("summary_hint", "Analysis results"),
+    )
+    if chart is None:
+        return {"type": "table", "data": [], "title": "No data"}
+    return chart
 
 
 def _explain_results(*, goal_text: str, sql: str | None, metrics: dict, sample_rows: list[dict]) -> dict:
@@ -244,6 +245,7 @@ def _execute_sql(user_id: str, sql: str, supabase) -> tuple[list[str], list[dict
 
         engine = get_engine(db_url, db_type)
         sql = _validate_readonly_sql(sql)
+        from decimal import Decimal as _Decimal
         with engine.connect() as conn:
             result = conn.execute(text(sql))
             cols = list(result.keys())
@@ -253,6 +255,13 @@ def _execute_sql(user_id: str, sql: str, supabase) -> tuple[list[str], list[dict
                 for col, val in zip(cols, row):
                     if hasattr(val, "isoformat"):
                         record[col] = val.isoformat()
+                    elif isinstance(val, _Decimal):
+                        record[col] = float(val)
+                    elif hasattr(val, "__float__") and not isinstance(val, bool):
+                        try:
+                            record[col] = float(val)
+                        except (TypeError, ValueError):
+                            record[col] = str(val)
                     else:
                         record[col] = val
                 rows.append(record)
@@ -345,6 +354,9 @@ def run_analysis(
             sql = plan.get("sql") or _rule_based_sql(goal_text, db_type)
             if not sql:
                 raise ValueError(nlq_result.get("error") or "Could not generate analysis query.")
+            # Sanitize SQL for the target dialect
+            from .nlq_service import _sanitize_sql_for_dialect
+            sql = _sanitize_sql_for_dialect(sql, db_type)
             _, rows = _execute_sql(user_id, sql, supabase)
             plan["sql"] = sql
 

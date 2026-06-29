@@ -159,6 +159,25 @@ def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
     )
 
 
+_ORACLE_TO_STRFTIME_MAP = {
+    "YYYY": "%Y", "YY": "%y",
+    "MM": "%m", "MON": "%m",
+    "DD": "%d",
+    "HH24": "%H", "HH": "%I",
+    "MI": "%M", "SS": "%S",
+    "DAY": "%w", "DY": "%a",
+    "MONTH": "%m",
+}
+
+
+def _oracle_to_sqlite_strftime(col: str, fmt: str) -> str:
+    """Convert TO_CHAR(col, 'YYYY-MM') to strftime('%Y-%m', col)."""
+    sqlite_fmt = fmt
+    for oracle_tok, sqlite_tok in sorted(_ORACLE_TO_STRFTIME_MAP.items(), key=lambda x: -len(x[0])):
+        sqlite_fmt = sqlite_fmt.replace(oracle_tok, sqlite_tok)
+    return f"strftime('{sqlite_fmt}', {col.strip()})"
+
+
 def _sanitize_sql_for_dialect(sql: str, dialect: str) -> str:
     normalized = sql.strip()
     if dialect == "sqlite":
@@ -170,8 +189,45 @@ def _sanitize_sql_for_dialect(sql: str, dialect: str) -> str:
             normalized,
             flags=re.IGNORECASE,
         )
+        normalized = re.sub(
+            r"\bNOW\(\)\s*-\s*INTERVAL\s+'(\d+)\s+month[s]'\b",
+            lambda m: f"datetime('now', '-{m.group(1)} months')",
+            normalized,
+            flags=re.IGNORECASE,
+        )
         normalized = re.sub(r"\bNOW\(\)\b", "datetime('now')", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bSYSDATE\b", "datetime('now')", normalized, flags=re.IGNORECASE)
         normalized = re.sub(r"\bCURRENT_DATE\b", "date('now')", normalized, flags=re.IGNORECASE)
+        
+        # Convert ADD_MONTHS to SQLite
+        normalized = re.sub(
+            r"\bADD_MONTHS\s*\(\s*SYSDATE\s*,\s*(-?\d+)\s*\)",
+            lambda m: f"datetime('now', '{m.group(1)} months')",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        
+        # Convert TO_CHAR to strftime
+        normalized = re.sub(
+            r"\bTO_CHAR\s*\(\s*([^,]+)\s*,\s*'([^']+)'\s*\)",
+            lambda m: _oracle_to_sqlite_strftime(m.group(1), m.group(2)),
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        
+        # Convert TRUNC(date, 'MM') to strftime
+        normalized = re.sub(
+            r"\bTRUNC\s*\(\s*([^,]+)\s*,\s*'MM'\s*\)",
+            r"strftime('%Y-%m-01', \1)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        normalized = re.sub(
+            r"\bTRUNC\s*\(\s*([^,]+)\s*,\s*'YY'\s*\)",
+            r"strftime('%Y-01-01', \1)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
         
         # Convert EXTRACT functions to SQLite equivalents
         normalized = re.sub(
@@ -208,10 +264,39 @@ def _sanitize_sql_for_dialect(sql: str, dialect: str) -> str:
             normalized,
             flags=re.IGNORECASE
         )
+        normalized = re.sub(
+            r"DATE_TRUNC\(\s*'month'\s*,\s*([^)]+)\)",
+            r"strftime('%Y-%m-01', \1)",
+            normalized,
+            flags=re.IGNORECASE
+        )
+        
+        # Convert INTERVAL 'N' month to SQLite
+        normalized = re.sub(
+            r"INTERVAL\s+'(\d+)'\s+MONTH",
+            lambda m: f"{m.group(1)} months",
+            normalized,
+            flags=re.IGNORECASE,
+        )
         
     if dialect == "oracle":
         normalized = re.sub(r"\bLIMIT\s+(\d+)\b", r"FETCH FIRST \1 ROWS ONLY", normalized, flags=re.IGNORECASE)
         normalized = re.sub(r"\bILIKE\b", "LIKE", normalized, flags=re.IGNORECASE)
+        # Convert PostgreSQL DATE_TRUNC to Oracle TRUNC
+        normalized = re.sub(
+            r"DATE_TRUNC\(\s*'month'\s*,\s*([^)]+)\)",
+            r"TRUNC(\1, 'MM')",
+            normalized,
+            flags=re.IGNORECASE
+        )
+        normalized = re.sub(
+            r"DATE_TRUNC\(\s*'year'\s*,\s*([^)]+)\)",
+            r"TRUNC(\1, 'YY')",
+            normalized,
+            flags=re.IGNORECASE
+        )
+        # Remove trailing semicolons
+        normalized = normalized.rstrip().rstrip(";").rstrip()
     return normalized
 
 
@@ -223,9 +308,27 @@ def _ask_groq_for_sql(question: str, schema_hint: str, db_type: str) -> str:
     elif db_type in ("sqlserver",):
         dialect_note = "Use T-SQL (SQL Server) syntax."
     elif db_type in ("oracle",):
-        dialect_note = "Use Oracle SQL syntax."
+        dialect_note = (
+            "Use Oracle SQL syntax. CRITICAL RULES for Oracle:\n"
+            "- Use FETCH FIRST N ROWS ONLY instead of LIMIT\n"
+            "- Use TRUNC(date_column, 'MM') for month truncation, NOT DATE_TRUNC\n"
+            "- Use TO_CHAR(date_column, 'YYYY-MM') for formatting\n"
+            "- Use SYSDATE instead of NOW() or CURRENT_DATE\n"
+            "- Use ADD_MONTHs(SYSDATE, -N) for date arithmetic\n"
+            "- Do NOT use semicolons at the end of queries\n"
+            "- Use column aliases without quotes\n"
+        )
     elif db_type in ("sqlite",):
-        dialect_note = "Use SQLite syntax. Use strftime() for date functions, not EXTRACT() or DATE_TRUNC()."
+        dialect_note = (
+            "Use SQLite syntax. CRITICAL RULES for SQLite:\n"
+            "- Use strftime('%Y-%m', date_column) instead of TO_CHAR or DATE_TRUNC\n"
+            "- Use datetime('now') instead of SYSDATE or NOW()\n"
+            "- Use date(date_column, 'start of month') for month truncation\n"
+            "- Use LIMIT N instead of FETCH FIRST N ROWS ONLY\n"
+            "- Do NOT use ADD_MONTHS, INTERVAL, EXTRACT, or AGE functions\n"
+            "- Use date(date_column, '+N months') for date arithmetic\n"
+            "- Use CAST(column AS REAL) for decimal division\n"
+        )
     else:
         dialect_note = "Use PostgreSQL syntax."
 
@@ -238,7 +341,9 @@ DATABASE SCHEMA:
 RULES:
 - Only generate SELECT statements. Never INSERT, UPDATE, DELETE, DROP, or ALTER.
 - Return ONLY the raw SQL query, no explanation, no markdown, no code fences.
-- Limit results to 200 rows maximum using LIMIT 200 (or TOP 200 for SQL Server).
+- Do NOT include semicolons at the end of the query.
+- If using JOINs, qualify all column names with table aliases to avoid ambiguity.
+- Limit results to 200 rows maximum (use FETCH FIRST 200 ROWS ONLY for Oracle, LIMIT 200 for others).
 - If the question cannot be answered with the available schema, return: SELECT 'Query not possible with available schema' AS message;
 
 USER QUESTION: {question}
@@ -375,6 +480,7 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
                 cols_lower = [c.lower() for c in cols]
                 raw_rows = result.fetchmany(200)
                 out_rows = []
+                from decimal import Decimal as _Decimal
                 for row in raw_rows:
                     record = {}
                     for col, val in zip(cols_lower, row):
@@ -382,6 +488,13 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
                             record[col] = val.isoformat()
                         elif isinstance(val, (bytes, bytearray)):
                             record[col] = val.decode("utf-8", errors="replace")
+                        elif isinstance(val, _Decimal):
+                            record[col] = float(val)
+                        elif hasattr(val, "__float__"):
+                            try:
+                                record[col] = float(val)
+                            except (TypeError, ValueError):
+                                record[col] = str(val)
                         else:
                             record[col] = val
                     # provide common aliases for compatibility

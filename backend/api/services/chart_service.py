@@ -25,6 +25,9 @@ CHART_COLORS = [
 ]
 CHART_COLORS_HEX = [c.strip("#") for c in CHART_COLORS]
 
+DATE_HINTS = ("date", "time", "day", "month", "year", "period", "created", "updated")
+DATE_SUFFIXES = ("_at", "_on", "_date", "_time")
+
 
 def _label(name: str) -> str:
     return str(name).replace("_", " ").replace("-", " ").strip().title()
@@ -51,7 +54,8 @@ def _auto_chart_type(x_col: str | None, data: list[dict]) -> str:
     unique_labels = len(set(d.get("label", "") for d in data if d.get("label")))
     
     # Date/time on X → line
-    if x_col and any(h in x_col.lower() for h in ("date", "time", "at", "day", "month", "year", "period")):
+    xl = x_col.lower() if x_col else ""
+    if xl and (any(h in xl for h in DATE_HINTS) or any(xl.endswith(s) for s in DATE_SUFFIXES)):
         if unique_labels <= 30:
             return "line"
         return "area"
@@ -76,7 +80,6 @@ def _pick_columns(columns: list[str], rows: list[dict]) -> tuple[str | None, str
     text_cols = []
     date_cols = []
     
-    date_hints = ("date", "time", "at", "day", "month", "year", "period")
     id_hints = ("id", "code", "key", "ref")
     
     for col in columns:
@@ -98,7 +101,7 @@ def _pick_columns(columns: list[str], rows: list[dict]) -> tuple[str | None, str
             pass
         
         # Check if it looks like a date
-        if any(h in col_lower for h in date_hints):
+        if any(h in col_lower for h in DATE_HINTS) or any(col_lower.endswith(s) for s in DATE_SUFFIXES):
             date_cols.append(col)
         elif not any(h in col_lower for h in id_hints):
             text_cols.append(col)
