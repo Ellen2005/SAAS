@@ -481,5 +481,5 @@ def _run_mongo_nlq(question: str, connection_string: str) -> dict:
         }
     except ImportError:
         return {"error": "pymongo not installed. Run: pip install pymongo", "rows": [], "sql": None}
-    except Exception as e:
-        return {"error": str(e), "rows": [], "sql": None}
+    except Exception:
+        return {"error": "MongoDB query failed.", "rows": [], "sql": None}

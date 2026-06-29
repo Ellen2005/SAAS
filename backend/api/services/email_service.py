@@ -6,7 +6,7 @@ import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from .chart_service import generate_trend_chart_url
 
-UNSUBSCRIBE_SECRET = os.getenv("UNSUBSCRIBE_SECRET", "saas-unsubscribe-secret")
+UNSUBSCRIBE_SECRET = os.getenv("UNSUBSCRIBE_SECRET")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 # Use a real verified sender — set these in your .env
 INSTITUTION = os.getenv("INSTITUTION_NAME", "Smart Analytics")
@@ -24,7 +24,8 @@ def _make_unsubscribe_token(email: str) -> str:
 
 def _unsubscribe_url(email: str) -> str:
     token = _make_unsubscribe_token(email)
-    return f"{FRONTEND_URL}/unsubscribe?email={email}&token={token}"
+    from urllib.parse import quote
+    return f"{FRONTEND_URL}/unsubscribe?email={quote(email)}&token={quote(token)}"
 
 
 def verify_unsubscribe_token(email: str, token: str) -> bool:

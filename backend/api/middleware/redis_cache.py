@@ -74,7 +74,14 @@ class CacheManager:
     def clear(self):
         if self.redis_client:
             try:
-                self.redis_client.flushdb()
+                prefix = "v1:"
+                cursor = 0
+                while True:
+                    cursor, keys = self.redis_client.scan(cursor=cursor, match=f"{prefix}*", count=500)
+                    if keys:
+                        self.redis_client.delete(*keys)
+                    if cursor == 0:
+                        break
             except Exception:
                 pass
         self.memory_cache.clear()
@@ -138,8 +145,12 @@ def cache_invalidate(pattern: str):
     """Invalidate cache entries matching pattern."""
     if cache.redis_client:
         try:
-            keys = cache.redis_client.keys(f"*{pattern}*")
-            if keys:
-                cache.redis_client.delete(*keys)
+            cursor = 0
+            while True:
+                cursor, keys = cache.redis_client.scan(cursor=cursor, match=f"*{pattern}*", count=500)
+                if keys:
+                    cache.redis_client.delete(*keys)
+                if cursor == 0:
+                    break
         except Exception:
             pass

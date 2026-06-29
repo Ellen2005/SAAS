@@ -4,7 +4,6 @@ Environment validation and error handling utilities for deployment.
 import os
 import logging
 from typing import Optional
-from dotenv import dotenv_values
 
 logger = logging.getLogger(__name__)
 

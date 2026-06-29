@@ -7,7 +7,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5000,
     strictPort: true,
-    allowedHosts: true,
+    allowedHosts: ['localhost', '127.0.0.1', '.ngrok.io', '.ngrok-free.app'],
     hmr: { clientPort: 5000 },
     proxy: {
       '/api': {
@@ -21,7 +21,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5000,
     strictPort: true,
-    allowedHosts: true,
+    allowedHosts: ['localhost', '127.0.0.1', '.ngrok.io', '.ngrok-free.app'],
   },
   plugins: [
     react(),
@@ -31,17 +31,32 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'logo.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        // Take control immediately — no waiting for old SW to die
         skipWaiting: true,
         clientsClaim: true,
-        // SPA fallback: all navigation requests serve index.html
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
-        // Prevent stale cache from serving old app shell
         cleanupOutdatedCaches: true,
+        // Aggressive runtime caching for API responses
+        runtimeCaching: [
+          {
+            urlPattern: /^\/api\/summary/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-summary',
+              expiration: { maxEntries: 10, maxAgeSeconds: 120 },
+            },
+          },
+          {
+            urlPattern: /^\/api\/(kpis|forecasts|dashboard)/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-data',
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 },
+            },
+          },
+        ],
       },
       devOptions: {
-        // Disable SW in dev so it never intercepts HMR or causes blank pages
         enabled: false,
       },
       manifest: {
@@ -60,4 +75,41 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    // Enable source maps only in non-production
+    sourcemap: process.env.NODE_ENV !== 'production',
+    // Chunk size warnings
+    chunkSizeWarningLimit: 250,
+    // Aggressive code splitting
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // React core
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          // UI icons
+          'vendor-icons': ['lucide-react'],
+          // Charts (heavy - split separately)
+          'vendor-charts': ['recharts'],
+          // Supabase
+          'vendor-supabase': ['@supabase/supabase-js'],
+        },
+      },
+    },
+    // Minification
+    minify: 'esbuild',
+    // CSS code splitting
+    cssCodeSplit: true,
+  },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-router-dom',
+      'lucide-react',
+      'recharts',
+      '@supabase/supabase-js',
+    ],
+    // Force pre-bundling of these
+    force: true,
+  },
 })

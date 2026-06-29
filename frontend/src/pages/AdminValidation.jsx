@@ -35,7 +35,7 @@ const AdminValidation = () => {
 
   if (loading) return <p style={{ color: 'var(--ea-text-secondary)' }}>Loading validation data...</p>;
 
-  const gradeColor = qualityScore?.grade >= 'A' ? '#10b981' : qualityScore?.grade >= 'C' ? '#f59e0b' : '#ef4444';
+  const gradeColor = qualityScore?.score >= 90 ? '#10b981' : qualityScore?.score >= 70 ? '#f59e0b' : '#ef4444';
 
   return (
     <div>

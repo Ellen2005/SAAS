@@ -42,19 +42,4 @@ class RefreshTokenMiddleware(BaseHTTPMiddleware):
         # Let the auth router handle token rotation
         response = await call_next(request)
         
-        # If auth was successful, ensure new refresh token is issued
-        if response.status_code == 200:
-            try:
-                body = {}
-                if hasattr(response, "body"):
-                    import json
-                    body = json.loads(response.body) if response.body else {}
-                if body.get("access_token") and not body.get("refresh_token"):
-                    # Generate new refresh token
-                    body["refresh_token"] = secrets.token_urlsafe(48)
-                    from fastapi.responses import JSONResponse
-                    return JSONResponse(content=body, status_code=200)
-            except Exception:
-                pass
-        
         return response

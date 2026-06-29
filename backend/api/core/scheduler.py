@@ -26,13 +26,14 @@ def process_scheduled_etl():
     supabase = get_supabase()
 
     # 1. Fetch all users who have their Sync Time scheduled for NOW
+    response = None
     try:
-        response = (
-            supabase.table("user_preferences")
-            .select("*")
-            .eq("sync_time", now_hm)
-            .execute()
-        )
+        query = supabase.table("user_preferences").select("*").eq("sync_time", now_hm)
+        # Handle both supabase-py v1 (.execute()) and v2 (auto-execute)
+        if hasattr(query, 'execute'):
+            response = query.execute()
+        else:
+            response = query
     except Exception as e:
         logger.warning(f"User preference heartbeat check failed: {e}")
         response = None
@@ -73,13 +74,17 @@ def process_scheduled_etl():
                     logger.warning(f"Discovered-analyses sync fail for {user_id}: {e}")
 
     # 2. Department-level heartbeat: trigger ETL for all users in departments whose schedule matches
+    dept_resp = None
     try:
-        dept_resp = (
+        dept_query = (
             supabase.table("departments")
             .select("id, name, heartbeat_schedule, heartbeat_time")
             .eq("heartbeat_time", now_hm)
-            .execute()
         )
+        if hasattr(dept_query, 'execute'):
+            dept_resp = dept_query.execute()
+        else:
+            dept_resp = dept_query
         if hasattr(dept_resp, "data") and dept_resp.data:
             for dept in dept_resp.data:
                 dept_freq = dept.get("heartbeat_schedule", "daily").lower()

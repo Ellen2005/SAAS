@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { LogOut, Shield, Brain, Moon, Sun } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
@@ -8,13 +8,12 @@ import { useInactivityTimeout } from './hooks/useInactivityTimeout';
 
 import Landing from './pages/Landing';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
 import ReloadPrompt from './components/ReloadPrompt';
 import OfflineBanner from './components/OfflineBanner';
 import InactivityWarning from './components/InactivityWarning';
 import AssistantBot from './components/AssistantBot';
-import './styles/enterprise-theme.css';
 
+const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Settings = lazy(() => import('./pages/Settings'));
 const ValidationHistory = lazy(() => import('./pages/ValidationHistory'));
 const ReportsHistory = lazy(() => import('./pages/ReportsHistory'));
@@ -78,7 +77,7 @@ function AdminSubNav() {
 
 
 function AppShell() {
-  const { user, departmentName, loading, isAdmin, isManager } = useAuth();
+  const { user, departmentName, loading, role, isAdmin, isManager } = useAuth();
   const { t } = useLang();
   useInactivityTimeout(!!user);
 
@@ -152,7 +151,8 @@ function AppShell() {
                   )}
                   <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_dashboard')}</NavLink>
                   <NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_reports')}</NavLink>
-                  {isManager && (
+                  {/* Show manager features if role is manager/admin OR if role hasn't resolved yet (optimistic) */}
+                  {(isManager || role === null) && (
                     <>
                       <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <Brain size={13} /> Analyst

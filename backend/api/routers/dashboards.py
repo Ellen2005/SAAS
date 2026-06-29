@@ -349,7 +349,7 @@ def unshare_dashboard(
 
 
 @router.get("/templates/list")
-def get_dashboard_templates():
+def get_dashboard_templates(user_id: str = Depends(resolve_user_id)):
     """Get all public dashboard templates."""
     supabase = get_supabase()
     

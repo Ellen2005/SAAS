@@ -200,7 +200,7 @@ def get_augmented_insights(user_id: str = Depends(resolve_user_id)):
         }
     except Exception as e:
         logger.error(f"Insights generation error: {e}", exc_info=True)
-        return {"insights": [], "message": f"Failed to generate insights: {str(e)}", "insight_count": 0, "statistics": None}
+        return {"insights": [], "message": "Failed to generate insights.", "insight_count": 0, "statistics": None}
 
 
 # ─── Rich Analysis Endpoint ──────────────────────────────────────────────────
@@ -401,7 +401,7 @@ def explain_all(user_id: str = Depends(resolve_user_id)):
         }
     except Exception as e:
         logger.error(f"Explain all error: {e}")
-        return {"kpi_explanations": [], "anomaly_explanations": [], "error": str(e)}
+        return {"kpi_explanations": [], "anomaly_explanations": [], "error": "Failed to generate explanations."}
 
 
 # ─── Governance Score ─────────────────────────────────────────────────────────
@@ -460,7 +460,7 @@ def get_governance_score(user_id: str = Depends(resolve_user_id)):
             "grade": "F",
             "dimensions": {"completeness": 0, "freshness": 0, "validity": 0, "traceability": 0},
             "recommendations": [{"priority": "HIGH", "area": "System", "action": "Error computing governance score. Contact administrator."}],
-            "error": str(e)
+            "error": "Failed to compute governance score.",
         }
 
 
@@ -475,7 +475,7 @@ def list_snapshots(limit: int = 20, user_id: str = Depends(resolve_user_id)):
         return {"snapshots": snapshots, "count": len(snapshots)}
     except Exception as e:
         logger.error(f"List snapshots error: {e}")
-        return {"snapshots": [], "count": 0, "error": str(e)}
+        return {"snapshots": [], "count": 0, "error": "Failed to list snapshots."}
 
 
 @router.post("/snapshots")

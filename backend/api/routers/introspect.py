@@ -8,7 +8,7 @@ Exposes endpoints that:
   • Run a single suggested analysis on demand
 """
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any, Optional
 
 from ..core.auth import require_role
@@ -32,14 +32,30 @@ class AnalysisSpec(BaseModel):
     date_column: Optional[str] = None
 
 
+class SchemaRequest(BaseModel):
+    refresh: bool = False
+    sample_rows: int = Field(default=5, ge=1, le=100)
+    max_tables: int = Field(default=200, ge=1, le=1000)
+
+
+class AutoMapRequest(BaseModel):
+    refresh: bool = False
+
+
+class SyncKpisRequest(BaseModel):
+    refresh: bool = False
+
+
 @router.post("/schema")
 def discover_schema(
-    payload: dict | None = None,
+    payload: SchemaRequest | None = None,
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
-    refresh = bool((payload or {}).get("refresh", False))
-    sample_rows = int((payload or {}).get("sample_rows", 5))
-    max_tables = int((payload or {}).get("max_tables", 200))
+    if payload is None:
+        payload = SchemaRequest()
+    refresh = payload.refresh
+    sample_rows = payload.sample_rows
+    max_tables = payload.max_tables
     user_id = context["user_id"]
 
     cached = _SCHEMA_CACHE.get(user_id)
@@ -64,15 +80,16 @@ def discover_schema(
 
 @router.post("/auto-map")
 def auto_map(
-    payload: dict | None = None,
+    payload: AutoMapRequest | None = None,
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
     """Suggest mappings between the user's semantic template and discovered columns."""
     user_id = context["user_id"]
     supabase = get_supabase()
+    refresh = payload.refresh if payload else False
 
     schema = _SCHEMA_CACHE.get(user_id)
-    if not schema or (payload or {}).get("refresh"):
+    if not schema or refresh:
         try:
             schema = schema_introspector.introspect_user_database(user_id, supabase)
         except ValueError as exc:
@@ -276,7 +293,7 @@ def run_introspect_sync(user_id: str, supabase, refresh: bool = False) -> dict:
 
 @router.post("/sync-to-kpis")
 def sync_to_kpis(
-    payload: dict | None = None,
+    payload: SyncKpisRequest | None = None,
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
     """Run every suggested analysis and persist its summary value as a KPI row.
@@ -287,7 +304,8 @@ def sync_to_kpis(
     """
     user_id = context["user_id"]
     supabase = get_supabase()
-    result = run_introspect_sync(user_id, supabase, refresh=bool((payload or {}).get("refresh")))
+    refresh = payload.refresh if payload else False
+    result = run_introspect_sync(user_id, supabase, refresh=refresh)
     if result.get("error") and result.get("synced", 0) == 0:
         # Surface as 502 so the UI can render a real error
         raise HTTPException(status_code=502, detail=result["error"])

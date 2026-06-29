@@ -100,8 +100,8 @@ def run_scheduled_report_now(
     supabase = get_supabase()
     
     try:
-        # Run ETL to get fresh data
-        run_user_etl_pipeline(user_id)
+        # Run ETL to get fresh data in background
+        background_tasks.add_task(run_user_etl_pipeline, user_id)
         
         # Fetch KPIs and anomalies
         kpi_rows = (

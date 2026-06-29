@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Shield, AlertTriangle, CheckCircle, XCircle, FileText, RefreshCw } from 'lucide-react';
-
-const API_BASE = import.meta.env.VITE_API_BASE || '';
+import { apiJson } from '../lib/api';
+import KpiCard from '../components/KpiCard';
 
 export default function DataQualityPage() {
   const [score, setScore] = useState(null);
@@ -15,16 +15,13 @@ export default function DataQualityPage() {
     setError(null);
     try {
       const [scRes, isRes, rpRes] = await Promise.all([
-        fetch(`${API_BASE}/api/data-quality/score`, { credentials: 'include' }),
-        fetch(`${API_BASE}/api/data-quality/issues`, { credentials: 'include' }),
-        fetch(`${API_BASE}/api/data-quality/report`, { credentials: 'include' }),
+        apiJson('/api/data-quality/score'),
+        apiJson('/api/data-quality/issues'),
+        apiJson('/api/data-quality/report'),
       ]);
-      if (!scRes.ok) throw new Error(`Score failed: ${scRes.status}`);
-      if (!isRes.ok) throw new Error(`Issues failed: ${isRes.status}`);
-      if (!rpRes.ok) throw new Error(`Report failed: ${rpRes.status}`);
-      setScore(await scRes.json());
-      setIssues(await isRes.json());
-      setReport(await rpRes.json());
+      setScore(scRes);
+      setIssues(isRes);
+      setReport(rpRes);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -51,7 +48,7 @@ export default function DataQualityPage() {
 
   if (!score) return <div className="ea-content"><div className="ea-alert ea-alert-warning">No data quality information available.</div></div>;
 
-  const gradeColor = score.grade >= 'A' ? 'positive' : score.grade >= 'C' ? 'warning' : 'negative';
+  const gradeColor = score.score >= 90 ? 'positive' : score.score >= 70 ? 'warning' : 'negative';
 
   return (
     <div className="ea-content">

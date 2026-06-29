@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -167,7 +167,7 @@ app.add_middleware(
 async def add_security_headers(request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
@@ -275,29 +275,40 @@ def ping():
     return {"ok": True, "timestamp": datetime.now(UTC).isoformat()}
 
 
+def _verify_supabase_token(token: str) -> dict:
+    """Verify a Supabase JWT token and return the user dict."""
+    supabase = get_supabase()
+    user_resp = supabase.auth.get_user(token)
+    if not user_resp or not hasattr(user_resp, "user") or not user_resp.user:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user = user_resp.user
+    if isinstance(user, dict):
+        return user
+    return {"id": getattr(user, "id", None)}
+
+
 # ── Real-time SSE Stream ──────────────────────────────────────────────────────
 
 @app.get("/api/realtime/stream")
-async def realtime_stream(user_id: str):
-    """Server-Sent Events stream for real-time dashboard updates."""
+async def realtime_stream(token: str, authorization: Optional[str] = Header(None)):
+    """Server-Sent Events stream (heartbeat only). Auth via ?token= or Authorization header."""
     from fastapi.responses import StreamingResponse
     import asyncio
     import json
-    
+
+    auth_token = token or (authorization or "").replace("Bearer ", "")
+    if auth_token:
+        try:
+            user = _verify_supabase_token(auth_token)
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    else:
+        raise HTTPException(status_code=401, detail="Missing authentication")
+
     async def event_generator():
-        supabase = get_supabase()
-        last_check = datetime.now(UTC)
         try:
             while True:
-                now = datetime.now(UTC)
-                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': now.isoformat()})}\n\n"
-                if (now - last_check).total_seconds() >= 15:
-                    try:
-                        resp = supabase.table("kpi_results").select("count", count="exact").eq("user_id", user_id).limit(1).execute()
-                        yield f"data: {json.dumps({'type': 'kpi-count', 'count': len(resp.data) if hasattr(resp, 'data') else 0, 'timestamp': now.isoformat()})}\n\n"
-                    except Exception:
-                        pass
-                    last_check = now
+                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now(UTC).isoformat()})}\n\n"
                 await asyncio.sleep(5)
         except asyncio.CancelledError:
             pass
@@ -483,28 +494,31 @@ def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120, da
         # Cache for 1 minute
         set_cached(cache_key_str, {"series": series}, ttl=60)
         return {"series": series}
-    except Exception as e:
-        logger.error(f"KPI series error: {e}")
-        return {"series": {}, "error": str(e)}
+    except Exception:
+        logger.error("KPI series error", exc_info=True)
+        return {"series": {}, "error": "Failed to fetch KPI series."}
+
+
+def _safe_data(response) -> list:
+    return response.data if hasattr(response, "data") and response.data else []
 
 
 @app.get("/api/reports/history")
 def get_reports_history(limit: int = 50, user_id: str = Depends(resolve_user_id)):
     supabase = get_supabase()
     try:
-        rows = (
+        rows = _safe_data(
             supabase.table("daily_reports")
-            .select("id, report_date, narrative, department_id")
+            .select("*")
             .eq("user_id", user_id)
             .order("report_date", desc=True)
             .limit(limit)
             .execute()
         )
-        reports = rows.data if hasattr(rows, "data") and rows.data else []
-        return {"reports": [row for row in reports if not _is_legacy_demo_report(row)]}
-    except Exception as e:
-        logger.error(f"Reports history error: {e}")
-        return {"reports": [], "error": str(e)}
+        return {"reports": rows}
+    except Exception:
+        logger.error("Reports history error", exc_info=True)
+        return {"reports": [], "error": "Failed to fetch reports history."}
 
 
 @app.get("/api/reports/{report_id}/download")
@@ -799,9 +813,9 @@ def get_forecasts(user_id: str = Depends(resolve_user_id), days: int = None):
             )
 
         return {"forecasts": forecasts}
-    except Exception as e:
-        logger.error(f"Forecasts error: {e}")
-        return {"forecasts": [], "error": str(e)}
+    except Exception:
+        logger.error("Forecasts error", exc_info=True)
+        return {"forecasts": [], "error": "Failed to fetch forecasts."}
 
 
 @app.get("/api/settings/preferences")
@@ -1176,6 +1190,6 @@ def get_audit_log(limit: int = 50, context: dict = Depends(require_role(["manage
     try:
         rows = supabase.table("audit_logs").select("*").eq("user_id", context["user_id"]).order("created_at", desc=True).limit(limit).execute()
         return {"logs": rows.data if hasattr(rows, "data") and rows.data else []}
-    except Exception as e:
-        logger.error(f"Audit log error: {e}")
-        return {"logs": [], "error": str(e)}
+    except Exception:
+        logger.error("Audit log error", exc_info=True)
+        return {"logs": [], "error": "Failed to fetch audit logs."}

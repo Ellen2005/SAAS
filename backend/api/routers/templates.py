@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,6 +7,7 @@ from pydantic import BaseModel
 from ..core.auth import require_role
 from ..core.supabase_client import get_supabase
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/templates", tags=["instance-templates"])
 
 
@@ -34,8 +36,9 @@ def list_instance_templates(context: dict = Depends(require_role(["admin"]))):
     try:
         rows = _safe_data(supabase.table("instance_templates").select("*").order("created_at").execute())
         return {"templates": rows, "requested_by": context["user_id"]}
-    except Exception as error:
-        return {"templates": [], "error": str(error)}
+    except Exception:
+        logger.error("List instance templates failed", exc_info=True)
+        return {"templates": [], "error": "Failed to list templates."}
 
 
 @router.post("/instances")
@@ -45,8 +48,9 @@ def create_instance_template(template: InstanceTemplateCreate, context: dict = D
     try:
         rows = _safe_data(supabase.table("instance_templates").insert(payload).execute())
         return {"status": "success", "template": rows[0] if rows else payload}
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+    except Exception:
+        logger.error("Create instance template failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to create template.")
 
 
 @router.put("/instances/{template_id}")

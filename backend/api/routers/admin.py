@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -7,6 +8,7 @@ from ..core.auth import require_role
 from ..core.supabase_client import get_supabase
 from ..services.etl_service import run_user_etl_pipeline
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 def _safe_data(response) -> list:
@@ -134,13 +136,14 @@ def get_admin_summary(context: dict = Depends(require_role(["admin"]))):
             "requested_by": context["user_id"],
         }
     except Exception as error:
+        logger.error("Admin summary failed", exc_info=True)
         return {
             "departments": [],
             "combined_kpis": [],
             "timeline": [],
             "total_departments": 0,
             "generated_at": datetime.now().isoformat(),
-            "error": str(error),
+            "error": "Failed to generate admin summary.",
         }
 
 
@@ -159,8 +162,9 @@ def get_combined_report(
         if rows:
             return {"report": rows[0], "requested_by": context["user_id"]}
         return {"report": None, "message": "No combined report found."}
-    except Exception as error:
-        return {"report": None, "message": f"Error fetching report: {error}"}
+    except Exception:
+        logger.error("Combined report fetch failed", exc_info=True)
+        return {"report": None, "message": "Error fetching report."}
 
 
 @router.get("/lineage/{kpi_id}")
@@ -210,15 +214,9 @@ def get_kpi_lineage(kpi_id: str, context: dict = Depends(require_role(["admin"])
         }
     except HTTPException:
         raise
-    except Exception as error:
-        return {
-            "kpi": None,
-            "department_name": None,
-            "source_records": [],
-            "related_kpis": [],
-            "source_record_count": 0,
-            "error": str(error),
-        }
+    except Exception:
+        logger.error("KPI lineage fetch failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch KPI lineage.")
 
 
 @router.get("/heartbeat/status")
@@ -274,8 +272,9 @@ def get_admin_heartbeat_status(context: dict = Depends(require_role(["admin"])))
             )
 
         return {"departments": statuses, "requested_by": context["user_id"]}
-    except Exception as error:
-        return {"departments": [], "error": str(error)}
+    except Exception:
+        logger.error("Heartbeat status fetch failed", exc_info=True)
+        return {"departments": [], "error": "Failed to fetch heartbeat status."}
 
 
 @router.post("/heartbeat/trigger/{dept_id}")
@@ -303,10 +302,6 @@ def trigger_department_etl(
         }
     except HTTPException:
         raise
-    except Exception as error:
-        return {
-            "status": "error",
-            "department_id": dept_id,
-            "users_triggered": 0,
-            "error": str(error),
-        }
+    except Exception:
+        logger.error("ETL trigger failed for department", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to trigger ETL pipeline.")

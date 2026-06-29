@@ -102,6 +102,12 @@ const Settings = () => {
           setDirectUri(connectionData.credentials || '');
           setConnectionMethod(connectionData.connection_method || 'direct');
           setConnectionOptions({ ...DEFAULT_CONNECTION_OPTIONS, ...(connectionData.connection_options || {}) });
+          if (connectionData.db_user) {
+            setDbUser(connectionData.db_user);
+          }
+          if (connectionData.db_password) {
+            setDbPass(connectionData.db_password);
+          }
         }
 
         setAiTone(preferenceData.ai_tone || 'insight-driven');

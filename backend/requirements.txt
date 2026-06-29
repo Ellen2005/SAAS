@@ -17,3 +17,5 @@ pymysql
 oracledb
 gotrue<2.7
 cryptography>=42.0.0
+redis>=5.0.0
+openpyxl>=3.1.0

@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,6 +7,7 @@ from pydantic import BaseModel
 from ..core.auth import require_role
 from ..core.supabase_client import get_supabase
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/departments", tags=["departments"])
 
 
@@ -124,8 +126,9 @@ def list_departments(context: dict = Depends(require_role(["admin"]))):
             })
 
         return {"departments": departments, "requested_by": context["user_id"]}
-    except Exception as error:
-        return {"departments": [], "error": str(error)}
+    except Exception:
+        logger.error("List departments failed", exc_info=True)
+        return {"departments": [], "error": "Failed to list departments."}
 
 
 @router.post("")
@@ -151,8 +154,9 @@ def create_department(
             "department": rows[0] if rows else payload,
             "created_by": context["user_id"],
         }
-    except Exception as error:
-        return {"status": "error", "message": str(error)}
+    except Exception:
+        logger.error("Create department failed", exc_info=True)
+        return {"status": "error", "message": "Failed to create department."}
 
 
 @router.put("/{dept_id}")
@@ -176,8 +180,9 @@ def update_department(
             "updated": payload,
             "updated_by": context["user_id"],
         }
-    except Exception as error:
-        return {"status": "error", "message": str(error)}
+    except Exception:
+        logger.error("Update department failed", exc_info=True)
+        return {"status": "error", "message": "Failed to update department."}
 
 
 @router.delete("/{dept_id}")
@@ -196,8 +201,9 @@ def delete_department(
             "deleted": dept_id,
             "deleted_by": context["user_id"],
         }
-    except Exception as error:
-        return {"status": "error", "message": str(error)}
+    except Exception:
+        logger.error("Delete department failed", exc_info=True)
+        return {"status": "error", "message": "Failed to delete department."}
 
 
 @router.post("/{dept_id}/assign-user")
@@ -220,5 +226,6 @@ def assign_user_to_department(
             payload, on_conflict="user_id,department_id"
         ).execute()
         return {"status": "success", "assignment": payload, "assigned_by": context["user_id"]}
-    except Exception as error:
-        return {"status": "error", "message": str(error)}
+    except Exception:
+        logger.error("Assign user to department failed", exc_info=True)
+        return {"status": "error", "message": "Failed to assign user."}

@@ -5,22 +5,24 @@ export const API_URL =
     ? ''
     : (import.meta.env.VITE_API_URL || 'http://localhost:5000')
 
-let _sessionPromise = supabase.auth.getSession()
-let _cachedSession = null
-
-_sessionPromise.then(({ data: { session } }) => {
-  _cachedSession = session
-})
-
-supabase.auth.onAuthStateChange((_event, session) => {
-  _cachedSession = session
-})
+function redirectToLogin() {
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login'
+  }
+}
 
 export async function getSessionSafe() {
-  if (_cachedSession) return _cachedSession
-  const { data: { session } } = await _sessionPromise
-  _cachedSession = session
+  const { data: { session } } = await supabase.auth.getSession()
   return session
+}
+
+async function getAccessToken() {
+  let session = await getSessionSafe()
+  if (!session) {
+    const { data: { session: refreshed } } = await supabase.auth.refreshSession()
+    session = refreshed
+  }
+  return session?.access_token
 }
 
 function buildHeaders(existingHeaders = {}, includeJson = false) {
@@ -28,29 +30,51 @@ function buildHeaders(existingHeaders = {}, includeJson = false) {
   if (includeJson && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
-  if (_cachedSession?.access_token) {
-    headers.set('Authorization', `Bearer ${_cachedSession.access_token}`)
-  }
   return headers
 }
 
+async function doFetch(path, options = {}) {
+  const token = await getAccessToken()
+  const headers = buildHeaders(options.headers, !!(options.body && typeof options.body === 'string'))
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  return fetch(`${API_URL}${path}`, { ...options, headers })
+}
+
 export async function apiFetch(path, options = {}) {
-  await getSessionSafe()
-  const hasJsonBody = options.body && typeof options.body === 'string'
-  const headers = buildHeaders(options.headers, hasJsonBody)
-
-  const response = await fetch(`${API_URL}${path}`, { ...options, headers })
-
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}`
+  const maxRetries = 2
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    let response
     try {
-      const err = await response.json()
-      message = err.detail || err.message || message
-    } catch { /* ignore */ }
-    throw new Error(message)
+      response = await doFetch(path, options)
+    } catch (err) {
+      if (attempt < maxRetries) continue
+      throw err
+    }
+
+    if (response.status === 401) {
+      const { data: { session } } = await supabase.auth.refreshSession()
+      if (!session) {
+        redirectToLogin()
+        throw new Error('Session expired. Redirecting to login.')
+      }
+      continue
+    }
+
+    if (!response.ok) {
+      let message = `Request failed with status ${response.status}`
+      try {
+        const err = await response.json()
+        message = err.detail || err.message || message
+      } catch { /* ignore */ }
+      throw new Error(message)
+    }
+
+    return response
   }
 
-  return response
+  throw new Error('Max retries exceeded.')
 }
 
 export async function apiJson(path, options = {}) {

@@ -36,7 +36,7 @@ def normalize_credentials(credentials: str, db_type: str) -> str:
     if db_type == "mongodb":
         return cred
     if db_type == "sqlite":
-        return cred if lowered.startswith("sqlite") else f"sqlite:///{cred.lstrip('/') }"
+        return cred if lowered.startswith("sqlite") else f"sqlite:///{cred.lstrip('/')}"
     if db_type == "mysql" and not lowered.startswith("mysql+"):
         if lowered.startswith("mysql://"):
             return cred.replace("mysql://", "mysql+pymysql://", 1)

@@ -1,17 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, Search, BarChart2, Shield, Activity, Download, CheckCircle } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
+import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, Search, BarChart2, Shield, Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 import { useAuth } from '../lib/authContext';
 import { apiFetch, apiJson, API_URL } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import ValidationWarnings from '../components/ValidationWarnings';
-import ChartRenderer from '../components/ChartRenderer';
-import MapVisualization from '../components/MapVisualization';
 import ErrorBoundary from '../components/ErrorBoundary';
 import OnboardingTour from '../components/OnboardingTour';
 import DashboardCustomizer from '../components/DashboardCustomizer';
+import SparklineChart from '../components/SparklineChart';
 import { useRealTimeData } from '../hooks/useRealTimeData';
+
+// Lazy-loaded heavy components (chart renderer, map, forecast)
+const ChartRenderer = lazy(() => import('../components/ChartRenderer'));
+const MapVisualization = lazy(() => import('../components/MapVisualization'));
+const ForecastChart = lazy(() => import('../components/ForecastChart'));
 
 const DASHBOARD_CACHE_KEY = 'saas.dashboard.lastSummary.v2';
 const METRICS_CACHE_KEY = 'saas.dashboard.metricsCache.v1';
@@ -71,10 +74,13 @@ const MetricCard = ({ label, value, delta, status, icon, color, sparklineData, f
       )}
       {sparklineData && sparklineData.length > 1 && (
         <div style={{ height: 32, marginTop: 8 }}>
-          <AreaChart width={200} height={32} data={sparklineData.slice(-14).map((p) => ({ t: p.t?.slice(5,10) || '', v: p.value }))}>
-            <defs><linearGradient id={`sprk-${label?.replace(/\s/g,'') || 'kpi'}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={statusColor} stopOpacity={0.3} /><stop offset="100%" stopColor={statusColor} stopOpacity={0} /></linearGradient></defs>
-            <Area type="monotone" dataKey="v" stroke={statusColor} fill={`url(#sprk-${label?.replace(/\s/g,'') || 'kpi'})`} strokeWidth={1.5} dot={false} />
-          </AreaChart>
+          <SparklineChart
+            data={sparklineData.slice(-14)}
+            width={200}
+            height={32}
+            color={statusColor}
+            strokeWidth={1.5}
+          />
         </div>
       )}
     </div>
@@ -245,21 +251,6 @@ const Dashboard = () => {
       }
     }
   }, []);
-
-  // ── Forecast chart data ───────────────────────────────────────
-  const chartData = useMemo(() => {
-    if (!forecasts.length) return [];
-    const dateMap = {};
-    forecasts.forEach((f) => {
-      if (!dateMap[f.forecast_date]) dateMap[f.forecast_date] = { date: f.forecast_date };
-      dateMap[f.forecast_date][f.kpi_name.replace(/_/g, ' ')] = f.predicted_value;
-    });
-    return Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
-  }, [forecasts]);
-
-  const forecastKpiNames = useMemo(() => [...new Set(forecasts.map((f) => f.kpi_name.replace(/_/g, ' ')))], [forecasts]);
-
-  const KPI_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
 
   // ── Optimized widget cards with sparklines (O(n) instead of O(n²)) ──
   const widgetCards = useMemo(() => {
@@ -502,24 +493,16 @@ const Dashboard = () => {
               />
             </section>
 
-            {/* Forecasts Chart */}
-            {chartData.length > 0 && forecastKpiNames.length > 0 && (
+            {/* Forecasts Chart - using lazy-loaded component */}
+            {forecasts.length > 0 && (
               <section className="ea-chart-container" style={{ marginBottom: 24 }}>
                 <h3 className="ea-chart-title">
                   <TrendingUp size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} /> Forecast
                 </h3>
                 <p style={{ fontSize: '0.82rem', marginBottom: 16, color: 'var(--ea-text-secondary)' }}>Projected values based on historical trends</p>
-                <ResponsiveContainer width="100%" height={280}>
-                  <AreaChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                    <defs>{forecastKpiNames.map((n, i) => (<linearGradient key={n} id={`fg-${i}`} x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={KPI_COLORS[i % KPI_COLORS.length]} stopOpacity={0.25} /><stop offset="95%" stopColor={KPI_COLORS[i % KPI_COLORS.length]} stopOpacity={0} /></linearGradient>))}</defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" />
-                    <XAxis dataKey="date" stroke="var(--ea-text-secondary)" fontSize={11} tickFormatter={(v) => v.slice(5)} />
-                    <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={70} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
-                    <Tooltip contentStyle={{ background: 'var(--ea-bg-card)', border: '1px solid var(--ea-border)', borderRadius: 8, fontSize: '0.82rem' }} formatter={(value, name) => [Number(value).toLocaleString(), name]} labelFormatter={(l) => `Date: ${l}`} />
-                    <Legend wrapperStyle={{ fontSize: '0.82rem', paddingTop: 12 }} />
-                    {forecastKpiNames.map((n, i) => (<Area key={n} type="monotone" dataKey={n} name={n} stroke={KPI_COLORS[i % KPI_COLORS.length]} fill={`url(#fg-${i})`} strokeWidth={2} dot={{ r: 3 }} connectNulls />))}
-                  </AreaChart>
-                </ResponsiveContainer>
+                <Suspense fallback={<div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ea-text-secondary)' }}>Loading chart...</div>}>
+                  <ForecastChart forecasts={forecasts} height={280} />
+                </Suspense>
               </section>
             )}
 
@@ -548,7 +531,7 @@ const Dashboard = () => {
             {data.validation?.length > 0 && <ValidationWarnings validations={data.validation} />}
 
             {/* Empty state */}
-            {!data.narrative && !chartData.length && !data.anomalies.length && (
+            {!data.narrative && !data.anomalies.length && (
               <div className="ea-empty-state">
                 <div className="ea-empty-state-icon"><BarChart2 size={28} /></div>
                 <h3 className="ea-empty-state-title">No Analytics Yet</h3>

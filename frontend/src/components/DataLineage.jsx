@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GitBranch, Database, Table, ArrowRight, ChevronDown, ChevronRight, Info, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
+import { GitBranch, Database, Table, ArrowRight, ChevronDown, ChevronRight, Info, ZoomIn, ZoomOut, Maximize, Activity, FileText, Layout } from 'lucide-react';
 
 // Sample data lineage structure
 const SAMPLE_LINEAGE = {
@@ -98,8 +98,9 @@ export default function DataLineage({ data = SAMPLE_LINEAGE, onNodeClick, height
           cursor: 'pointer',
           minWidth: '120px',
           transition: 'all 0.2s',
-          transform: `scale(${zoom})`,
+          transform: 'none',
           transformOrigin: 'center',
+          fontSize: `${zoom * 100}%`,
         }}
         onClick={() => handleNodeClick(node)}
       >
@@ -298,9 +299,11 @@ export default function DataLineage({ data = SAMPLE_LINEAGE, onNodeClick, height
         flexDirection: 'column',
         alignItems: 'center',
         gap: '8px',
-        transform: `scale(${zoom})`,
+        transform: 'none',
         transformOrigin: 'top center',
-        transition: 'transform 0.2s',
+        transition: 'opacity 0.2s',
+        maxWidth: '100%',
+        overflow: 'auto',
       }}>
         {/* Source Layer */}
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center' }}>

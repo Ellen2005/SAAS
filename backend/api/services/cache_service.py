@@ -92,9 +92,13 @@ class CacheService:
         try:
             if self.redis_client:
                 pattern = f"{prefix}:{user_id}:*"
-                keys = self.redis_client.keys(pattern)
-                if keys:
-                    self.redis_client.delete(*keys)
+                cursor = 0
+                while True:
+                    cursor, keys = self.redis_client.scan(cursor=cursor, match=pattern, count=500)
+                    if keys:
+                        self.redis_client.delete(*keys)
+                    if cursor == 0:
+                        break
             else:
                 keys_to_delete = [k for k in _memory_cache if k.startswith(f"{prefix}:{user_id}:")]
                 for k in keys_to_delete:

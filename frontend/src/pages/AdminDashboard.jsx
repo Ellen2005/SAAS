@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, BarChart3, ChevronDown, ChevronRight, Database, RefreshCcw, Users } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { apiJson } from '../lib/api';
+import { apiFetch, apiJson } from '../lib/api';
 
 const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
@@ -42,7 +42,7 @@ const AdminDashboard = () => {
     if (syncing) return;
     setSyncing(true);
     try {
-      await fetch('/api/etl/trigger', { method: 'POST' });
+      await apiFetch('/api/etl/trigger', { method: 'POST' });
       // Wait for ETL to complete, then reload
       setTimeout(() => {
         const loadData = async () => {

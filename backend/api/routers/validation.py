@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -5,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..core.auth import require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["validation"])
 
 
@@ -28,8 +30,9 @@ def get_validation_logs(
             .execute()
         )
         return {"logs": rows, "requested_by": user_id}
-    except Exception as error:
-        return {"logs": [], "error": str(error)}
+    except Exception:
+        logger.error("Get validation logs failed", exc_info=True)
+        return {"logs": [], "error": "Failed to fetch validation logs."}
 
 
 @router.get("/admin/validation/scorecard")
@@ -76,8 +79,9 @@ def get_validation_scorecard(context: dict = Depends(require_role(["admin"]))):
             )
 
         return {"scorecard": scorecard, "requested_by": context["user_id"]}
-    except Exception as error:
-        return {"scorecard": [], "error": str(error)}
+    except Exception:
+        logger.error("Get validation scorecard failed", exc_info=True)
+        return {"scorecard": [], "error": "Failed to generate scorecard."}
 
 
 @router.get("/admin/validation/logs")
@@ -106,5 +110,6 @@ def get_all_validation_logs(
             logs.append({**row, "department_name": department_name})
 
         return {"logs": logs, "requested_by": context["user_id"]}
-    except Exception as error:
-        return {"logs": [], "error": str(error)}
+    except Exception:
+        logger.error("Get all validation logs failed", exc_info=True)
+        return {"logs": [], "error": "Failed to fetch validation logs."}

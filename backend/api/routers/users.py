@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Header
@@ -6,6 +7,7 @@ from pydantic import BaseModel
 from ..core.auth import get_current_user, get_user_info, require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["users"])
 
 
@@ -38,11 +40,11 @@ def get_current_user_info(user_id: str = Depends(resolve_user_id)):
                     {
                         "user_id": user_id,
                         "department_id": default_department["id"],
-                        "role": "manager",
+                        "role": "viewer",
                     },
                     on_conflict="user_id,department_id",
                 ).execute()
-                info["role"] = "manager"
+                info["role"] = "viewer"
                 info["department_id"] = default_department["id"]
                 info["department_name"] = default_department["name"]
 
@@ -173,7 +175,7 @@ def list_all_users(context: dict = Depends(require_role(["admin"]))):
 
         return {"users": users, "requested_by": context["user_id"], "auth_error": auth_error}
     except Exception as error:
-        return {"users": [], "error": str(error), "auth_error": auth_error if 'auth_error' in dir() else None}
+        return {"users": [], "error": "Failed to list users.", "auth_error": auth_error if 'auth_error' in dir() else None}
 
 
 @router.post("/admin/users/{target_user_id}/role")
@@ -200,8 +202,9 @@ def set_user_role(
     try:
         supabase.table("user_roles").insert(payload).execute()
         return {"status": "success", **payload, "updated_by": context["user_id"]}
-    except Exception as error:
-        return {"status": "error", "message": str(error)}
+    except Exception:
+        logger.error("Set user role failed", exc_info=True)
+        return {"status": "error", "message": "Failed to set user role."}
 
 
 @router.delete("/admin/users/{target_user_id}/role")
@@ -213,8 +216,9 @@ def remove_user_role(
     try:
         supabase.table("user_roles").delete().eq("user_id", target_user_id).execute()
         return {"status": "success", "removed": target_user_id, "removed_by": context["user_id"]}
-    except Exception as error:
-        return {"status": "error", "message": str(error)}
+    except Exception:
+        logger.error("Remove user role failed", exc_info=True)
+        return {"status": "error", "message": "Failed to remove user role."}
 
 
 @router.delete("/account")
@@ -236,8 +240,9 @@ def delete_my_account(authorization: Optional[str] = Header(None)):
     try:
         supabase.auth.admin.delete_user(user_id)
         return {"status": "deleted", "user_id": user_id}
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Failed to delete account: {str(error)}")
+    except Exception:
+        logger.error("Account deletion failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete account.")
 
 
 @router.get("/admin/debug/auth")
@@ -279,8 +284,9 @@ def debug_auth_users(context: dict = Depends(require_role(["admin"]))):
             "role_assignments": role_assignments,
             "raw_response_type": str(type(auth_response))
         }
-    except Exception as e:
-        return {"error": str(e), "error_type": str(type(e))}
+    except Exception:
+        logger.error("Debug auth failed", exc_info=True)
+        return {"error": "Failed to list auth users.", "error_type": "unknown"}
 
 
 @router.post("/users/me/profile")

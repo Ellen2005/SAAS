@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X, Download } from 'lucide-react';
-import { apiJson, apiFetch } from '../lib/api';
+import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X, Download, FileSpreadsheet } from 'lucide-react';
+import { apiJson, apiFetch, API_URL } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 
 const ReportsHistory = () => {
@@ -69,7 +69,7 @@ const ReportsHistory = () => {
   const handleExcelExport = async (reportId) => {
     try {
       const url = `${API_URL}/api/export/reports/${reportId}/excel`;
-      window.open(url, '_blank');
+      window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       alert(`Excel export failed: ${err.message}`);
     }

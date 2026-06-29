@@ -294,12 +294,8 @@ def introspect_sql(
                             if est and est[0] is not None and int(est[0]) > 0:
                                 row_count = int(est[0])
                         if row_count is None:
-                            if dialect == "oracle":
-                                count_q = f"SELECT COUNT(*) FROM {schema.upper()}.{name.upper()}" if schema else f"SELECT COUNT(*) FROM {name.upper()}"
-                            elif dialect == "mysql":
-                                count_q = f"SELECT COUNT(*) FROM `{schema}`.`{name}`" if schema else f"SELECT COUNT(*) FROM `{name}`"
-                            else:
-                                count_q = f'SELECT COUNT(*) FROM "{schema}"."{name}"' if schema else f'SELECT COUNT(*) FROM "{name}"'
+                            count_ident = _qident(schema, name, dialect)
+                            count_q = f"SELECT COUNT(*) FROM {count_ident}"
                             row_count = int(conn.execute(text(count_q)).scalar() or 0)
                     except Exception as exc:
                         logger.debug(f"row count failed {qualified}: {exc}")
@@ -308,24 +304,8 @@ def introspect_sql(
                     samples: list[dict] = []
                     if sample_rows > 0:
                         try:
-                            if dialect == "oracle":
-                                sel = (
-                                    f"SELECT * FROM {schema.upper()}.{name.upper()} FETCH FIRST :n ROWS ONLY"
-                                    if schema
-                                    else f"SELECT * FROM {name.upper()} FETCH FIRST :n ROWS ONLY"
-                                )
-                            elif dialect == "mysql":
-                                sel = (
-                                    f"SELECT * FROM `{schema}`.`{name}` LIMIT :n"
-                                    if schema
-                                    else f"SELECT * FROM `{name}` LIMIT :n"
-                                )
-                            else:
-                                sel = (
-                                    f'SELECT * FROM "{schema}"."{name}" LIMIT :n'
-                                    if schema
-                                    else f'SELECT * FROM "{name}" LIMIT :n'
-                                )
+                            sel_ident = _qident(schema, name, dialect)
+                            sel = f"SELECT * FROM {sel_ident} LIMIT :n"
                             res = conn.execute(text(sel), {"n": int(sample_rows)})
                             cols = list(res.keys())
                             for row in res.fetchall():
@@ -375,6 +355,22 @@ def introspect_sql(
 # MongoDB introspection
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _sanitize_mongo_uri(raw: str) -> str:
+    """Strip dangerous query parameters from a MongoDB URI."""
+    import urllib.parse
+    dangerous_params = {
+        "connectTimeoutMS", "socketTimeoutMS", "serverSelectionTimeoutMS",
+        "maxPoolSize", "minPoolSize", "retryWrites", "retryReads",
+    }
+    parts = urllib.parse.urlparse(raw)
+    if not parts.scheme or not parts.hostname:
+        raise ValueError("Invalid MongoDB URI: missing scheme or host.")
+    qs = urllib.parse.parse_qs(parts.query, keep_blank_values=True)
+    safe_qs = {k: v for k, v in qs.items() if k.lower() not in dangerous_params}
+    safe_query = urllib.parse.urlencode(safe_qs, doseq=True)
+    return urllib.parse.urlunparse(parts._replace(query=safe_query))
+
+
 def introspect_mongo(
     conn_info: dict,
     *,
@@ -387,6 +383,7 @@ def introspect_mongo(
     db_url = conn_info.get("credentials")
     if not db_url:
         raise ValueError("Missing MongoDB credentials (connection string).")
+    db_url = _sanitize_mongo_uri(db_url)
     client = pymongo.MongoClient(db_url, serverSelectionTimeoutMS=8000)
     db_name = (
         pymongo.uri_parser.parse_uri(db_url).get("database")
@@ -633,9 +630,23 @@ def _split_qualified(qname: str) -> tuple[str | None, str]:
     return None, qname
 
 
+_SAFE_IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_$]*$")
+
+
+def _safe_ident(name: str, dialect: str) -> str:
+    """Quote and validate a single SQL identifier for the given dialect.
+
+    Raises ValueError if the name contains unsafe characters.
+    """
+    if not _SAFE_IDENT_RE.match(name):
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+    if dialect == "mysql":
+        return f"`{name}`"
+    return f'"{name}"'
+
+
 def _qident(schema: str | None, name: str, dialect: str) -> str:
     if dialect == "oracle":
-        # Oracle uses unquoted identifiers (uppercase by default)
         if schema:
             return f"{schema.upper()}.{name.upper()}"
         return name.upper()
@@ -690,16 +701,30 @@ def run_analysis(
         amt = analysis.get("amount_column")
         dt = analysis.get("date_column")
 
+        # Validate all user-supplied identifiers upfront
+        safe_amt = None
+        safe_dt = None
+        if amt:
+            try:
+                safe_amt = _safe_ident(amt, dialect)
+            except ValueError as exc:
+                return {"error": f"Invalid amount_column: {exc}", "kind": kind}
+        if dt:
+            try:
+                safe_dt = _safe_ident(dt, dialect)
+            except ValueError as exc:
+                return {"error": f"Invalid date_column: {exc}", "kind": kind}
+
         with engine.connect() as conn:
             if kind == "time_series_sum" and amt and dt:
                 if dialect == "oracle":
-                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-MM\') AS bucket, SUM({amt}) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-MM\'), bucket ORDER BY bucket DESC FETCH FIRST 24 ROWS ONLY'
+                    sql = f'SELECT TO_CHAR({safe_dt}, \'YYYY-MM\') AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY TO_CHAR({safe_dt}, \'YYYY-MM\'), bucket ORDER BY bucket DESC FETCH FIRST 24 ROWS ONLY'
                 elif dialect == "mysql":
-                    sql = f"SELECT DATE_FORMAT(`{dt}`, '%Y-%m-01') AS bucket, SUM(`{amt}`) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24"
+                    sql = f"SELECT DATE_FORMAT({safe_dt}, '%Y-%m-01') AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24"
                 elif dialect == "postgresql":
-                    sql = f'SELECT date_trunc(\'month\', "{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24'
+                    sql = f'SELECT date_trunc(\'month\', {safe_dt}) AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24'
                 else:
-                    sql = f'SELECT strftime(\'%Y-%m-01\',"{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24'
+                    sql = f'SELECT strftime(\'%Y-%m-01\',{safe_dt}) AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24'
                 rows = [
                     {"bucket": str(r[0]), "total": _jsonable(r[1])}
                     for r in conn.execute(text(sql)).fetchall()
@@ -715,13 +740,13 @@ def run_analysis(
 
             if kind == "count_over_time" and dt:
                 if dialect == "oracle":
-                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-WW\') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-WW\'), bucket ORDER BY bucket DESC FETCH FIRST 26 ROWS ONLY'
+                    sql = f'SELECT TO_CHAR({safe_dt}, \'YYYY-WW\') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY TO_CHAR({safe_dt}, \'YYYY-WW\'), bucket ORDER BY bucket DESC FETCH FIRST 26 ROWS ONLY'
                 elif dialect == "mysql":
-                    sql = f"SELECT DATE_FORMAT(`{dt}`, '%Y-%u') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26"
+                    sql = f"SELECT DATE_FORMAT({safe_dt}, '%Y-%u') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26"
                 elif dialect == "postgresql":
-                    sql = f'SELECT date_trunc(\'week\', "{dt}") AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26'
+                    sql = f'SELECT date_trunc(\'week\', {safe_dt}) AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26'
                 else:
-                    sql = f'SELECT strftime(\'%Y-W%W\',"{dt}") AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26'
+                    sql = f'SELECT strftime(\'%Y-W%W\',{safe_dt}) AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26'
                 rows = [
                     {"bucket": str(r[0]), "total": _jsonable(r[1])}
                     for r in conn.execute(text(sql)).fetchall()
@@ -761,13 +786,13 @@ def run_analysis(
 
             if kind == "missing_recent" and dt:
                 if dialect == "oracle":
-                    sql = f'SELECT MAX({dt}) AS last_seen, COUNT(*) AS total FROM {ident}'
+                    sql = f'SELECT MAX({safe_dt}) AS last_seen, COUNT(*) AS total FROM {ident}'
                 elif dialect == "mysql":
-                    sql = f"SELECT MAX(`{dt}`) AS last_seen, COUNT(*) AS total FROM {ident}"
+                    sql = f"SELECT MAX({safe_dt}) AS last_seen, COUNT(*) AS total FROM {ident}"
                 elif dialect == "postgresql":
-                    sql = f'SELECT MAX("{dt}") AS last_seen, COUNT(*) AS total FROM {ident}'
+                    sql = f'SELECT MAX({safe_dt}) AS last_seen, COUNT(*) AS total FROM {ident}'
                 else:
-                    sql = f'SELECT MAX("{dt}") AS last_seen, COUNT(*) AS total FROM {ident}'
+                    sql = f'SELECT MAX({safe_dt}) AS last_seen, COUNT(*) AS total FROM {ident}'
                 row = conn.execute(text(sql)).fetchone()
                 return {
                     "kind": kind,
@@ -777,7 +802,6 @@ def run_analysis(
                 }
 
             if kind == "demographic":
-                # Find low-cardinality string columns and group by them.
                 from sqlalchemy import inspect
                 inspector = inspect(engine)
                 schema_, name_ = _split_qualified(table)
@@ -787,12 +811,13 @@ def run_analysis(
                     cname = col["name"]
                     if any(p in str(col.get("type")).lower() for p in ("char", "text", "string", "enum")):
                         try:
+                            safe_cname = _safe_ident(cname, dialect)
                             if dialect == "oracle":
-                                sql = f'SELECT {cname} AS bucket, COUNT(*) AS total FROM {ident} GROUP BY {cname} ORDER BY total DESC FETCH FIRST 12 ROWS ONLY'
+                                sql = f'SELECT {safe_cname} AS bucket, COUNT(*) AS total FROM {ident} GROUP BY {safe_cname} ORDER BY total DESC FETCH FIRST 12 ROWS ONLY'
                             elif dialect == "mysql":
-                                sql = f"SELECT `{cname}` AS bucket, COUNT(*) AS total FROM {ident} GROUP BY `{cname}` ORDER BY total DESC LIMIT 12"
+                                sql = f"SELECT {safe_cname} AS bucket, COUNT(*) AS total FROM {ident} GROUP BY {safe_cname} ORDER BY total DESC LIMIT 12"
                             else:
-                                sql = f'SELECT "{cname}" AS bucket, COUNT(*) AS total FROM {ident} GROUP BY "{cname}" ORDER BY total DESC LIMIT 12'
+                                sql = f'SELECT {safe_cname} AS bucket, COUNT(*) AS total FROM {ident} GROUP BY {safe_cname} ORDER BY total DESC LIMIT 12'
                             res = conn.execute(text(sql)).fetchall()
                             if 2 <= len(res) <= 12:
                                 groups.append({
@@ -806,14 +831,16 @@ def run_analysis(
                 return {"kind": kind, "title": analysis.get("title"), "groups": groups}
 
             if kind == "liability_forecast" and amt and dt:
+                safe_amt = _safe_ident(amt, dialect)
+                safe_dt = _safe_ident(dt, dialect)
                 if dialect == "oracle":
-                    sql = f'SELECT TO_CHAR({dt}, \'YYYY-MM\') AS bucket, SUM({amt}) AS total FROM {ident} GROUP BY TO_CHAR({dt}, \'YYYY-MM\'), bucket ORDER BY bucket'
+                    sql = f'SELECT TO_CHAR({safe_dt}, \'YYYY-MM\') AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY TO_CHAR({safe_dt}, \'YYYY-MM\'), bucket ORDER BY bucket'
                 elif dialect == "mysql":
-                    sql = f"SELECT DATE_FORMAT(`{dt}`, '%Y-%m-01') AS bucket, SUM(`{amt}`) AS total FROM {ident} GROUP BY bucket ORDER BY bucket"
+                    sql = f"SELECT DATE_FORMAT({safe_dt}, '%Y-%m-01') AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY bucket ORDER BY bucket"
                 elif dialect == "postgresql":
-                    sql = f'SELECT date_trunc(\'month\', "{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket'
+                    sql = f'SELECT date_trunc(\'month\', {safe_dt}) AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY bucket ORDER BY bucket'
                 else:
-                    sql = f'SELECT strftime(\'%Y-%m-01\',"{dt}") AS bucket, SUM("{amt}") AS total FROM {ident} GROUP BY bucket ORDER BY bucket'
+                    sql = f'SELECT strftime(\'%Y-%m-01\',{safe_dt}) AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY bucket ORDER BY bucket'
                 history = [
                     {"bucket": str(r[0]), "total": float(r[1] or 0)}
                     for r in conn.execute(text(sql)).fetchall()

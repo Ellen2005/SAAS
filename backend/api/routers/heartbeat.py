@@ -1,4 +1,7 @@
+import logging
 from datetime import datetime
+
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel
@@ -7,17 +10,18 @@ from ..core.auth import require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
 from ..services.etl_service import run_user_etl_pipeline
 
-router = APIRouter(prefix="/api", tags=["heartbeat"])
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/heartbeat", tags=["heartbeat"])
 
 
 class IngestPayload(BaseModel):
     department: str
-    report_date: str | None = None
+    report_date: Optional[str] = None
     kpis: list = []
     anomalies: list = []
-    validation: dict | None = None
-    narrative: str | None = None
-    department_breakdown: dict | None = None
+    validation: Optional[dict] = None
+    narrative: Optional[str] = None
+    department_breakdown: Optional[dict] = None
 
 
 def _safe_data(response) -> list:
@@ -97,7 +101,8 @@ def heartbeat_status(user_id: str = Depends(resolve_user_id)):
             "kpi_count": getattr(count_resp, "count", 0),
             "validation_score": validation_score,
         }
-    except Exception as error:
+    except Exception:
+        logger.error("Heartbeat status failed for user", exc_info=True)
         return {
             "user_id": user_id,
             "department_id": None,
@@ -106,7 +111,7 @@ def heartbeat_status(user_id: str = Depends(resolve_user_id)):
             "status": "ERROR",
             "data_available": False,
             "kpi_count": 0,
-            "error": str(error),
+            "error": "Failed to get heartbeat status.",
         }
 
 
@@ -139,12 +144,14 @@ def ingest_department_summary(
         combined_payload = {
             "report_date": report_date,
             "department_breakdown": payload.department_breakdown
-            or {payload.department: {"kpis": payload.kpis, "validation": payload.validation}},
+            if payload.department_breakdown is not None
+            else {payload.department: {"kpis": payload.kpis, "validation": payload.validation}},
             "combined_kpis": {item.get("kpi_name"): item.get("value") for item in payload.kpis},
             "narrative": payload.narrative
             or f"Ingested summary for {payload.department} on {report_date}.",
         }
         supabase.table("combined_reports").insert(combined_payload).execute()
         return {"status": "ingested", "report_date": report_date, "ingested_by": context["user_id"]}
-    except Exception as error:
-        return {"status": "error", "message": str(error)}
+    except Exception:
+        logger.error("Heartbeat ingest failed", exc_info=True)
+        return {"status": "error", "message": "Failed to ingest heartbeat data."}

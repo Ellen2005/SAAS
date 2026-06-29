@@ -10,9 +10,8 @@ export function AuthProvider({ children }) {
   const [role, setRole] = useState(null);
   const [departmentId, setDepartmentId] = useState(null);
   const [departmentName, setDepartmentName] = useState(null);
-  // Start as false — we resolve from localStorage/session cache immediately
   const [loading, setLoading] = useState(true);
-  const resolvedRef = useRef(false);
+  const initRef = useRef(false);
 
   const clearCache = useCallback(() => {
     try {
@@ -30,33 +29,22 @@ export function AuthProvider({ children }) {
     setDepartmentName(null);
   }, [clearCache]);
 
-  // Fetch role from backend — returns the resolved role
   const fetchUserRole = useCallback(async (currentUser) => {
-    let resolvedRole = 'manager';
+    let resolvedRole = 'viewer';
     try {
       const data = await apiJson('/api/users/me');
-      resolvedRole = data.role || 'manager';
+      resolvedRole = data.role || 'viewer';
       setRole(resolvedRole);
       setDepartmentId(data.department_id ?? null);
       setDepartmentName(data.department_name ?? null);
       
-      // Also create/update user profile with email if available
       if (currentUser?.email) {
-        try {
-          await apiJson('/api/users/me/profile', {
-            method: 'POST',
-            body: JSON.stringify({
-              email: currentUser.email,
-              display_name: currentUser.email
-            })
-          });
-        } catch (error) {
-          // Profile creation is optional, don't fail if it doesn't work
-          console.log('Profile creation skipped:', error.message);
-        }
+        apiJson('/api/users/me/profile', {
+          method: 'POST',
+          body: JSON.stringify({ email: currentUser.email, display_name: currentUser.email })
+        }).catch(() => {});
       }
       
-      // Cache role so next load is instant
       try {
         localStorage.setItem('saas.user.role.v1', JSON.stringify({
           role: resolvedRole,
@@ -65,99 +53,79 @@ export function AuthProvider({ children }) {
         }));
       } catch { /* ignore */ }
     } catch {
-      // Backend unreachable — use cached role if available, else default
       try {
         const cached = localStorage.getItem('saas.user.role.v1');
         if (cached) {
           const parsed = JSON.parse(cached);
-          resolvedRole = parsed.role || 'manager';
+          resolvedRole = parsed.role || 'viewer';
           setRole(resolvedRole);
           setDepartmentId(parsed.department_id ?? null);
           setDepartmentName(parsed.department_name ?? null);
           return resolvedRole;
         }
       } catch { /* ignore */ }
-      setRole('manager');
+      setRole('viewer');
     }
     return resolvedRole;
   }, []);
 
   useEffect(() => {
-    // Step 1: Resolve session synchronously from Supabase's local storage cache.
-    // This is instant — no network call. We use it to unblock the UI immediately.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!resolvedRef.current) {
-        resolvedRef.current = true;
+    if (initRef.current) return;
+    initRef.current = true;
+
+    // Force UI to unblock after 5 seconds max (prevents infinite loading)
+    const forceUnblock = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+
+    // Restore cached role immediately - default to 'manager' if user has session
+    // This prevents flashing viewer-only nav while backend resolves
+    let roleFromCache = null;
+    try {
+      const cached = localStorage.getItem('saas.user.role.v1');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        roleFromCache = parsed.role || 'viewer';
+        setRole(roleFromCache);
+        setDepartmentId(parsed.department_id ?? null);
+        setDepartmentName(parsed.department_name ?? null);
+      }
+    } catch { /* ignore */ }
+
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
         if (session?.user) {
           setUser(session.user);
-          // Try to restore cached role instantly before the API responds
-          let roleResolved = false;
-          let cachedRole = 'manager';
-          try {
-            const cached = localStorage.getItem('saas.user.role.v1');
-            if (cached) {
-              const parsed = JSON.parse(cached);
-              cachedRole = parsed.role || 'manager';
-              setRole(cachedRole);
-              setDepartmentId(parsed.department_id ?? null);
-              setDepartmentName(parsed.department_name ?? null);
-              roleResolved = true;
-            }
-          } catch { /* ignore */ }
-          
-          // Always fetch fresh role, but only block UI if no cache
-          if (roleResolved) {
-            // Cache found — UI can render immediately with correct role
-            setLoading(false);
-            // Fetch fresh role in background to update if needed (non-blocking)
-            fetchUserRole(session.user);
-          } else {
-            // No cache — fetch role before allowing UI to render
-            fetchUserRole(session.user).then(() => {
-              setLoading(false);
-            }).catch(() => {
-              setLoading(false);
-            });
-          }
+          // Fetch fresh role in background - don't block UI
+          fetchUserRole(session.user).catch(() => {});
         } else {
           resetAuthState();
-          setLoading(false);
         }
-      }
-    }).catch(() => {
-      if (!resolvedRef.current) {
-        resolvedRef.current = true;
+      })
+      .catch(() => {
         resetAuthState();
+      })
+      .finally(() => {
+        clearTimeout(forceUnblock);
         setLoading(false);
-      }
-    });
+      });
 
-    // Step 2: Listen for subsequent auth changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (session?.user) {
           setUser(session.user);
-          if (!resolvedRef.current) {
-            resolvedRef.current = true;
-          }
-          // Always refresh role on auth change — block UI until role is resolved
-          try {
-            await fetchUserRole(session.user);
-          } finally {
-            setLoading(false);
-          }
+          await fetchUserRole(session.user).catch(() => {});
         } else {
           resetAuthState();
-          if (!resolvedRef.current) {
-            resolvedRef.current = true;
-          }
-          setLoading(false);
         }
       }
     );
 
-    return () => subscription?.unsubscribe();
-  }, [fetchUserRole, resetAuthState]);
+    return () => {
+      clearTimeout(forceUnblock);
+      subscription?.unsubscribe();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const value = {
     user,

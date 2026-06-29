@@ -314,7 +314,9 @@ def run_analysis(
             run_row["preset_id"] = preset_resp.data[0]["id"]
 
     insert_resp = supabase.table("analysis_runs").insert(run_row).execute()
-    run_id = insert_resp.data[0]["id"] if hasattr(insert_resp, "data") and insert_resp.data else None
+    if not (hasattr(insert_resp, "data") and insert_resp.data):
+        raise RuntimeError("Failed to create analysis run record")
+    run_id = insert_resp.data[0]["id"]
 
     try:
         supabase.table("analysis_runs").update({"status": "running"}).eq("id", run_id).execute()

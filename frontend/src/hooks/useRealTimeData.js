@@ -1,19 +1,30 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { supabase } from '../lib/supabaseClient';
 
-/**
- * Hook for real-time data streaming via Server-Sent Events (SSE)
- * Provides live KPI updates without polling
- */
+function _buildSseUrl(endpoint) {
+  const apiUrl = import.meta.env.VITE_API_URL || '';
+  return `${apiUrl}${endpoint}`;
+}
+
 export function useRealTimeData(userId, options = {}) {
   const {
     endpoint = '/api/realtime/stream',
     reconnectInterval = 3000,
     maxReconnectAttempts = 10,
-    onData = () => {},
-    onError = () => {},
-    onConnect = () => {},
-    onDisconnect = () => {},
+    onData,
+    onError,
+    onConnect,
+    onDisconnect,
   } = options;
+
+  const onDataRef = useRef(onData);
+  const onErrorRef = useRef(onError);
+  const onConnectRef = useRef(onConnect);
+  const onDisconnectRef = useRef(onDisconnect);
+  onDataRef.current = onData;
+  onErrorRef.current = onError;
+  onConnectRef.current = onConnect;
+  onDisconnectRef.current = onDisconnect;
 
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
@@ -21,101 +32,76 @@ export function useRealTimeData(userId, options = {}) {
   const reconnectCountRef = useRef(0);
   const reconnectTimeoutRef = useRef(null);
 
-  const connect = useCallback(() => {
-    if (!userId) return;
+  const getToken = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token;
+  }, []);
 
-    // Close existing connection
+  const connectWithToken = useCallback(async () => {
+    if (!userId) return;
+    const token = await getToken();
+    if (!token) return;
+
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
-
-    // Reset connection state
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
 
-    const url = `${import.meta.env.VITE_API_URL || ''}${endpoint}?user_id=${userId}`;
+    const url = `${_buildSseUrl(endpoint)}?token=${encodeURIComponent(token)}`;
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
       setIsConnected(true);
       reconnectCountRef.current = 0;
-      onConnect?.();
+      onConnectRef.current?.();
     };
 
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         setLastUpdate(new Date());
-        onData?.(data);
+        onDataRef.current?.(data);
       } catch (err) {
         console.error('Failed to parse SSE data:', err);
       }
     };
 
-    eventSource.onerror = (err) => {
-      console.error('SSE connection error:', err);
+    eventSource.onerror = () => {
       setIsConnected(false);
-      onError?.(err);
+      onErrorRef.current?.(new Error('SSE connection lost'));
       eventSource.close();
 
-      // Auto-reconnect with exponential backoff
       if (reconnectCountRef.current < maxReconnectAttempts) {
         const delay = reconnectInterval * Math.pow(1.5, reconnectCountRef.current);
         reconnectTimeoutRef.current = setTimeout(() => {
           reconnectCountRef.current++;
-          // reconnect by re-creating EventSource (inline)
-          if (!userId) return;
-          try {
-            if (eventSourceRef.current) {
-              eventSourceRef.current.close();
-              eventSourceRef.current = null;
-            }
-            const url = `${import.meta.env.VITE_API_URL || ''}${endpoint}?user_id=${userId}`;
-            eventSourceRef.current = new EventSource(url);
-          } catch {
-            // noop
-          }
+          connectWithToken();
         }, delay);
-
       } else {
-        onDisconnect?.();
+        onDisconnectRef.current?.();
       }
     };
+  }, [userId, endpoint, reconnectInterval, maxReconnectAttempts, getToken]);
 
-    // Handle custom event types
-    eventSource.addEventListener('kpi-update', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setLastUpdate(new Date());
-        onData?.({ type: 'kpi-update', ...data });
-      } catch (err) {
-        console.error('Failed to parse KPI update:', err);
+  useEffect(() => {
+    if (userId) {
+      connectWithToken();
+    }
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
-    });
-
-    eventSource.addEventListener('anomaly-alert', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setLastUpdate(new Date());
-        onData?.({ type: 'anomaly-alert', ...data });
-      } catch (err) {
-        console.error('Failed to parse anomaly alert:', err);
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
-    });
-
-    eventSource.addEventListener('report-generated', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setLastUpdate(new Date());
-        onData?.({ type: 'report-generated', ...data });
-      } catch (err) {
-        console.error('Failed to parse report event:', err);
-      }
-    });
-  }, [userId, endpoint, reconnectInterval, maxReconnectAttempts, onData, onError, onConnect, onDisconnect]);
+    };
+  }, [userId, connectWithToken]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -127,22 +113,13 @@ export function useRealTimeData(userId, options = {}) {
       eventSourceRef.current = null;
     }
     setIsConnected(false);
-    onDisconnect?.();
-  }, [onDisconnect]);
-
-  useEffect(() => {
-    if (userId) {
-      connect();
-    }
-    return () => {
-      disconnect();
-    };
-  }, [userId, connect, disconnect]);
+    onDisconnectRef.current?.();
+  }, []);
 
   return {
     isConnected,
     lastUpdate,
-    connect,
+    connect: connectWithToken,
     disconnect,
   };
 }
@@ -159,6 +136,15 @@ export function useWebSocket(url, options = {}) {
     onConnect = () => {},
     onDisconnect = () => {},
   } = options;
+
+  const onMessageRef = useRef(onMessage);
+  const onErrorRef = useRef(onError);
+  const onConnectRef = useRef(onConnect);
+  const onDisconnectRef = useRef(onDisconnect);
+  onMessageRef.current = onMessage;
+  onErrorRef.current = onError;
+  onConnectRef.current = onConnect;
+  onDisconnectRef.current = onDisconnect;
 
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState(null);
@@ -178,14 +164,14 @@ export function useWebSocket(url, options = {}) {
       ws.onopen = () => {
         setIsConnected(true);
         reconnectCountRef.current = 0;
-        onConnect?.();
+        onConnectRef.current?.();
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           setLastMessage(data);
-          onMessage?.(data);
+          onMessageRef.current?.(data);
         } catch (err) {
           console.error('Failed to parse WebSocket message:', err);
         }
@@ -194,38 +180,26 @@ export function useWebSocket(url, options = {}) {
       ws.onerror = (err) => {
         console.error('WebSocket error:', err);
         setIsConnected(false);
-        onError?.(err);
+        onErrorRef.current?.(err);
       };
 
       ws.onclose = () => {
         setIsConnected(false);
-        onDisconnect?.();
+        onDisconnectRef.current?.();
 
-        // Auto-reconnect
         if (reconnectCountRef.current < maxReconnectAttempts) {
           const delay = reconnectInterval * Math.pow(1.5, reconnectCountRef.current);
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectCountRef.current++;
-            // reconnect by re-creating WebSocket (inline)
-            if (!url) return;
-            try {
-              if (wsRef.current) {
-                wsRef.current.close();
-                wsRef.current = null;
-              }
-              wsRef.current = new WebSocket(url);
-            } catch {
-              // noop
-            }
+            connect();
           }, delay);
-
         }
       };
     } catch (err) {
       console.error('Failed to establish WebSocket connection:', err);
-      onError?.(err);
+      onErrorRef.current?.(err);
     }
-  }, [url, reconnectInterval, maxReconnectAttempts, onMessage, onError, onConnect, onDisconnect]);
+  }, [url, reconnectInterval, maxReconnectAttempts]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -237,8 +211,8 @@ export function useWebSocket(url, options = {}) {
       wsRef.current = null;
     }
     setIsConnected(false);
-    onDisconnect?.();
-  }, [onDisconnect]);
+    onDisconnectRef.current?.();
+  }, []);
 
   useEffect(() => {
     if (url) {

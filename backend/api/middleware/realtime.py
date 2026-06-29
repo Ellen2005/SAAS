@@ -40,7 +40,7 @@ if SOCKETIO_AVAILABLE:
     
     @sio.event
     async def connect(sid, environ, auth):
-        user_id = auth.get('user_id')
+        user_id = auth.get('user_id') if auth else None
         if user_id:
             if user_id not in connected_users:
                 connected_users[user_id] = set()

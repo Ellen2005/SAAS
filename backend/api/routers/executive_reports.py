@@ -207,9 +207,9 @@ Active alerts: {anomaly_text}
 Format: Professional, formal French. Start with "Au cours de cette période,".
 Include: overall performance assessment, key achievements, areas needing attention, and outlook."""
         
-        response = execute_groq_completion(prompt, temperature=0.3, max_tokens=300)
-        if response and "error" not in str(response).lower():
-            return response
+        completion = execute_groq_completion(prompt=prompt, temperature=0.3, max_tokens=300)
+        if completion and hasattr(completion, "choices") and completion.choices:
+            return completion.choices[0].message.content
     except Exception as e:
         logger.warning(f"LLM executive summary failed: {e}")
     

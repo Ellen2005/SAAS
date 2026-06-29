@@ -2,8 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { TrendingUp, TrendingDown, AlertTriangle, Shield, FileText, Activity, Brain } from 'lucide-react';
 import KpiCard from '../components/KpiCard';
 import InsightCard from '../components/InsightCard';
-
-const API_BASE = import.meta.env.VITE_API_BASE || '';
+import { apiJson } from '../lib/api';
 
 export default function ExecutiveAnalyticsPage() {
   const [overview, setOverview] = useState(null);
@@ -16,17 +15,11 @@ export default function ExecutiveAnalyticsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ovRes, inRes, brRes] = await Promise.all([
-        fetch(`${API_BASE}/api/executive/overview`, { credentials: 'include' }),
-        fetch(`${API_BASE}/api/executive/insights`, { credentials: 'include' }),
-        fetch(`${API_BASE}/api/executive/briefing`, { credentials: 'include' }),
+      const [ov, ins, br] = await Promise.all([
+        apiJson('/api/executive/overview'),
+        apiJson('/api/executive/insights'),
+        apiJson('/api/executive/briefing'),
       ]);
-      if (!ovRes.ok) throw new Error(`Overview failed: ${ovRes.status}`);
-      if (!inRes.ok) throw new Error(`Insights failed: ${inRes.status}`);
-      if (!brRes.ok) throw new Error(`Briefing failed: ${brRes.status}`);
-      const ov = await ovRes.json();
-      const ins = await inRes.json();
-      const br = await brRes.json();
       setOverview(ov);
       setInsights(ins);
       setBriefing(br);

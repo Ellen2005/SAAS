@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { GripVertical, X, Plus, BarChart3, Download, FileText } from 'lucide-react';
 import { apiJson } from '../lib/api';
+import ChartRenderer from './ChartRenderer';
 
 const CHART_TYPES = [
   { id: 'bar', name: 'Bar Chart', icon: '📊' },
@@ -111,11 +112,11 @@ export default function DragDropReportBuilder({ onClose, onSave }) {
   const exportReport = async (format) => {
     try {
       if (format === 'pdf') {
-        window.open(`${import.meta.env.VITE_API_URL || ''}/api/export/report/pdf?report_type=dg`, '_blank');
+        window.open(`${import.meta.env.VITE_API_URL || ''}/api/export/report/pdf?report_type=dg`, '_blank', 'noopener,noreferrer');
       } else if (format === 'excel') {
-        window.open(`${import.meta.env.VITE_API_URL || ''}/api/export/excel?table=kpi_results`, '_blank');
+        window.open(`${import.meta.env.VITE_API_URL || ''}/api/export/excel?table=kpi_results`, '_blank', 'noopener,noreferrer');
       } else if (format === 'csv') {
-        window.open(`${import.meta.env.VITE_API_URL || ''}/api/export/csv?table=kpi_results`, '_blank');
+        window.open(`${import.meta.env.VITE_API_URL || ''}/api/export/csv?table=kpi_results`, '_blank', 'noopener,noreferrer');
       }
     } catch (error) {
       console.error('Export failed:', error);

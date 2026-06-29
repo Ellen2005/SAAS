@@ -24,7 +24,7 @@ def check_contribution_date_staleness(df: pd.DataFrame, max_days: int = 30) -> d
         return {"check": "contribution_staleness", "status": "failed", "message": "No valid contribution dates."}
 
     latest = series.max()
-    age_days = (datetime.now(UTC) - latest.to_pydatetime().replace(tzinfo=None)).days
+    age_days = (datetime.now(UTC).date() - latest.to_pydatetime().date()).days
     if age_days > max_days:
         return {
             "check": "contribution_staleness",
