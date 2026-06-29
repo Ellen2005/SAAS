@@ -118,34 +118,21 @@ def _exec_with_retry(client_method, max_retries=2):
             raise
 
 
-def _wrap_table(table):
-    if getattr(table, '_sa_retry_wrapped', False):
-        return table
-    original_execute = table.execute
-
-    def _retry_execute():
-        return _exec_with_retry(original_execute)
-
-    table.execute = _retry_execute
-    table._sa_retry_wrapped = True
-    return table
-
-
-def _wrap_client(client):
-    if getattr(client, '_sa_wrapped', False):
-        return client
-    original_table = client.table
-    client.table = lambda name: _wrap_table(original_table(name))
-    client._sa_wrapped = True
-    return client
-
-
 def get_supabase():
+    """Get a Supabase client instance.
+    
+    supabase-py v2 uses a builder pattern where .table() returns a SyncRequestBuilder.
+    Each chained call (.select(), .eq(), .order()) returns a new builder instance,
+    and .execute() on the final builder triggers the API call.
+    
+    We do NOT wrap the client because the builder pattern returns NEW instances
+    on each call, making wrapping ineffective and causing 'no attribute execute' errors.
+    """
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
     if not supabase_url or not supabase_key:
         return MockSupabaseClient()
-    return _wrap_client(_build_client(supabase_url, supabase_key))
+    return _build_client(supabase_url, supabase_key)
 
 
 def get_anon_supabase():
@@ -153,4 +140,4 @@ def get_anon_supabase():
     anon_key = os.getenv("VITE_SUPABASE_ANON_KEY")
     if not supabase_url or not anon_key:
         return MockSupabaseClient()
-    return _wrap_client(_build_client(supabase_url, anon_key))
+    return _build_client(supabase_url, anon_key)
