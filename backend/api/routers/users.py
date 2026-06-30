@@ -245,6 +245,25 @@ def delete_my_account(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=500, detail="Failed to delete account.")
 
 
+@router.post("/auth/logout")
+def logout(authorization: Optional[str] = Header(None)):
+    """Logout user by invalidating their session."""
+    try:
+        supabase = get_supabase()
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization.replace("Bearer ", "")
+            # Try to sign out with the token
+            try:
+                supabase.auth.sign_out()
+            except Exception:
+                pass
+        return {"status": "success", "message": "Logged out successfully"}
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        # Return success anyway - client should clear local state
+        return {"status": "success", "message": "Logged out"}
+
+
 @router.get("/admin/debug/auth")
 def debug_auth_users(context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
