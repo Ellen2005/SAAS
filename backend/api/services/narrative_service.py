@@ -1,6 +1,7 @@
 import os
 import httpx
 import logging
+import json
 from datetime import datetime, date
 from .groq_utils import execute_groq_completion, get_groq_model
 
@@ -359,3 +360,424 @@ CRITICAL RULES:
     summary += "You can use the Schema Explorer to map specific fields to standard KPIs, or use the Ask Your Data interface to write natural language queries and retrieve precise insights directly from this schema."
     
     return summary
+
+
+def _query_source_database(user_id: str, supabase, analysis_focus: str = None) -> dict:
+    """Query the connected source database to discover tables, recent data, and compare periods.
+    Returns a rich context dict for the autonomous narrative."""
+    from .connection_crypto import maybe_decrypt_connection_row
+    from .connection_pool import get_engine
+    from sqlalchemy import text as sql_text
+    import pandas as pd
+
+    context = {
+        "tables_discovered": [],
+        "table_samples": {},
+        "period_comparison": {},
+        "data_quality": {},
+        "connections_found": [],
+    }
+
+    try:
+        conn_resp = supabase.table("database_connections").select("*").eq("user_id", user_id).limit(1).execute()
+        if not (hasattr(conn_resp, "data") and conn_resp.data):
+            return context
+        conn_info = maybe_decrypt_connection_row(conn_resp.data[0])
+        db_type = (conn_info.get("db_type") or "sqlite").lower()
+        db_url = conn_info.get("credentials", "")
+        engine = get_engine(db_url, db_type)
+
+        with engine.connect() as conn:
+            # 1. Discover all tables
+            if db_type == "oracle":
+                tables_sql = sql_text(
+                    "SELECT table_name FROM user_tables ORDER BY table_name"
+                )
+            elif db_type == "postgresql":
+                tables_sql = sql_text(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+                )
+            else:
+                tables_sql = sql_text(
+                    "SELECT name AS table_name FROM sqlite_master WHERE type='table' ORDER BY name"
+                )
+            result = conn.execute(tables_sql)
+            all_tables = [row[0] for row in result]
+            context["tables_discovered"] = all_tables
+
+            # 2. For each table, get column info and a sample of recent data
+            focus_lower = (analysis_focus or "").lower()
+            relevant_keywords = []
+            if focus_lower:
+                # Extract keywords from analysis focus
+                relevant_keywords = [w for w in focus_lower.split() if len(w) > 3]
+
+            for tbl in all_tables[:30]:  # Limit to 30 tables
+                try:
+                    # Get columns
+                    if db_type == "oracle":
+                        cols_sql = sql_text(
+                            f"SELECT column_name, data_type FROM user_tab_columns WHERE table_name = '{tbl}' ORDER BY column_id"
+                        )
+                    elif db_type == "postgresql":
+                        cols_sql = sql_text(
+                            f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{tbl}' AND table_schema = 'public' ORDER BY ordinal_position"
+                        )
+                    else:
+                        cols_sql = sql_text(f"PRAGMA table_info('{tbl}')")
+
+                    cols_result = conn.execute(cols_sql)
+                    columns = []
+                    for col_row in cols_result:
+                        columns.append({"name": col_row[0], "type": col_row[1]})
+
+                    context["table_samples"][tbl] = {
+                        "columns": columns,
+                        "row_count": None,
+                        "recent_data": [],
+                        "date_columns": [],
+                    }
+
+                    # Find date/timestamp columns
+                    date_cols = [c["name"] for c in columns if any(
+                        dt in (c.get("type") or "").lower()
+                        for dt in ("date", "timestamp", "time", "datetime")
+                    )]
+                    context["table_samples"][tbl]["date_columns"] = date_cols
+
+                    # Get row count
+                    try:
+                        count_sql = sql_text(f"SELECT COUNT(*) FROM {tbl}")
+                        count_result = conn.execute(count_sql)
+                        context["table_samples"][tbl]["row_count"] = count_result.scalar()
+                    except Exception:
+                        pass
+
+                    # Get recent data (last 10 rows) — order by date column if available
+                    try:
+                        if date_cols:
+                            order_col = date_cols[0]
+                            if db_type == "oracle":
+                                sample_sql = sql_text(f"SELECT * FROM {tbl} ORDER BY {order_col} DESC FETCH FIRST 10 ROWS ONLY")
+                            else:
+                                sample_sql = sql_text(f"SELECT * FROM {tbl} ORDER BY {order_col} DESC LIMIT 10")
+                        else:
+                            if db_type == "oracle":
+                                sample_sql = sql_text(f"SELECT * FROM {tbl} FETCH FIRST 10 ROWS ONLY")
+                            else:
+                                sample_sql = sql_text(f"SELECT * FROM {tbl} LIMIT 10")
+                        sample_result = conn.execute(sample_sql)
+                        rows = [dict(row._mapping) for row in sample_result]
+                        context["table_samples"][tbl]["recent_data"] = rows
+                    except Exception:
+                        pass
+
+                    # 3. Period comparison for tables with date columns
+                    if date_cols:
+                        order_col = date_cols[0]
+                        try:
+                            # Current period (last 7 days)
+                            if db_type == "oracle":
+                                curr_sql = sql_text(
+                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= SYSDATE - 7"
+                                )
+                                prev_sql = sql_text(
+                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= SYSDATE - 14 AND {order_col} < SYSDATE - 7"
+                                )
+                            elif db_type == "postgresql":
+                                curr_sql = sql_text(
+                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= NOW() - INTERVAL '7 days'"
+                                )
+                                prev_sql = sql_text(
+                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= NOW() - INTERVAL '14 days' AND {order_col} < NOW() - INTERVAL '7 days'"
+                                )
+                            else:
+                                curr_sql = sql_text(
+                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= date('now', '-7 days')"
+                                )
+                                prev_sql = sql_text(
+                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= date('now', '-14 days') AND {order_col} < date('now', '-7 days')"
+                                )
+                            curr_count = conn.execute(curr_sql).scalar() or 0
+                            prev_count = conn.execute(prev_sql).scalar() or 0
+                            change_pct = ((curr_count - prev_count) / max(prev_count, 1)) * 100
+                            context["period_comparison"][tbl] = {
+                                "current_7d": curr_count,
+                                "previous_7d": prev_count,
+                                "change_pct": round(change_pct, 1),
+                                "date_column": order_col,
+                            }
+                        except Exception:
+                            pass
+
+                    # 4. Data quality: count nulls in key columns
+                    null_info = {}
+                    for col in columns[:10]:  # Check first 10 columns
+                        try:
+                            null_sql = sql_text(
+                                f"SELECT COUNT(*) FROM {tbl} WHERE {col['name']} IS NULL"
+                            )
+                            null_count = conn.execute(null_sql).scalar() or 0
+                            if null_count > 0:
+                                null_info[col["name"]] = null_count
+                        except Exception:
+                            pass
+                    if null_info:
+                        context["data_quality"][tbl] = null_info
+
+                except Exception as e:
+                    continue
+
+            # 5. Find potential table connections (foreign key patterns)
+            for tbl in all_tables[:30]:
+                cols = context["table_samples"].get(tbl, {}).get("columns", [])
+                for col in cols:
+                    col_name = col["name"].lower()
+                    # Look for foreign key patterns: *_id, *_code
+                    if col_name.endswith("_id") or col_name.endswith("_code"):
+                        potential_ref = col_name.replace("_id", "").replace("_code", "")
+                        # Check if a table exists with that name
+                        for other_tbl in all_tables:
+                            if other_tbl.lower() == potential_ref or other_tbl.lower().startswith(potential_ref):
+                                context["connections_found"].append({
+                                    "from_table": tbl,
+                                    "from_column": col["name"],
+                                    "to_table": other_tbl,
+                                    "relationship": "likely_foreign_key",
+                                })
+                                break
+
+    except Exception as e:
+        logger.warning(f"Source database query failed: {e}")
+
+    return context
+
+
+def generate_autonomous_narrative(
+    user_id: str,
+    supabase,
+    kpi_data: list,
+    anomaly_data: list,
+    analysis_focus: str = None,
+    tone: str = "insight-driven",
+    company_name: str = "CNPS",
+) -> str:
+    """Generate an autonomous analyst-style narrative that reads like a human data analyst wrote it.
+    
+    This function queries the actual source database tables, discovers relationships,
+    compares periods, and produces a narrative with specific observations, causal analysis,
+    and forward-looking recommendations.
+    """
+    # 1. Query the source database for rich context
+    db_context = _query_source_database(user_id, supabase, analysis_focus)
+
+    tables_info = db_context.get("tables_discovered", [])
+    samples = db_context.get("table_samples", {})
+    comparisons = db_context.get("period_comparison", {})
+    quality = db_context.get("data_quality", {})
+    connections = db_context.get("connections_found", [])
+
+    # Build table summary for the prompt
+    table_summaries = []
+    for tbl in tables_info[:15]:
+        info = samples.get(tbl, {})
+        row_count = info.get("row_count")
+        cols = [c["name"] for c in info.get("columns", [])[:8]]
+        table_summaries.append(f"- {tbl}: {row_count or '?'} rows | Columns: {', '.join(cols)}")
+
+    # Build comparison summary
+    comparison_text = []
+    for tbl, comp in comparisons.items():
+        direction = "increased" if comp["change_pct"] > 0 else "decreased"
+        comparison_text.append(
+            f"- {tbl}: {comp['current_7d']} records (last 7d) vs {comp['previous_7d']} (prev 7d) → {direction} {abs(comp['change_pct']):.1f}%"
+        )
+
+    # Build quality summary
+    quality_text = []
+    for tbl, nulls in quality.items():
+        for col, count in nulls.items():
+            quality_text.append(f"- {tbl}.{col}: {count} null values")
+
+    # Build connections summary
+    conn_text = []
+    for c in connections[:10]:
+        conn_text.append(f"- {c['from_table']}.{c['from_column']} → {c['to_table']} ({c['relationship']})")
+
+    # Build KPI summary
+    kpi_text = []
+    for k in kpi_data:
+        name = k.get("kpi_name", "").replace("_", " ").title()
+        val = k.get("value", 0)
+        dod = k.get("dod_pct")
+        dod_str = f", {dod:+.1f}% day-over-day" if dod is not None else ""
+        status = k.get("status", "NORMAL")
+        kpi_text.append(f"- {name}: {val:,.2f}{dod_str} [Status: {status}]")
+
+    # Build anomaly summary
+    anomaly_text = []
+    for a in anomaly_data:
+        name = a.get("kpi_name", "").replace("_", " ").title()
+        sev = a.get("severity", "WARNING")
+        reason = a.get("context", {}).get("reason", "Deviation detected")
+        anomaly_text.append(f"- [{sev}] {name}: {reason}")
+
+    today = date.today().strftime("%B %d, %Y")
+
+    prompt = f"""You are an autonomous data analyst writing a daily briefing for the manager of {company_name}.
+
+ANALYSIS FOCUS SET BY MANAGER:
+{analysis_focus or 'No specific focus set — analyze all available data.'}
+
+DATABASE SCHEMA DISCOVERED ({len(tables_info)} tables):
+{chr(10).join(table_summaries) if table_summaries else 'No tables discovered yet.'}
+
+TABLE RELATIONSHIPS IDENTIFIED:
+{chr(10).join(conn_text) if conn_text else 'No explicit relationships found. Tables are independent.'}
+
+PERIOD COMPARISON (Last 7 days vs Previous 7 days):
+{chr(10).join(comparison_text) if comparison_text else 'No date-based comparisons available.'}
+
+DATA QUALITY ISSUES:
+{chr(10).join(quality_text) if quality_text else 'No null values detected in key columns.'}
+
+CURRENT KPIs:
+{chr(10).join(kpi_text) if kpi_text else 'No KPI data available.'}
+
+ANOMALIES DETECTED:
+{chr(10).join(anomaly_text) if anomaly_text else 'No anomalies detected.'}
+
+YOUR TASK — Write an autonomous analyst narrative. Follow this EXACT structure:
+
+1. OPENING: Start with "After analyzing the {company_name} database today ({today}), here is what I found:" — Write 2-3 sentences summarizing the overall picture.
+
+2. TABLE DISCOVERY: "I identified {len(tables_info)} tables in the database. The key tables related to {analysis_focus or 'operations'} include..." — Name the most relevant tables and what they contain.
+
+3. CONNECTIONS: "I traced relationships between tables and found..." — Explain how tables connect (foreign keys, shared IDs). If no connections found, say so.
+
+4. PERIOD OBSERVATIONS: For each table with comparison data, write: "Looking at {table}, I observed that [records] in the last 7 days, compared to [previous] the week before — that's a [increase/decrease] of X%. This suggests..."
+
+5. SPECIFIC DATA POINTS: Pick the most interesting findings from the actual data samples. Write: "From the actual records, I noticed: [specific observation with numbers, dates, names]."
+
+6. CAUSAL ANALYSIS: "After investigating, I found that the cause of [observed change] was likely because..." — Connect anomalies to data patterns. Reference specific tables and columns.
+
+7. NULL/DATA QUALITY: "I also noticed data quality issues: [table.column has N missing values]. This means [impact on analysis accuracy]."
+
+8. FORECAST: "Based on current trends, if [observed pattern] continues, I project that [specific projection with numbers]. In the best case, [scenario]. In the worst case, [scenario]. The key trigger to change this trajectory is [specific action]."
+
+9. RECOMMENDATIONS: "Given these findings, I recommend:
+   - [Specific action 1] — Expected impact: [what this achieves]
+   - [Specific action 2] — Expected impact: [what this achieves]
+   - [Specific action 3] — Expected impact: [what this achieves]"
+
+10. CLOSING: "This analysis was generated autonomously by scanning the connected database. The data is current as of {today}. Next scheduled scan: [tomorrow or based on sync frequency]."
+
+CRITICAL RULES:
+- Write in first person as if YOU are the analyst ("I found", "I noticed", "I traced")
+- Use ACTUAL numbers from the data above — not generic statements
+- Reference SPECIFIC table names and column names
+- If you see a drop, explain WHY by connecting it to other data
+- If data is missing or null, call it out and explain the impact
+- Make forward-looking projections based on the actual trends
+- Be direct, specific, and actionable — this is for a busy manager
+- Do NOT use markdown formatting (no asterisks, no bold, no bullet points)
+- Write in clean paragraphs with section headings in plain text
+- Maximum 800 words — be concise but thorough
+"""
+
+    # 1. Groq (primary)
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if groq_api_key:
+        try:
+            completion = execute_groq_completion(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=1200,
+                model=get_groq_model(),
+            )
+            return completion.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Groq API Error in autonomous narrative: {e}")
+
+    # 2. Ollama (fallback)
+    try:
+        response = httpx.post(
+            "http://localhost:11434/api/generate",
+            json={"model": "llama3", "prompt": prompt, "stream": False},
+            timeout=20.0,
+        )
+        if response.status_code == 200:
+            return response.json().get("response")
+    except Exception as e:
+        logger.warning(f"Ollama Autonomous Narrative Fallback Failed: {e}")
+
+    # 3. Rich template fallback
+    return _build_autonomous_fallback(
+        tables_info, samples, comparisons, quality, connections,
+        kpi_data, anomaly_data, analysis_focus, company_name, today,
+    )
+
+
+def _build_autonomous_fallback(
+    tables_info, samples, comparisons, quality, connections,
+    kpi_data, anomaly_data, analysis_focus, company_name, today,
+) -> str:
+    """Build a structured fallback narrative when LLM is unavailable."""
+    sections = []
+
+    sections.append(f"After analyzing the {company_name} database today ({today}), here is what I found:\n")
+
+    # Table discovery
+    if tables_info:
+        sections.append(
+            f"I identified {len(tables_info)} tables in the database. "
+            f"The key tables include: {', '.join(tables_info[:8])}. "
+        )
+    else:
+        sections.append("I was able to connect to the database but could not discover any tables yet. Please ensure the connection is configured correctly.\n")
+
+    # Connections
+    if connections:
+        unique_conns = list({(c["from_table"], c["to_table"]) for c in connections[:5]})
+        conn_desc = ", ".join(f"{f} connects to {t}" for f, t in unique_conns)
+        sections.append(f"I traced relationships between tables: {conn_desc}.\n")
+
+    # Period comparison
+    if comparisons:
+        sections.append("Looking at recent activity:\n")
+        for tbl, comp in comparisons.items():
+            direction = "increased" if comp["change_pct"] > 0 else "decreased"
+            sections.append(
+                f"  - {tbl}: {comp['current_7d']} records in the last 7 days vs {comp['previous_7d']} the week before — {direction} {abs(comp['change_pct']):.1f}%.\n"
+            )
+
+    # Data quality
+    if quality:
+        sections.append("\nI noticed some data quality issues:\n")
+        for tbl, nulls in list(quality.items())[:5]:
+            for col, count in list(nulls.items())[:3]:
+                sections.append(f"  - {tbl}.{col} has {count} missing values, which may affect analysis accuracy.\n")
+
+    # KPIs
+    if kpi_data:
+        sections.append("\nCurrent performance indicators:\n")
+        for k in kpi_data[:5]:
+            name = k.get("kpi_name", "").replace("_", " ").title()
+            val = k.get("value", 0)
+            sections.append(f"  - {name}: {val:,.2f} (Status: {k.get('status', 'NORMAL')})\n")
+
+    # Anomalies
+    if anomaly_data:
+        sections.append("\nAnomalies requiring attention:\n")
+        for a in anomaly_data[:3]:
+            name = a.get("kpi_name", "").replace("_", " ").title()
+            sections.append(f"  - {name}: {a.get('context', {}).get('reason', 'Deviation detected')} [{a.get('severity', 'WARNING')}]\n")
+
+    # Recommendations
+    sections.append("\nRecommendations:\n")
+    sections.append("  - Review the tables with missing data and follow up with the responsible departments to fill gaps.\n")
+    sections.append("  - Monitor tables showing significant period-over-period changes for continued trends.\n")
+    sections.append(f"  - Set up alerts for the metrics identified in this analysis.\n")
+
+    sections.append(f"\nThis analysis was generated autonomously by scanning the connected database. Data is current as of {today}.")
+    return "".join(sections)

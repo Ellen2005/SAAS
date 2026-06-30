@@ -690,12 +690,25 @@ def _run_database_overview_pipeline(user_id: str, supabase, db_connection_info: 
     except Exception as e:
         print(f"Failed to fetch user preferences: {e}")
 
-    narrative_text = generate_database_overview_narrative(
-        schema=schema,
-        tone=tone,
-        instruction=instruction,
-        company_name=schema.get("dialect", db_type).title(),
-    )
+    try:
+        from .narrative_service import generate_autonomous_narrative
+        narrative_text = generate_autonomous_narrative(
+            user_id=user_id,
+            supabase=supabase,
+            kpi_data=[],
+            anomaly_data=[],
+            analysis_focus=instruction,
+            tone=tone,
+            company_name=schema.get("dialect", db_type).title(),
+        )
+    except Exception as auto_err:
+        print(f"Autonomous overview narrative failed, falling back: {auto_err}")
+        narrative_text = generate_database_overview_narrative(
+            schema=schema,
+            tone=tone,
+            instruction=instruction,
+            company_name=schema.get("dialect", db_type).title(),
+        )
 
     supabase.table("daily_reports").insert({
         "user_id": user_id,
@@ -859,15 +872,28 @@ def run_user_etl_pipeline(user_id: str):
         custom_format = prefs.get("report_format") or None
 
         update_sync_status(user_id, "GENERATING_AI_NARRATIVE")
-        narrative_text = generate_live_narrative(
-            kpis, anomalies, tone=user_tone, instruction=user_instruction,
-            base_definitions=runtime_config["base_definitions"],
-            prompt_template=runtime_config["base_prompt"],
-            company_name=runtime_config["company_name"],
-            report_period=report_period,
-            report_type=report_type,
-            custom_format=custom_format,
-        )
+        try:
+            from .narrative_service import generate_autonomous_narrative
+            narrative_text = generate_autonomous_narrative(
+                user_id=user_id,
+                supabase=supabase,
+                kpi_data=kpis,
+                anomaly_data=anomalies,
+                analysis_focus=user_instruction,
+                tone=user_tone,
+                company_name=runtime_config.get("company_name", "CNPS"),
+            )
+        except Exception as auto_err:
+            print(f"[{datetime.now().isoformat()}] Autonomous narrative failed, falling back to standard: {auto_err}")
+            narrative_text = generate_live_narrative(
+                kpis, anomalies, tone=user_tone, instruction=user_instruction,
+                base_definitions=runtime_config["base_definitions"],
+                prompt_template=runtime_config["base_prompt"],
+                company_name=runtime_config["company_name"],
+                report_period=report_period,
+                report_type=report_type,
+                custom_format=custom_format,
+            )
 
         report_date = datetime.now().date().isoformat()
         supabase.table("daily_reports").insert({
