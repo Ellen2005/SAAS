@@ -13,8 +13,21 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         if not user_resp or not hasattr(user_resp, "user") or not user_resp.user:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
         return user_resp.user
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+        # Network/DNS failures — try once more before giving up
+        import time
+        time.sleep(0.3)
+        try:
+            user_resp = supabase.auth.get_user(token)
+            if not user_resp or not hasattr(user_resp, "user") or not user_resp.user:
+                raise HTTPException(status_code=401, detail="Invalid or expired token")
+            return user_resp.user
+        except HTTPException:
+            raise
+        except Exception as e2:
+            raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e2)}")
 
 
 def resolve_user_id(authorization: Optional[str] = Header(None)) -> str:

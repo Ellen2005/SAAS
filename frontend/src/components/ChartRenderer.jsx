@@ -227,7 +227,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
       // ── LINE ────────────────────────────────────────────────
       case 'line':
         return (
-          <LineChart data={data} margin={{ top: 16, right: 20, left: 10, bottom: 8 }}>
+          <LineChart data={data} margin={{ top: 16, right: 20, left: 10, bottom: 30 }}>
             <defs>
               <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={colors[0]} stopOpacity={0.15} />
@@ -236,9 +236,11 @@ export default function ChartRenderer({ spec, height = 280 }) {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" vertical={false} />
             <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false}
-              tickFormatter={(v) => v?.length > 12 ? `${v.slice(0, 10)}…` : v} />
+              tickFormatter={(v) => v?.length > 12 ? `${v.slice(0, 10)}…` : v}
+              label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -10, style: axisLabelStyle } : undefined} />
             <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={60} tickLine={false} axisLine={false}
-              tickFormatter={(v) => formatNum(v)} />
+              tickFormatter={(v) => formatNum(v)}
+              label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, style: axisLabelStyle } : undefined} />
             <Tooltip content={<CustomTooltip />} />
             <Line type="monotone" dataKey={yKey} stroke={colors[0]} strokeWidth={2.5}
               dot={{ r: 4, fill: '#fff', stroke: colors[0], strokeWidth: 2 }}
@@ -253,7 +255,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
       // ── AREA ────────────────────────────────────────────────
       case 'area':
         return (
-          <AreaChart data={data} margin={{ top: 16, right: 20, left: 10, bottom: 8 }}>
+          <AreaChart data={data} margin={{ top: 16, right: 20, left: 10, bottom: 30 }}>
             <defs>
               <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={colors[0]} stopOpacity={0.25} />
@@ -261,9 +263,11 @@ export default function ChartRenderer({ spec, height = 280 }) {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" vertical={false} />
-            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false} />
+            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false}
+              label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -10, style: axisLabelStyle } : undefined} />
             <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={60} tickLine={false} axisLine={false}
-              tickFormatter={(v) => formatNum(v)} />
+              tickFormatter={(v) => formatNum(v)}
+              label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, style: axisLabelStyle } : undefined} />
             <Tooltip content={<CustomTooltip />} />
             <Area type="monotone" dataKey={yKey} stroke={colors[0]} fill="url(#areaGrad)" strokeWidth={2.5}
               dot={{ r: 3, fill: '#fff', stroke: colors[0], strokeWidth: 2 }}
@@ -274,7 +278,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
       // ── BAR ─────────────────────────────────────────────────
       case 'bar':
         return (
-          <BarChart data={data} margin={{ top: 20, right: 20, left: 10, bottom: 8 }}>
+          <BarChart data={data} margin={{ top: 20, right: 20, left: 10, bottom: 30 }}>
             <defs>
               <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={colors[0]} stopOpacity={0.95} />
@@ -283,9 +287,11 @@ export default function ChartRenderer({ spec, height = 280 }) {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" vertical={false} />
             <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false}
-              tickFormatter={(v) => v?.length > 12 ? `${v.slice(0, 10)}…` : v} />
+              tickFormatter={(v) => v?.length > 12 ? `${v.slice(0, 10)}…` : v}
+              label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -10, style: axisLabelStyle } : undefined} />
             <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={60} tickLine={false} axisLine={false}
-              tickFormatter={(v) => formatNum(v)} />
+              tickFormatter={(v) => formatNum(v)}
+              label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, style: axisLabelStyle } : undefined} />
             <Tooltip content={<CustomTooltip />} />
             <Bar dataKey={yKey} fill="url(#barGrad)" radius={[6, 6, 0, 0]} maxBarSize={48}
               label={<CustomBarLabel color={colors[0]} />} />
@@ -530,7 +536,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
       // ── DEFAULT (Bar) ──────────────────────────────────────
       default:
         return (
-          <BarChart data={data} margin={{ top: 20, right: 20, left: 10, bottom: 8 }}>
+          <BarChart data={data} margin={{ top: 20, right: 20, left: 10, bottom: 30 }}>
             <defs>
               <linearGradient id="barGradDef" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={colors[0]} stopOpacity={0.95} />
@@ -538,9 +544,11 @@ export default function ChartRenderer({ spec, height = 280 }) {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" vertical={false} />
-            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false} />
+            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false}
+              label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -10, style: axisLabelStyle } : undefined} />
             <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={60} tickLine={false} axisLine={false}
-              tickFormatter={(v) => formatNum(v)} />
+              tickFormatter={(v) => formatNum(v)}
+              label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, style: axisLabelStyle } : undefined} />
             <Tooltip content={<CustomTooltip />} />
             <Bar dataKey={yKey} fill="url(#barGradDef)" radius={[6, 6, 0, 0]} maxBarSize={48}
               label={<CustomBarLabel color={colors[0]} />} />
@@ -556,6 +564,9 @@ export default function ChartRenderer({ spec, height = 280 }) {
   const metaInfo = [];
   if (meta.row_count) metaInfo.push(`${meta.row_count} data points`);
   if (meta.total_rows && meta.total_rows !== meta.row_count) metaInfo.push(`of ${meta.total_rows} total`);
+
+  // Axis label style for Recharts <XAxis label> and <YAxis label>
+  const axisLabelStyle = { fill: 'var(--ea-text-secondary, #6b7280)', fontSize: 11, fontWeight: 500 };
 
   return (
     <div>
@@ -575,11 +586,11 @@ export default function ChartRenderer({ spec, height = 280 }) {
         <ResponsiveContainer width="100%" height={height}>
           {renderChart()}
         </ResponsiveContainer>
-        {/* Axis labels */}
+        {/* Subtle axis name hints below chart */}
         {(xAxisLabel || yAxisLabel) && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 12px 0', fontSize: '0.7rem', color: 'var(--ea-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            <span>{xAxisLabel || ''}</span>
-            <span>{yAxisLabel || ''}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 12px 0', fontSize: '0.68rem', color: 'var(--ea-text-secondary, #9ca3af)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            {xAxisLabel && <span title={xAxisLabel}>{xAxisLabel}</span>}
+            {yAxisLabel && <span title={yAxisLabel}>{yAxisLabel}</span>}
           </div>
         )}
       </div>
