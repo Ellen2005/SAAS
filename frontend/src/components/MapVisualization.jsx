@@ -1,7 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 // Simple SVG-based map for CNPS regions (no external dependencies)
-// For production, replace with react-simple-maps or leaflet
 
 const REGIONS = [
   { id: 'douala', name: 'Douala', x: 50, y: 55, color: '#3b82f6' },
@@ -16,13 +15,22 @@ const REGIONS = [
   { id: 'buea', name: 'Buea', x: 35, y: 58, color: '#6366f1' },
 ];
 
+const formatVal = (v) => {
+  if (v == null) return '';
+  const n = Number(v);
+  if (isNaN(n)) return String(v);
+  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return n.toLocaleString('en-US', { maximumFractionDigits: 1 });
+};
+
 export default function MapVisualization({ data = [], onRegionClick, height = 400 }) {
-  // data format: [{ region_id, region_name, value, color?, size? }]
+  const [selectedRegion, setSelectedRegion] = useState(null);
+
   const maxValue = Math.max(...data.map((d) => Math.abs(d.value || 0)), 1);
 
   const dataMap = new Map();
   data.forEach((d, idx) => {
-    // Match by region_id or region_name, or fall back to index-based assignment
     const region = REGIONS.find((r) => r.id === d.region_id || r.name === d.region_name)
       || REGIONS[idx % REGIONS.length];
     if (region) {
@@ -35,90 +43,116 @@ export default function MapVisualization({ data = [], onRegionClick, height = 40
     }
   });
 
+  const handleClick = (regionData) => {
+    setSelectedRegion(regionData);
+    onRegionClick?.(regionData);
+  };
+
   return (
-    <div style={{ position: 'relative', width: '100%', height, background: 'var(--ea-bg)', borderRadius: 'var(--ea-radius-lg)', border: '1px solid var(--ea-border)', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', width: '100%', height, background: 'linear-gradient(135deg, var(--ea-bg, #f8fafc) 0%, var(--ea-bg-hover, #f1f5f9) 100%)', borderRadius: 14, border: '1px solid var(--ea-border)', overflow: 'hidden' }}>
       {/* Title */}
-      <div style={{ position: 'absolute', top: 12, left: 16, zIndex: 10 }}>
-        <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--ea-text-primary)' }}>Regional Performance</h3>
-        <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--ea-text-secondary)' }}>Click a region for details</p>
+      <div style={{ position: 'absolute', top: 14, left: 18, zIndex: 10 }}>
+        <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--ea-text-primary)' }}>Regional Performance</h3>
+        <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--ea-text-secondary)' }}>
+          {data.length > 0 ? `${data.length} regions with data` : 'No data available'}
+        </p>
       </div>
 
-      {/* Legend */}
+      {/* Legend (top right) */}
       {data.length > 0 && (
-        <div style={{ position: 'absolute', top: 12, right: 16, zIndex: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {data.slice(0, 5).map((d, i) => (
-            <span key={i} style={{ fontSize: '0.7rem', padding: '2px 8px', background: 'var(--ea-bg-card)', borderRadius: 4, border: '1px solid var(--ea-border)', color: 'var(--ea-text-primary)' }}>
-              {d.region_name}: {typeof d.value === 'number' ? d.value.toLocaleString() : d.value}
+        <div style={{ position: 'absolute', top: 14, right: 16, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {data.slice(0, 6).map((d, i) => (
+            <span key={i} style={{ fontSize: '0.7rem', padding: '3px 8px', background: 'var(--ea-bg-card)', borderRadius: 6, border: '1px solid var(--ea-border)', color: 'var(--ea-text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: REGIONS.find(r => r.id === d.region_id)?.color || '#3b82f6', flexShrink: 0 }} />
+              {d.region_name}: {formatVal(d.value)}
             </span>
           ))}
         </div>
       )}
 
       {/* SVG Map */}
-      <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', padding: '40px 16px 16px' }}>
-        {/* Cameroon outline (simplified) */}
+      <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', padding: '50px 20px 20px' }}>
+        {/* Cameroon outline */}
+        <defs>
+          <linearGradient id="mapBg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#e2e8f0" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#cbd5e1" stopOpacity="0.2" />
+          </linearGradient>
+          <filter id="regionShadow">
+            <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodOpacity="0.15" />
+          </filter>
+        </defs>
         <path
           d="M 30 20 L 70 15 L 75 30 L 80 50 L 75 70 L 60 80 L 40 78 L 25 65 L 20 45 Z"
-          fill="var(--ea-bg-hover)"
+          fill="url(#mapBg)"
           stroke="var(--ea-border)"
-          strokeWidth="0.5"
-          opacity="0.6"
+          strokeWidth="0.4"
         />
 
         {/* Region markers */}
         {REGIONS.map((region) => {
           const regionData = dataMap.get(region.id);
-          if (!regionData && data.length > 0) return null; // Only show regions with data
+          if (!regionData && data.length > 0) return null;
 
           const size = regionData ? regionData.size : 8;
           const color = regionData?.customColor || region.color;
           const hasData = !!regionData;
+          const isSelected = selectedRegion?.id === region.id;
 
           return (
-            <g key={region.id} onClick={() => hasData && onRegionClick?.(regionData)} style={{ cursor: hasData ? 'pointer' : 'default' }}>
-              {/* Outer glow for active regions */}
+            <g key={region.id} onClick={() => hasData && handleClick(regionData)} style={{ cursor: hasData ? 'pointer' : 'default' }}>
+              {/* Pulse glow for active regions */}
               {hasData && (
-                <circle cx={region.x} cy={region.y} r={size + 4} fill={color} opacity="0.2">
-                  <animate attributeName="r" values={`${size + 4};${size + 8};${size + 4}`} dur="2s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0.2;0.4;0.2" dur="2s" repeatCount="indefinite" />
+                <circle cx={region.x} cy={region.y} r={size + 4} fill={color} opacity="0.15">
+                  <animate attributeName="r" values={`${size + 4};${size + 8};${size + 4}`} dur="2.5s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.15;0.3;0.15" dur="2.5s" repeatCount="indefinite" />
                 </circle>
               )}
-              
+
+              {/* Selection ring */}
+              {isSelected && (
+                <circle cx={region.x} cy={region.y} r={size + 6} fill="none" stroke={color} strokeWidth="0.8" opacity="0.6">
+                  <animate attributeName="r" values={`${size + 6};${size + 10};${size + 6}`} dur="1.5s" repeatCount="indefinite" />
+                </circle>
+              )}
+
               {/* Main circle */}
               <circle
                 cx={region.x}
                 cy={region.y}
                 r={size}
                 fill={hasData ? color : 'var(--ea-bg-hover)'}
-                stroke={hasData ? color : 'var(--ea-border)'}
-                strokeWidth={hasData ? 1.5 : 0.5}
+                stroke={isSelected ? '#fff' : hasData ? color : 'var(--ea-border)'}
+                strokeWidth={isSelected ? 1.5 : hasData ? 1 : 0.5}
                 opacity={hasData ? 0.9 : 0.5}
+                filter={hasData ? 'url(#regionShadow)' : undefined}
               />
 
-              {/* Value label */}
-              {hasData && regionData.value != null && (
+              {/* Value label inside bubble */}
+              {hasData && regionData.value != null && size >= 10 && (
                 <text
                   x={region.x}
-                  y={region.y + 1}
+                  y={region.y + 0.5}
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fill="white"
-                  fontSize="3"
+                  fontSize="2.8"
                   fontWeight="bold"
-                  style={{ pointerEvents: 'none' }}
+                  style={{ pointerEvents: 'none', textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
                 >
-                  {typeof regionData.value === 'number' ? (regionData.value >= 1000 ? `${(regionData.value / 1000).toFixed(0)}k` : regionData.value.toFixed(0)) : ''}
+                  {formatVal(regionData.value)}
                 </text>
               )}
 
               {/* Region name */}
               <text
                 x={region.x}
-                y={region.y + size + 4}
+                y={region.y + size + 3.5}
                 textAnchor="middle"
                 fill="var(--ea-text-secondary)"
-                fontSize="2.5"
+                fontSize="2.4"
                 fontWeight={hasData ? 600 : 400}
+                style={{ pointerEvents: 'none' }}
               >
                 {region.name}
               </text>
@@ -127,12 +161,44 @@ export default function MapVisualization({ data = [], onRegionClick, height = 40
         })}
       </svg>
 
-      {/* Tooltip on hover (simple implementation) */}
+      {/* Selected region detail panel */}
+      {selectedRegion && (
+        <div style={{
+          position: 'absolute', bottom: 16, left: 16, right: 16,
+          background: 'var(--ea-bg-card)', borderRadius: 10,
+          border: '1px solid var(--ea-border)', padding: '12px 16px',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          zIndex: 10, animation: 'fadeSlideUp 0.2s ease-out',
+        }}>
+          <div>
+            <div style={{ fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>{selectedRegion.name}</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--ea-text-secondary)', marginTop: 2 }}>
+              Performance: <span style={{ fontWeight: 600, color: selectedRegion.customColor || selectedRegion.color }}>{formatVal(selectedRegion.value)}</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setSelectedRegion(null)}
+            style={{ background: 'none', border: 'none', color: 'var(--ea-text-secondary)', cursor: 'pointer', fontSize: '0.8rem', padding: '4px 8px', borderRadius: 6 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Empty state */}
       {data.length === 0 && (
         <div style={{ position: 'absolute', bottom: 16, left: 16, right: 16, textAlign: 'center', color: 'var(--ea-text-secondary)', fontSize: '0.85rem' }}>
           No regional data available. Connect a database and sync to see regional performance.
         </div>
       )}
+
+      <style>{`
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </div>
   );
 }

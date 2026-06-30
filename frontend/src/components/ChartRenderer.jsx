@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -30,7 +30,6 @@ import {
   ComposedChart,
   RadialBarChart,
   RadialBar,
-  ErrorBar,
 } from 'recharts';
 
 const DEFAULT_COLORS = [
@@ -39,33 +38,111 @@ const DEFAULT_COLORS = [
   '#14b8a6', '#a855f7', '#e11d48', '#0ea5e9',
 ];
 
+const formatNum = (v) => {
+  if (v == null) return '';
+  const n = Number(v);
+  if (isNaN(n)) return String(v);
+  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+};
+
+const CustomTooltip = ({ active, payload, label, formatter }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{
+      background: 'var(--ea-bg-card, #fff)',
+      border: '1px solid var(--ea-border, #e5e7eb)',
+      borderRadius: 10,
+      padding: '10px 14px',
+      boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+      fontSize: '0.82rem',
+      maxWidth: 240,
+    }}>
+      {label && <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--ea-text-primary, #111)' }}>{label}</div>}
+      {payload.map((p, i) => (
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: 'var(--ea-text-secondary, #666)' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, display: 'inline-block' }} />
+            {p.name || p.dataKey}
+          </span>
+          <span style={{ fontWeight: 600, color: 'var(--ea-text-primary, #111)' }}>
+            {formatter ? formatter(p.value) : formatNum(p.value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const CustomBarLabel = ({ x, y, width, value, color }) => {
+  if (value == null || value === 0) return null;
+  return (
+    <text x={x + width / 2} y={y - 6} textAnchor="middle" fill={color || '#374151'} fontSize={11} fontWeight={600}>
+      {formatNum(value)}
+    </text>
+  );
+};
+
 export default function ChartRenderer({ spec, height = 280 }) {
   if (!spec || spec.type === 'table') {
     return spec?.data ? (
       <div style={{ overflowX: 'auto' }}>
-        <h4 style={{ fontSize: '0.95rem', marginBottom: 8 }}>{spec.title || 'Results'}</h4>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--ea-border)' }}>
-              {(spec.columns || Object.keys(spec.data[0] || {})).map((col) => (
-                <th key={col} style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--ea-text-secondary)', fontWeight: 600 }}>
-                  {col}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {(spec.data || []).slice(0, 20).map((row, i) => (
-              <tr key={i} style={{ borderBottom: '1px solid var(--ea-border)' }}>
-                {(spec.columns || Object.keys(row)).map((col) => (
-                  <td key={col} style={{ padding: '6px 10px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {row[col] === null ? <span style={{ color: 'var(--ea-text-secondary)', fontStyle: 'italic' }}>null</span> : String(row[col])}
-                  </td>
+        {spec.title && (
+          <h4 style={{ fontSize: '0.95rem', marginBottom: 10, color: 'var(--ea-text-primary)', fontWeight: 600 }}>{spec.title}</h4>
+        )}
+        <div style={{ borderRadius: 10, border: '1px solid var(--ea-border)', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <thead>
+              <tr>
+                {(spec.columns || Object.keys(spec.data[0] || {})).map((col) => (
+                  <th key={col} style={{
+                    padding: '10px 14px', textAlign: 'left',
+                    background: 'var(--ea-bg-hover, #f9fafb)',
+                    borderBottom: '2px solid var(--ea-border, #e5e7eb)',
+                    color: 'var(--ea-text-secondary, #6b7280)',
+                    fontWeight: 600, fontSize: '0.78rem',
+                    textTransform: 'uppercase', letterSpacing: '0.04em',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {col}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {(spec.data || []).slice(0, 50).map((row, i) => (
+                <tr key={i} style={{
+                  borderBottom: '1px solid var(--ea-border, #f3f4f6)',
+                  background: i % 2 === 0 ? 'transparent' : 'var(--ea-bg-hover, #f9fafb)',
+                  transition: 'background 0.15s',
+                }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--ea-primary-bg, #eff6ff)'}
+                  onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'var(--ea-bg-hover, #f9fafb)'}
+                >
+                  {(spec.columns || Object.keys(row)).map((col) => (
+                    <td key={col} style={{
+                      padding: '9px 14px', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis',
+                      color: 'var(--ea-text-primary, #111)', whiteSpace: 'nowrap',
+                    }}>
+                      {row[col] === null
+                        ? <span style={{ color: 'var(--ea-text-secondary, #9ca3af)', fontStyle: 'italic' }}>—</span>
+                        : typeof row[col] === 'number'
+                          ? row[col].toLocaleString('en-US', { maximumFractionDigits: 2 })
+                          : String(row[col])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {spec.data.length > 50 && (
+          <p style={{ color: 'var(--ea-text-secondary)', fontSize: '0.78rem', marginTop: 6, textAlign: 'right' }}>
+            Showing 50 of {spec.data.length} rows
+          </p>
+        )}
         {spec.message && <p style={{ color: 'var(--ea-text-secondary)', fontSize: '0.85rem', marginTop: 8 }}>{spec.message}</p>}
       </div>
     ) : (
@@ -86,14 +163,19 @@ export default function ChartRenderer({ spec, height = 280 }) {
       // ── HORIZONTAL BAR ──────────────────────────────────────
       case 'horizontalBar':
         return (
-          <BarChart data={data} layout="vertical" margin={{ top: 8, right: 20, left: 140, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" />
-            <XAxis type="number" stroke="var(--ea-text-secondary)" fontSize={11}
-              tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
-            <YAxis type="category" dataKey={spec.yKey || 'name'} stroke="var(--ea-text-secondary)" fontSize={10} width={130} />
-            <Tooltip contentStyle={{ background: 'var(--ea-bg-card)', border: '1px solid var(--ea-border)', borderRadius: 8 }}
-              formatter={(v) => [Number(v).toLocaleString(), 'Value']} />
-            <Bar dataKey={spec.xKey || 'value'} fill={colors[0]} radius={[0, 4, 4, 0]} />
+          <BarChart data={data} layout="vertical" margin={{ top: 8, right: 30, left: 140, bottom: 8 }}>
+            <defs>
+              <linearGradient id="hbarGrad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor={colors[0]} stopOpacity={0.85} />
+                <stop offset="100%" stopColor={colors[0]} stopOpacity={1} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" horizontal={false} />
+            <XAxis type="number" stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false}
+              tickFormatter={(v) => formatNum(v)} />
+            <YAxis type="category" dataKey={spec.yKey || 'name'} stroke="var(--ea-text-secondary)" fontSize={10} width={130} tickLine={false} />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey={spec.xKey || 'value'} fill="url(#hbarGrad)" radius={[0, 6, 6, 0]} maxBarSize={24} />
           </BarChart>
         );
 
@@ -101,14 +183,18 @@ export default function ChartRenderer({ spec, height = 280 }) {
       case 'pie':
         return (
           <PieChart>
-            <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" outerRadius={Math.min(120, height / 2.5)}
-              label={({ label, percent }) => `${label} (${(percent * 100).toFixed(0)}%)`}>
+            <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%"
+              outerRadius={Math.min(130, height / 2.4)} innerRadius={0}
+              stroke="var(--ea-bg-card, #fff)" strokeWidth={2}
+              label={({ label, percent }) => percent > 0.05 ? `${label}\n${(percent * 100).toFixed(0)}%` : ''}
+              labelLine={{ stroke: 'var(--ea-text-secondary, #999)', strokeWidth: 1 }}
+              animationBegin={0} animationDuration={800} animationEasing="ease-out">
               {data.map((_, i) => (
                 <Cell key={i} fill={colors[i % colors.length]} />
               ))}
             </Pie>
-            <Tooltip formatter={(v) => Number(v).toLocaleString()} />
-            <Legend wrapperStyle={{ fontSize: '0.8rem' }} />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend wrapperStyle={{ fontSize: '0.8rem', paddingTop: 8 }} />
           </PieChart>
         );
 
@@ -116,64 +202,86 @@ export default function ChartRenderer({ spec, height = 280 }) {
       case 'doughnut':
         return (
           <PieChart>
-            <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" innerRadius={50} outerRadius={Math.min(120, height / 2.5)}
-              label={({ label, percent }) => `${label} (${(percent * 100).toFixed(0)}%)`}>
+            <Pie data={data} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%"
+              innerRadius={55} outerRadius={Math.min(130, height / 2.4)}
+              stroke="var(--ea-bg-card, #fff)" strokeWidth={3}
+              label={({ label, percent }) => percent > 0.05 ? `${label}\n${(percent * 100).toFixed(0)}%` : ''}
+              labelLine={{ stroke: 'var(--ea-text-secondary, #999)', strokeWidth: 1 }}
+              animationBegin={0} animationDuration={800} animationEasing="ease-out">
               {data.map((_, i) => (
                 <Cell key={i} fill={colors[i % colors.length]} />
               ))}
             </Pie>
-            <Tooltip formatter={(v) => Number(v).toLocaleString()} />
-            <Legend wrapperStyle={{ fontSize: '0.8rem' }} />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend wrapperStyle={{ fontSize: '0.8rem', paddingTop: 8 }} />
           </PieChart>
         );
 
       // ── LINE ────────────────────────────────────────────────
       case 'line':
         return (
-          <LineChart data={data} margin={{ top: 8, right: 20, left: 0, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" />
-            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11}
-              tickFormatter={(v) => v?.length > 12 ? `${v.slice(0, 10)}...` : v} />
-            <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={70}
-              tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
-            <Tooltip contentStyle={{ background: 'var(--ea-bg-card)', border: '1px solid var(--ea-border)', borderRadius: 8 }}
-              formatter={(v) => [Number(v).toLocaleString(), 'Value']} />
-            <Line type="monotone" dataKey={yKey} stroke={colors[0]} strokeWidth={2} dot={{ r: 3, fill: colors[0] }} activeDot={{ r: 5 }} />
-            {data[0]?.value2 && <Line type="monotone" dataKey="value2" stroke={colors[1]} strokeWidth={2} dot={{ r: 3, fill: colors[1] }} />}
+          <LineChart data={data} margin={{ top: 16, right: 20, left: 10, bottom: 8 }}>
+            <defs>
+              <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={colors[0]} stopOpacity={0.15} />
+                <stop offset="100%" stopColor={colors[0]} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" vertical={false} />
+            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false}
+              tickFormatter={(v) => v?.length > 12 ? `${v.slice(0, 10)}…` : v} />
+            <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={60} tickLine={false} axisLine={false}
+              tickFormatter={(v) => formatNum(v)} />
+            <Tooltip content={<CustomTooltip />} />
+            <Line type="monotone" dataKey={yKey} stroke={colors[0]} strokeWidth={2.5}
+              dot={{ r: 4, fill: '#fff', stroke: colors[0], strokeWidth: 2 }}
+              activeDot={{ r: 6, fill: colors[0], stroke: '#fff', strokeWidth: 2 }} />
+            {data[0]?.value2 && (
+              <Line type="monotone" dataKey="value2" stroke={colors[1]} strokeWidth={2}
+                dot={{ r: 3, fill: '#fff', stroke: colors[1], strokeWidth: 2 }} />
+            )}
           </LineChart>
         );
 
       // ── AREA ────────────────────────────────────────────────
       case 'area':
         return (
-          <AreaChart data={data} margin={{ top: 8, right: 20, left: 0, bottom: 8 }}>
+          <AreaChart data={data} margin={{ top: 16, right: 20, left: 10, bottom: 8 }}>
             <defs>
               <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={colors[0]} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={colors[0]} stopOpacity={0} />
+                <stop offset="0%" stopColor={colors[0]} stopOpacity={0.25} />
+                <stop offset="100%" stopColor={colors[0]} stopOpacity={0.02} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" />
-            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} />
-            <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={70} />
-            <Tooltip contentStyle={{ background: 'var(--ea-bg-card)', border: '1px solid var(--ea-border)', borderRadius: 8 }}
-              formatter={(v) => [Number(v).toLocaleString(), 'Value']} />
-            <Area type="monotone" dataKey={yKey} stroke={colors[0]} fill="url(#areaGrad)" strokeWidth={2} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" vertical={false} />
+            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false} />
+            <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={60} tickLine={false} axisLine={false}
+              tickFormatter={(v) => formatNum(v)} />
+            <Tooltip content={<CustomTooltip />} />
+            <Area type="monotone" dataKey={yKey} stroke={colors[0]} fill="url(#areaGrad)" strokeWidth={2.5}
+              dot={{ r: 3, fill: '#fff', stroke: colors[0], strokeWidth: 2 }}
+              activeDot={{ r: 5, fill: colors[0] }} />
           </AreaChart>
         );
 
       // ── BAR ─────────────────────────────────────────────────
       case 'bar':
         return (
-          <BarChart data={data} margin={{ top: 8, right: 20, left: 0, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" />
-            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11}
-              tickFormatter={(v) => v?.length > 10 ? `${v.slice(0, 8)}..` : v} />
-            <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={70}
-              tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
-            <Tooltip contentStyle={{ background: 'var(--ea-bg-card)', border: '1px solid var(--ea-border)', borderRadius: 8 }}
-              formatter={(v) => [Number(v).toLocaleString(), 'Value']} />
-            <Bar dataKey={yKey} fill={colors[0]} radius={[4, 4, 0, 0]} />
+          <BarChart data={data} margin={{ top: 20, right: 20, left: 10, bottom: 8 }}>
+            <defs>
+              <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={colors[0]} stopOpacity={0.95} />
+                <stop offset="100%" stopColor={colors[0]} stopOpacity={0.7} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" vertical={false} />
+            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false}
+              tickFormatter={(v) => v?.length > 12 ? `${v.slice(0, 10)}…` : v} />
+            <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={60} tickLine={false} axisLine={false}
+              tickFormatter={(v) => formatNum(v)} />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey={yKey} fill="url(#barGrad)" radius={[6, 6, 0, 0]} maxBarSize={48}
+              label={<CustomBarLabel color={colors[0]} />} />
           </BarChart>
         );
 
@@ -415,13 +523,20 @@ export default function ChartRenderer({ spec, height = 280 }) {
       // ── DEFAULT (Bar) ──────────────────────────────────────
       default:
         return (
-          <BarChart data={data} margin={{ top: 8, right: 20, left: 0, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" />
-            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} />
-            <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={70} />
-            <Tooltip contentStyle={{ background: 'var(--ea-bg-card)', border: '1px solid var(--ea-border)', borderRadius: 8 }}
-              formatter={(v) => [Number(v).toLocaleString(), 'Value']} />
-            <Bar dataKey={yKey} fill={colors[0]} radius={[4, 4, 0, 0]} />
+          <BarChart data={data} margin={{ top: 20, right: 20, left: 10, bottom: 8 }}>
+            <defs>
+              <linearGradient id="barGradDef" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={colors[0]} stopOpacity={0.95} />
+                <stop offset="100%" stopColor={colors[0]} stopOpacity={0.7} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--ea-border)" vertical={false} />
+            <XAxis dataKey={xKey} stroke="var(--ea-text-secondary)" fontSize={11} tickLine={false} />
+            <YAxis stroke="var(--ea-text-secondary)" fontSize={11} width={60} tickLine={false} axisLine={false}
+              tickFormatter={(v) => formatNum(v)} />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey={yKey} fill="url(#barGradDef)" radius={[6, 6, 0, 0]} maxBarSize={48}
+              label={<CustomBarLabel color={colors[0]} />} />
           </BarChart>
         );
     }
@@ -438,25 +553,22 @@ export default function ChartRenderer({ spec, height = 280 }) {
   return (
     <div>
       {title && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
           <h3 style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: 8, margin: 0, color: 'var(--ea-text-primary)' }}>
-            <span style={{ color: 'var(--ea-primary)' }}>◆</span> {title}
+            {title}
           </h3>
           {metaInfo.length > 0 && (
-            <span style={{ fontSize: '0.75rem', color: 'var(--ea-text-secondary)' }}>{metaInfo.join(' | ')}</span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--ea-text-secondary)', background: 'var(--ea-bg-hover)', padding: '3px 8px', borderRadius: 6 }}>
+              {metaInfo.join(' · ')}
+            </span>
           )}
         </div>
       )}
-      <ResponsiveContainer width="100%" height={height}>
-        {renderChart()}
-      </ResponsiveContainer>
-      {spec.type !== 'table' && (
-        <div style={{ display: 'flex', gap: 6, marginTop: 8, justifyContent: 'flex-end' }}>
-          <span style={{ fontSize: '0.7rem', padding: '2px 8px', background: 'var(--ea-bg-hover)', borderRadius: 4, color: 'var(--ea-text-secondary)' }}>
-            {spec.type}
-          </span>
-        </div>
-      )}
+      <div style={{ borderRadius: 10, border: '1px solid var(--ea-border)', padding: '8px 4px', background: 'var(--ea-bg-card)' }}>
+        <ResponsiveContainer width="100%" height={height}>
+          {renderChart()}
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
