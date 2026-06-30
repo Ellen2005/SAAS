@@ -62,12 +62,14 @@ const Login = () => {
       }
       if (result.error) throw result.error;
       
-      // Auth state change in authContext will trigger the useEffect above to navigate
+      // Auth state will propagate via onAuthStateChange → authContext
+      // The useEffect above handles redirect once user is set
+      // Do NOT set loading=false here — let the useEffect handle it
     } catch (err) {
       setError(err.message);
-    } finally {
       setLoading(false);
     }
+    // On success, don't set loading=false — let auth context handle redirect
   };
 
   const handleResetPassword = async () => {

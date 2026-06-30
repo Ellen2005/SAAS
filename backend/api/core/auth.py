@@ -1,4 +1,3 @@
-import time
 from fastapi import HTTPException, Header, Query, Depends
 from typing import Optional
 from ..core.supabase_client import get_supabase
@@ -9,29 +8,13 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     token = authorization.replace("Bearer ", "")
     supabase = get_supabase()
-    last_err = None
-    for attempt in range(3):
-        try:
-            user_resp = supabase.auth.get_user(token)
-            if not user_resp or not hasattr(user_resp, "user") or not user_resp.user:
-                raise HTTPException(status_code=401, detail="Invalid or expired token")
-            return user_resp.user
-        except HTTPException:
-            raise
-        except Exception as e:
-            last_err = e
-            err_msg = str(e).lower()
-            is_transient = (
-                "getaddrinfo" in err_msg
-                or "name or service not known" in err_msg
-                or "errno 11002" in err_msg
-                or "server disconnected" in err_msg
-                or "connection" in err_msg
-            )
-            if attempt < 2 and is_transient:
-                time.sleep(0.5 * (attempt + 1))
-                continue
-            raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+    try:
+        user_resp = supabase.auth.get_user(token)
+        if not user_resp or not hasattr(user_resp, "user") or not user_resp.user:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        return user_resp.user
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
 
 def resolve_user_id(authorization: Optional[str] = Header(None)) -> str:

@@ -154,8 +154,17 @@ function AppShell() {
                   )}
                   <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_dashboard')}</NavLink>
                   <NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_reports')}</NavLink>
+                  {/* Show manager features only when role is confirmed as manager or admin */}
                   {(isManager || isAdmin) && (
-                    <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_analysis')}</NavLink>
+                    <>
+                      <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''}>
+                        Analyst
+                      </NavLink>
+                      <NavLink to="/explorer" className={({ isActive }) => isActive ? 'active' : ''}>Schema</NavLink>
+                      <NavLink to="/query" className={({ isActive }) => isActive ? 'active' : ''}>Ask your data</NavLink>
+                      <NavLink to="/validation" className={({ isActive }) => isActive ? 'active' : ''}>Validation</NavLink>
+                      <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}>Settings</NavLink>
+                    </>
                   )}
                   <button 
                     onClick={() => setIsDark(!isDark)} 

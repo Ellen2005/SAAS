@@ -1,5 +1,5 @@
 """Goal-driven analysis API for CNPS SAAS."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -9,6 +9,38 @@ from ..services.analysis_engine import run_analysis, list_presets, list_runs, va
 from ..services.export_service import export_analysis_runs_csv
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+
+
+def _auto_generate_report(user_id: str, analysis_id: str, goal_text: str):
+    """Background task: generate a professional report after goal analysis."""
+    import os, tempfile, logging
+    logger = logging.getLogger(__name__)
+    try:
+        from ..services.professional_report_service import generate_goal_analysis_report
+        supabase = get_supabase()
+        analysis_result = {"goal_text": goal_text, "id": analysis_id}
+        user_report_dir = os.path.join(tempfile.gettempdir(), f"reports_{user_id}")
+        os.makedirs(user_report_dir, exist_ok=True)
+        result = generate_goal_analysis_report(
+            user_id=user_id,
+            analysis_result=analysis_result,
+            supabase=supabase,
+            institution_name=os.getenv("INSTITUTION_NAME", "CNPS"),
+            output_dir=user_report_dir,
+        )
+        report_record = {
+            "user_id": user_id,
+            "report_type": "goal_analysis",
+            "file_path": result.get("pdf", ""),
+            "excel_path": result.get("excel", ""),
+            "report_id": result.get("report_id", analysis_id),
+            "title": (goal_text or "Goal Analysis Report")[:80],
+            "status": "generated",
+        }
+        supabase.table("reports").insert(report_record).execute()
+        logger.info(f"Auto-generated report for analysis {analysis_id}")
+    except Exception as e:
+        logger.warning(f"Auto-report generation failed for analysis {analysis_id}: {e}")
 
 
 class AnalysisRunRequest(BaseModel):
@@ -47,6 +79,7 @@ def get_runs(user_id: str = Depends(resolve_user_id)):
 @router.post("/run")
 def post_run(
     body: AnalysisRunRequest,
+    background_tasks: BackgroundTasks,
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
     if not body.goal_text and not body.preset_slug:
@@ -64,6 +97,14 @@ def post_run(
     )
     if result.get("status") == "failed":
         raise HTTPException(status_code=422, detail=result.get("error", "Analysis failed"))
+    # Auto-generate report in background after successful analysis
+    analysis_id = result.get("id") or result.get("run_id") or ""
+    background_tasks.add_task(
+        _auto_generate_report,
+        user_id=context["user_id"],
+        analysis_id=str(analysis_id),
+        goal_text=body.goal_text or "",
+    )
     return result
 
 

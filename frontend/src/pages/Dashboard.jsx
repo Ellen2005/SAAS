@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
-import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, BarChart2, Shield, Activity } from 'lucide-react';
+import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, Search, BarChart2, Shield, Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/authContext';
 import { apiFetch, apiJson, API_URL } from '../lib/api';
@@ -690,12 +690,15 @@ const Dashboard = () => {
             </button>
             {isManager && (
               <>
+                <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/query')}>
+                  <Search size={15} /> Query
+                </button>
+                <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/reports/custom')}>
+                  <Sparkles size={15} /> Custom Report
+                </button>
                 <button className="ea-btn ea-btn-secondary" onClick={handleSync} disabled={syncing}>
                   <RefreshCcw size={15} style={{ animation: syncing ? 'ea-spin 1s linear infinite' : 'none' }} />
                   {syncing ? statusMessage : 'Sync Now'}
-                </button>
-                <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/settings')}>
-                  Settings
                 </button>
               </>
             )}

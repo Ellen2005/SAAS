@@ -194,13 +194,10 @@ export default function AIAnalystPage() {
     }
   };
 
-  const [reportStatus, setReportStatus] = useState(''); // '', 'generating', 'done', 'error'
-
   const runAnalysis = async (presetSlug = null) => {
     setAnalysisLoading(true);
     setAnalysisError('');
     setAnalysisResult(null);
-    setReportStatus('');
     try {
       const body = {
         goal_text: goal || (presetSlug ? '' : 'Institutional KPI summary'),
@@ -214,18 +211,6 @@ export default function AIAnalystPage() {
       });
       setAnalysisResult(res);
       loadAnalysisMeta();
-
-      // Auto-generate report after analysis completes
-      if (res.status === 'completed' && res.run_id) {
-        setReportStatus('generating');
-        try {
-          await apiFetch('/api/reports/generate', { method: 'POST' });
-          setReportStatus('done');
-        } catch (reportErr) {
-          console.error('Auto-report generation failed:', reportErr);
-          setReportStatus('error');
-        }
-      }
     } catch (e) {
       setAnalysisError(e.message || 'Analysis failed');
     } finally {
@@ -306,43 +291,72 @@ export default function AIAnalystPage() {
           {insights && insights.insights?.length === 0 && (
             <div style={{ ...card, textAlign: 'center', padding: 40 }}>
               <CheckCircle size={40} color="#10b981" style={{ marginBottom: 12 }} />
-              <h3>No anomalous patterns detected</h3>
+              <h3>All Clear</h3>
               <p style={{ color: 'var(--ea-text-secondary)' }}>
-                {insights.message || 'All metrics are within normal ranges. Run a sync to refresh.'}
+                {insights.message || 'No unusual patterns detected. All metrics are within normal range.'}
               </p>
+            </div>
+          )}
+          {/* Summary bar */}
+          {insights?.insights?.length > 0 && (
+            <div style={{ ...card, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', padding: '14px 20px' }}>
+              <span style={{ fontWeight: 600, color: 'var(--ea-text-primary)' }}>{insights.insights.length} insight{insights.insights.length > 1 ? 's' : ''}</span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {['critical', 'warning', 'info'].map(sev => {
+                  const count = insights.insights.filter(i => i.severity === sev).length;
+                  if (count === 0) return null;
+                  return (
+                    <span key={sev} style={pill(SEVERITY_COLOR[sev])}>
+                      {count} {sev}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
           )}
           {(insights?.insights || []).map((ins, i) => {
             const color = SEVERITY_COLOR[ins.severity] || '#3b82f6';
             const isOpen = expandedInsight === i;
+            const isActionable = /consider|recommend|should|investigate|review|ensure|monitor|check|verify/i.test(
+              typeof ins.explanation === 'string' ? ins.explanation : JSON.stringify(ins.explanation)
+            );
             return (
-              <div key={i} style={{ ...card, borderLeft: `4px solid ${color}` }}>
+              <div key={i} style={{ ...card, borderLeft: `4px solid ${color}`, padding: '14px 18px' }}>
                 <div
                   onClick={() => setExpandedInsight(isOpen ? null : i)}
                   style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                 >
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <span style={{ color }}>{INSIGHT_ICON[ins.type] || <Info size={16} />}</span>
-                    <div>
-                      <div style={{ fontWeight: 600, color: 'var(--ea-text-primary)' }}>{ins.title}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--ea-text-secondary)', marginTop: 2 }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 1 }}>
+                    <span style={{ color, flexShrink: 0 }}>{INSIGHT_ICON[ins.type] || <Info size={16} />}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.92rem' }}>{ins.title}</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--ea-text-secondary)', marginTop: 3, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <span style={pill(color)}>{ins.type.replace(/_/g, ' ')}</span>
-                        {' '}<span style={pill('#6b7280')}>{ins.kpi}</span>
+                        {ins.kpi && <span style={pill('#6b7280')}>{ins.kpi?.replace(/_/g, ' ')}</span>}
                       </div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ fontWeight: 700, color, fontSize: '1.1rem' }}>
-                      {typeof ins.value === 'number' ? ins.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : ''}
-                    </span>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                    {typeof ins.value === 'number' && (
+                      <span style={{ fontWeight: 700, color, fontSize: '1.05rem' }}>
+                        {ins.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </span>
+                    )}
                     {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                   </div>
                 </div>
                 {isOpen && (
                   <div style={{ marginTop: 12, padding: '12px 0 0', borderTop: '1px solid var(--ea-border)' }}>
-                    <p style={{ color: 'var(--ea-text-primary)', lineHeight: 1.7 }}>{typeof ins.explanation === 'string' ? ins.explanation : (ins.explanation?.reason || ins.explanation?.text || JSON.stringify(ins.explanation))}</p>
+                    <p style={{ color: 'var(--ea-text-primary)', lineHeight: 1.7, margin: 0 }}>
+                      {typeof ins.explanation === 'string' ? ins.explanation : (ins.explanation?.reason || ins.explanation?.text || JSON.stringify(ins.explanation))}
+                    </p>
+                    {isActionable && (
+                      <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(16,185,129,0.06)', borderRadius: 8, fontSize: '0.82rem', color: '#10b981', fontWeight: 500 }}>
+                        ✓ This insight suggests an action you can take
+                      </div>
+                    )}
                     {ins.xai_explanation && ins.xai_explanation !== ins.explanation && (
-                      <p style={{ color: 'var(--ea-text-secondary)', fontSize: '0.9rem', marginTop: 8, fontStyle: 'italic' }}>
+                      <p style={{ color: 'var(--ea-text-secondary)', fontSize: '0.85rem', marginTop: 8, fontStyle: 'italic' }}>
                         {ins.xai_explanation}
                       </p>
                     )}
@@ -352,8 +366,8 @@ export default function AIAnalystPage() {
             );
           })}
           {insights && insights.generated_at && (
-            <p style={{ color: 'var(--ea-text-secondary)', fontSize: '0.8rem', textAlign: 'right' }}>
-              Generated at {new Date(insights.generated_at).toLocaleString()}
+            <p style={{ color: 'var(--ea-text-secondary)', fontSize: '0.78rem', textAlign: 'right' }}>
+              Last updated: {new Date(insights.generated_at).toLocaleString()}
             </p>
           )}
         </div>
@@ -435,11 +449,54 @@ export default function AIAnalystPage() {
 
           {/* Analysis Result */}
           {analysisResult && (
-            <div style={card}>
-              <h3 style={{ marginTop: 0, color: 'var(--ea-text-primary)' }}>Analysis Result</h3>
-              <p style={{ marginBottom: 16, color: 'var(--ea-text-primary)' }}>{analysisResult.summary}</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Hero summary */}
+              <div style={{ ...card, background: 'var(--ea-primary-bg)', borderLeft: '4px solid var(--ea-primary)' }}>
+                <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--ea-text-primary)', marginBottom: 6 }}>
+                  Analysis Complete
+                </div>
+                <p style={{ margin: 0, color: 'var(--ea-text-primary)', lineHeight: 1.6 }}>{analysisResult.summary}</p>
+                {analysisResult.explanation && (
+                  <p style={{ margin: '8px 0 0', color: 'var(--ea-text-secondary)', fontSize: '0.88rem' }}>{analysisResult.explanation}</p>
+                )}
+              </div>
+
+              {/* KPI Cards from data */}
+              {analysisResult.chart?.data?.length > 0 && (() => {
+                const rows = analysisResult.chart.data;
+                const yKey = analysisResult.chart.yKey;
+                const xKey = analysisResult.chart.xKey || 'name';
+                if (!yKey) return null;
+                const values = rows.map(d => Number(d[yKey])).filter(v => !isNaN(v));
+                if (values.length === 0) return null;
+                const sum = values.reduce((a, b) => a + b, 0);
+                const avg = sum / values.length;
+                const max = Math.max(...values);
+                const min = Math.min(...values);
+                const maxItem = rows.find(d => Number(d[yKey]) === max);
+                const minItem = rows.find(d => Number(d[yKey]) === min);
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+                    {[
+                      { label: 'Total', value: sum.toLocaleString(undefined, { maximumFractionDigits: 0 }), color: '#3b82f6' },
+                      { label: 'Average', value: avg.toLocaleString(undefined, { maximumFractionDigits: 1 }), color: '#8b5cf6' },
+                      { label: 'Highest', value: max.toLocaleString(undefined, { maximumFractionDigits: 0 }), sub: maxItem ? maxItem[xKey] : '', color: '#10b981' },
+                      { label: 'Lowest', value: min.toLocaleString(undefined, { maximumFractionDigits: 0 }), sub: minItem ? minItem[xKey] : '', color: '#f59e0b' },
+                      { label: 'Records', value: values.length, color: '#6b7280' },
+                    ].map((kpi, i) => (
+                      <div key={i} style={{ ...card, textAlign: 'center', padding: 14 }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--ea-text-secondary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>{kpi.label}</div>
+                        <div style={{ fontSize: '1.3rem', fontWeight: 700, color: kpi.color }}>{kpi.value}</div>
+                        {kpi.sub && <div style={{ fontSize: '0.72rem', color: 'var(--ea-text-secondary)', marginTop: 2 }}>{kpi.sub}</div>}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Chart */}
               {analysisResult.chart && (
-                <div style={{ marginTop: 16 }}>
+                <div style={card}>
                   <ChartRenderer
                     spec={{
                       type: analysisResult.chart.type || 'bar',
@@ -449,96 +506,91 @@ export default function AIAnalystPage() {
                       yKey: analysisResult.chart.yKey,
                     }}
                   />
-                  {/* Auto-generated chart annotations */}
-                  {analysisResult.chart.data && analysisResult.chart.data.length > 0 && (() => {
+                  {/* Variability warning */}
+                  {analysisResult.chart.data?.length > 1 && (() => {
                     const yKey = analysisResult.chart.yKey;
-                    const xKey = analysisResult.chart.xKey || 'name';
                     if (!yKey) return null;
                     const values = analysisResult.chart.data.map(d => Number(d[yKey])).filter(v => !isNaN(v));
-                    if (values.length === 0) return null;
-                    const sum = values.reduce((a, b) => a + b, 0);
-                    const avg = sum / values.length;
                     const max = Math.max(...values);
                     const min = Math.min(...values);
-                    const maxItem = analysisResult.chart.data.find(d => Number(d[yKey]) === max);
-                    const minItem = analysisResult.chart.data.find(d => Number(d[yKey]) === min);
-                    return (
-                      <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--ea-bg-hover)', borderRadius: 10, border: '1px solid var(--ea-border)' }}>
-                        <h4 style={{ margin: '0 0 8px', fontSize: '0.85rem', color: 'var(--ea-text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Info size={14} /> Key Observations
-                        </h4>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, fontSize: '0.82rem', color: 'var(--ea-text-secondary)' }}>
-                          <div><strong>Average:</strong> {avg.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
-                          <div><strong>Highest:</strong> {max.toLocaleString(undefined, { maximumFractionDigits: 2 })} {maxItem ? `(${maxItem[xKey]})` : ''}</div>
-                          <div><strong>Lowest:</strong> {min.toLocaleString(undefined, { maximumFractionDigits: 2 })} {minItem ? `(${minItem[xKey]})` : ''}</div>
-                          <div><strong>Data Points:</strong> {values.length}</div>
+                    if (min > 0 && max / min > 3) {
+                      return (
+                        <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(245,158,11,0.08)', borderRadius: 8, fontSize: '0.82rem', color: '#f59e0b' }}>
+                          ⚠ High variability — the highest value is {((max / min)).toFixed(1)}× the lowest. Review the causes of this gap.
                         </div>
-                        {max > 0 && min > 0 && (max / min) > 3 && (
-                          <p style={{ margin: '8px 0 0', fontSize: '0.8rem', color: '#f59e0b' }}>
-                            High variability detected — the highest value is {((max / min)).toFixed(1)}x the lowest. Consider investigating the causes of this disparity.
-                          </p>
-                        )}
-                      </div>
-                    );
+                      );
+                    }
+                    return null;
                   })()}
                 </div>
               )}
+
+              {/* Key Findings (progressive disclosure) */}
               {analysisResult.insights && analysisResult.insights.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <h4 style={{ margin: '0 0 8px', fontSize: '0.85rem', color: 'var(--ea-text-primary)' }}>Insights</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {analysisResult.insights.map((ins, i) => (
-                      <div key={i} style={{ padding: '8px 12px', background: 'var(--ea-bg-hover)', borderRadius: 8, fontSize: '0.85rem', color: 'var(--ea-text-primary)', borderLeft: '3px solid var(--ea-primary)' }}>
-                        {typeof ins === 'string' ? ins : ins.text || ins.message || JSON.stringify(ins)}
-                      </div>
-                    ))}
+                <details open style={card}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.95rem' }}>
+                    Key Findings ({analysisResult.insights.length})
+                  </summary>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                    {analysisResult.insights.map((ins, i) => {
+                      const text = typeof ins === 'string' ? ins : ins.text || ins.message || JSON.stringify(ins);
+                      const isAction = /consider|recommend|should|investigate|review|ensure|monitor|check|verify/i.test(text);
+                      return (
+                        <div key={i} style={{
+                          padding: '10px 14px', background: isAction ? 'rgba(16,185,129,0.06)' : 'var(--ea-bg-hover)',
+                          borderRadius: 8, borderLeft: isAction ? '3px solid #10b981' : '3px solid var(--ea-primary)',
+                          fontSize: '0.88rem', color: 'var(--ea-text-primary)', lineHeight: 1.6,
+                        }}>
+                          {isAction && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#10b981', textTransform: 'uppercase', letterSpacing: 0.3 }}>Action · </span>}
+                          {text}
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
+                </details>
               )}
+
+              {/* Data table + SQL (collapsed by default) */}
+              <details style={card}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>
+                  View Raw Data ({analysisResult.rows?.length || analysisResult.chart?.data?.length || 0} rows)
+                </summary>
+                {analysisResult.chart?.data?.length > 0 && (
+                  <div style={{ marginTop: 12, overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                      <thead>
+                        <tr>
+                          {Object.keys(analysisResult.chart.data[0]).map(k => (
+                            <th key={k} style={{ textAlign: 'left', padding: '6px 10px', borderBottom: '2px solid var(--ea-border)', color: 'var(--ea-text-secondary)', fontWeight: 600 }}>{k}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analysisResult.chart.data.slice(0, 50).map((row, i) => (
+                          <tr key={i}>
+                            {Object.values(row).map((v, j) => (
+                              <td key={j} style={{ padding: '5px 10px', borderBottom: '1px solid var(--ea-border)', color: 'var(--ea-text-primary)' }}>
+                                {typeof v === 'number' ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(v ?? '')}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </details>
+
               {analysisResult.sql && (
-                <details style={{ marginTop: 16 }}>
-                  <summary style={{ cursor: 'pointer', fontWeight: 600, marginBottom: 8, color: 'var(--ea-text-primary)' }}>Generated SQL</summary>
-                  <pre style={{ 
-                    background: 'var(--ea-bg)', 
-                    padding: 12, 
-                    borderRadius: 8, 
-                    overflow: 'auto',
-                    fontSize: '0.85rem',
-                    color: 'var(--ea-text-primary)',
-                  }}>
+                <details style={card}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>
+                    Generated SQL
+                  </summary>
+                  <pre style={{ marginTop: 10, background: 'var(--ea-bg)', padding: 12, borderRadius: 8, overflow: 'auto', fontSize: '0.82rem', color: 'var(--ea-text-primary)' }}>
                     {analysisResult.sql}
                   </pre>
                 </details>
               )}
-            </div>
-          )}
-
-          {/* Auto-report status */}
-          {reportStatus && (
-            <div style={{ ...card, borderLeft: `4px solid ${reportStatus === 'done' ? '#10b981' : reportStatus === 'error' ? '#ef4444' : '#3b82f6'}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {reportStatus === 'generating' && (
-                  <>
-                    <div style={{ width: 18, height: 18, border: '2px solid var(--ea-border)', borderTopColor: 'var(--ea-primary)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-                    <span style={{ color: 'var(--ea-text-primary)' }}>Generating report...</span>
-                  </>
-                )}
-                {reportStatus === 'done' && (
-                  <>
-                    <CheckCircle size={18} color="#10b981" />
-                    <span style={{ color: 'var(--ea-text-primary)' }}>Report generated! </span>
-                    <button className="ea-btn ea-btn-secondary" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => window.open('/reports', '_blank')}>
-                      View Reports
-                    </button>
-                  </>
-                )}
-                {reportStatus === 'error' && (
-                  <>
-                    <AlertTriangle size={18} color="#ef4444" />
-                    <span style={{ color: 'var(--ea-text-secondary)' }}>Report generation failed. You can generate one manually from the Dashboard.</span>
-                  </>
-                )}
-              </div>
             </div>
           )}
 
