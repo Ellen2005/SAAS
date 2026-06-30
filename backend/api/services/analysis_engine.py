@@ -147,30 +147,142 @@ def _build_chart(rows: list[dict], plan: dict) -> dict:
 
 def _explain_results(*, goal_text: str, sql: str | None, metrics: dict, sample_rows: list[dict]) -> dict:
     """
-    Return structured, human-friendly explanation for an analysis run.
-    Falls back to deterministic text when no LLM is available.
+    Return structured, human-friendly analysis with overview, insights,
+    observations, forecasts, risk analysis, and recommendations.
     """
-    prompt = f"""You are an institutional analytics assistant for CNPS.
-Explain the results of this analysis clearly for a non-technical manager.
+    row_count = metrics.get("row_count", 0)
+    columns = metrics.get("columns", [])
 
-Return JSON with:
+    # Compute data quality stats
+    null_counts = {}
+    if sample_rows:
+        for col in columns:
+            nulls = sum(1 for r in sample_rows if r.get(col) is None or r.get(col) == "" or r.get(col) == "null")
+            if nulls > 0:
+                null_counts[col] = nulls
+    total_cells = max(row_count * len(columns), 1)
+    null_total = sum(null_counts.values())
+    completeness_pct = round((1 - null_total / total_cells) * 100, 1) if total_cells > 0 else 100
+
+    # Compute basic stats for numeric columns
+    col_stats = {}
+    for col in columns:
+        vals = []
+        for r in sample_rows:
+            v = r.get(col)
+            try:
+                vals.append(float(v))
+            except (TypeError, ValueError):
+                continue
+        if vals:
+            col_stats[col] = {
+                "min": min(vals),
+                "max": max(vals),
+                "avg": round(sum(vals) / len(vals), 2),
+                "count": len(vals),
+            }
+
+    # Identify top/bottom values
+    insights_list = []
+    if sample_rows and len(columns) >= 2:
+        text_col = columns[0]
+        num_col = None
+        for c in columns[1:]:
+            try:
+                float(sample_rows[0].get(c))
+                num_col = c
+                break
+            except (TypeError, ValueError):
+                continue
+        if num_col:
+            sorted_rows = sorted(sample_rows, key=lambda r: float(r.get(num_col, 0) or 0), reverse=True)
+            if sorted_rows:
+                top = sorted_rows[0]
+                insights_list.append(f"Top performer: {top.get(text_col, 'N/A')} with {float(top.get(num_col, 0)):,.2f}")
+            if len(sorted_rows) > 1:
+                bottom = sorted_rows[-1]
+                insights_list.append(f"Lowest performer: {bottom.get(text_col, 'N/A')} with {float(bottom.get(num_col, 0)):,.2f}")
+            if len(sorted_rows) > 2:
+                vals = [float(r.get(num_col, 0) or 0) for r in sorted_rows]
+                avg_val = sum(vals) / len(vals)
+                above_avg = sum(1 for v in vals if v > avg_val)
+                below_avg = len(vals) - above_avg
+                insights_list.append(f"{above_avg} of {len(vals)} records are above average ({avg_val:,.2f}), {below_avg} are below.")
+
+    # Build the structured explanation
+    prompt = f"""You are an institutional analytics assistant for CNPS (Caisse Nationale de Prevoyance Sociale).
+
+Analyze the results of this goal-driven analysis and produce a rich, human-readable report.
+
+GOAL: {goal_text}
+
+SQL QUERY USED:
+{sql or "N/A"}
+
+DATA SUMMARY:
+- Total rows returned: {row_count}
+- Columns: {', '.join(columns)}
+- Data completeness: {completeness_pct}% ({null_total} null/empty values out of {total_cells} cells)
+- Columns with missing data: {json.dumps(null_counts) if null_counts else "None"}
+
+COLUMN STATISTICS:
+{json.dumps(col_stats, indent=2)}
+
+TOP/BOTTOM INSIGHTS:
+{chr(10).join(insights_list) if insights_list else "Not enough data for ranking insights"}
+
+SAMPLE DATA (first 5 rows):
+{json.dumps(sample_rows[:5], indent=2, default=str)}
+
+Return a JSON object with these sections:
 {{
-  "what_this_means": "plain-language explanation",
-  "assumptions": ["..."],
-  "limitations": ["..."],
-  "recommended_actions": ["..."]
+  "overview": "A clear 2-3 sentence summary of what this analysis covers and what was found. Start with 'This analysis examines...' or 'Based on your goal...'",
+  "tables_explored": "Which tables/columns were queried and why. Be specific about the data sources.",
+  "observations": [
+    "Specific observation from the data, e.g. 'Region X has the highest contribution rate at Y%'",
+    "Note any null/missing data: 'Column Z has N missing values which may affect accuracy'",
+    "Note any data quality issues: 'Dates appear inconsistent...' or 'Some employer IDs are missing...'"
+  ],
+  "insights": [
+    "Data-driven insight, e.g. 'Contributions in Q1 are 23% higher than Q4 suggesting seasonal patterns'",
+    "Pattern detected: 'There is a clear downward trend in...'",
+    "Comparison: 'Douala contributes 3x more than...'"
+  ],
+  "forecasts": {{
+    "projection": "Based on current trends, describe what is likely to happen in the next 3-6 months. Be specific with numbers if possible.",
+    "scenario_best": "Best case scenario if conditions improve",
+    "scenario_worst": "Worst case if no action is taken",
+    "trigger": "What specific action or event would change the trajectory"
+  }},
+  "risk_analysis": [
+    "Risk factor with severity (high/medium/low) and impact description",
+    "E.g. {{'risk': 'Declining contribution rates in 3 regions', 'severity': 'high', 'impact': 'Could reduce fund reserves by X% within 6 months'}}"
+  ],
+  "recommendations": [
+    {{
+      "priority": "high/medium/low",
+      "action": "Specific actionable recommendation",
+      "expected_impact": "What this would achieve",
+      "timeline": "When to act (immediate/short-term/long-term)"
+    }}
+  ],
+  "what_this_means": "Plain-language explanation for a non-technical manager",
+  "assumptions": ["List any assumptions made"],
+  "limitations": ["List limitations of this analysis"]
 }}
 
-Analysis goal: {goal_text}
-SQL used: {sql or "N/A"}
-Metrics: {json.dumps({k: v for k, v in metrics.items() if k != "sample_rows"}, ensure_ascii=False)}
-Sample rows: {json.dumps(sample_rows[:5], ensure_ascii=False)}
+IMPORTANT:
+- Be specific with numbers, percentages, and dates from the actual data
+- Reference actual column names and table names
+- If data is missing or incomplete, call it out explicitly
+- Forecasts should be grounded in the actual trends observed
+- Recommendations should be actionable and specific to CNPS context
 """
     try:
         completion = execute_groq_completion(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=600,
+            max_tokens=1500,
             model=get_groq_model(),
         )
         raw = completion.choices[0].message.content.strip()
@@ -178,22 +290,67 @@ Sample rows: {json.dumps(sample_rows[:5], ensure_ascii=False)}
             raw = raw.split("```")[1]
             if raw.lower().startswith("json"):
                 raw = raw[4:]
-        return json.loads(raw.strip())
+        result = json.loads(raw.strip())
+        # Ensure all keys exist
+        for key in ["overview", "tables_explored", "observations", "insights", "forecasts",
+                     "risk_analysis", "recommendations", "what_this_means", "assumptions", "limitations"]:
+            if key not in result:
+                result[key] = [] if key in ("observations", "insights", "risk_analysis", "recommendations", "assumptions", "limitations") else ""
+        return result
     except Exception:
-        row_count = metrics.get("row_count", 0)
+        # Rich fallback based on actual data
+        null_notes = []
+        for col, count in null_counts.items():
+            null_notes.append(f"{col} has {count} missing value(s)")
+        null_summary = "; ".join(null_notes) if null_notes else "No missing values detected"
+
+        obs = [f"Query returned {row_count} record(s) across {len(columns)} columns"]
+        if null_counts:
+            obs.append(f"Data quality note: {null_summary}. This may affect accuracy of results.")
+        obs.append(f"Data completeness: {completeness_pct}%")
+        for col, stats in col_stats.items():
+            obs.append(f"{col}: ranges from {stats['min']:,.2f} to {stats['max']:,.2f} (average: {stats['avg']:,.2f})")
+        obs.extend(insights_list)
+
         return {
-            "what_this_means": f"This analysis returned {row_count} row(s). Review the top values and compare across regions/time.",
+            "overview": f"This analysis examines '{goal_text}'. The query returned {row_count} record(s) from the connected database. "
+                        f"Data completeness is {completeness_pct}% with {null_total} missing value(s) across all cells.",
+            "tables_explored": f"The analysis queried columns: {', '.join(columns)}. "
+                               f"The SQL used was: {sql or 'Generated via natural language query'}.",
+            "observations": obs,
+            "insights": insights_list or [f"Based on {row_count} records, review the values for patterns and trends."],
+            "forecasts": {
+                "projection": f"If current trends continue over the next 3-6 months based on {row_count} data points, "
+                              "monitor for changes in the metrics shown. Set up alerts for significant deviations.",
+                "scenario_best": "If all regions/employers improve performance by 10%, overall metrics would show positive growth.",
+                "scenario_worst": "Without intervention, declining regions may continue to underperform, dragging down overall averages.",
+                "trigger": "Set a review threshold — if any metric drops below the average, trigger an investigation.",
+            },
+            "risk_analysis": [
+                {"risk": "Incomplete data", "severity": "medium",
+                 "impact": f"{null_total} missing values detected. Results should be validated against official records."},
+                {"risk": "Limited sample size", "severity": "low" if row_count >= 10 else "medium",
+                 "impact": f"Only {row_count} records available. Larger samples would provide more reliable insights."},
+            ],
+            "recommendations": [
+                {"priority": "high", "action": "Review and validate the data shown above with the source department.",
+                 "expected_impact": "Ensures decision-making is based on accurate data.", "timeline": "Immediate"},
+                {"priority": "medium", "action": "Set up regular monitoring for the metrics identified in this analysis.",
+                 "expected_impact": "Early detection of trends and anomalies.", "timeline": "Short-term"},
+                {"priority": "medium", "action": "Address missing data by following up with the responsible departments.",
+                 "expected_impact": "Improved data completeness for future analyses.", "timeline": "Short-term"},
+            ],
+            "what_this_means": f"This analysis returned {row_count} row(s). The key columns are: {', '.join(columns)}. "
+                               f"Review the top values and compare across categories. {null_summary}.",
             "assumptions": [
                 "The connected database is complete and up to date.",
                 "The query is read-only and reflects current stored records.",
+                "Column naming conventions match expected patterns.",
             ],
             "limitations": [
-                "Results depend on naming conventions and available columns.",
-                "This does not replace official accounting/audit procedures.",
-            ],
-            "recommended_actions": [
-                "Validate suspicious spikes with the source department.",
-                "Use the report feature to share findings with leadership.",
+                f"Results depend on {row_count} sample row(s) — larger datasets may yield different conclusions.",
+                "This does not replace official accounting or audit procedures.",
+                "Null/missing values may affect aggregate calculations.",
             ],
         }
 
@@ -422,6 +579,7 @@ def run_analysis(
             "summary": summary,
             "chart": chart,
             "metrics": {**metrics, "explanation": explanation},
+            "explanation": explanation,
             "rows": rows[:50],
             "sql": plan.get("sql"),
         }

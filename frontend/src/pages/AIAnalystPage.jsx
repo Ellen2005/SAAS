@@ -3,6 +3,8 @@ import {
   Brain, TrendingUp, Shield, Users, Zap, RefreshCw,
   AlertTriangle, CheckCircle, Info, ChevronDown, ChevronRight,
   BookOpen, Share2, Trash2, BarChart2, Play, Target, History,
+  Eye, FileSearch, Lightbulb, TrendingDown, ShieldAlert,
+  CalendarClock, ArrowRight, AlertCircle,
 } from 'lucide-react';
 import { apiJson, apiFetch } from '../lib/api';
 import { useAuth } from '../lib/authContext';
@@ -450,18 +452,37 @@ export default function AIAnalystPage() {
           {/* Analysis Result */}
           {analysisResult && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* Hero summary */}
-              <div style={{ ...card, background: 'var(--ea-primary-bg)', borderLeft: '4px solid var(--ea-primary)' }}>
-                <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--ea-text-primary)', marginBottom: 6 }}>
-                  Analysis Complete
+              {/* ── Overview ── */}
+              {analysisResult.explanation?.overview && (
+                <div style={{ ...card, background: 'var(--ea-primary-bg)', borderLeft: '4px solid var(--ea-primary)', padding: '16px 20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <Eye size={16} color="var(--ea-primary)" />
+                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--ea-primary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Overview</span>
+                  </div>
+                  <p style={{ margin: 0, color: 'var(--ea-text-primary)', lineHeight: 1.7, fontSize: '0.92rem' }}>
+                    {analysisResult.explanation.overview}
+                  </p>
+                  {analysisResult.explanation.what_this_means && analysisResult.explanation.what_this_means !== analysisResult.explanation.overview && (
+                    <p style={{ margin: '8px 0 0', color: 'var(--ea-text-secondary)', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                      {analysisResult.explanation.what_this_means}
+                    </p>
+                  )}
                 </div>
-                <p style={{ margin: 0, color: 'var(--ea-text-primary)', lineHeight: 1.6 }}>{analysisResult.summary}</p>
-                {analysisResult.explanation && (
-                  <p style={{ margin: '8px 0 0', color: 'var(--ea-text-secondary)', fontSize: '0.88rem' }}>{analysisResult.explanation}</p>
-                )}
-              </div>
+              )}
 
-              {/* KPI Cards from data */}
+              {/* ── Tables Explored ── */}
+              {analysisResult.explanation?.tables_explored && (
+                <details open style={{ ...card, borderLeft: '4px solid #06b6d4' }}>
+                  <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>
+                    <FileSearch size={15} color="#06b6d4" /> Data Sources & Tables Explored
+                  </summary>
+                  <p style={{ margin: '10px 0 0', color: 'var(--ea-text-primary)', lineHeight: 1.6, fontSize: '0.88rem' }}>
+                    {analysisResult.explanation.tables_explored}
+                  </p>
+                </details>
+              )}
+
+              {/* ── KPI Cards from data ── */}
               {analysisResult.chart?.data?.length > 0 && (() => {
                 const rows = analysisResult.chart.data;
                 const yKey = analysisResult.chart.yKey;
@@ -494,7 +515,7 @@ export default function AIAnalystPage() {
                 );
               })()}
 
-              {/* Chart */}
+              {/* ── Chart ── */}
               {analysisResult.chart && (
                 <div style={card}>
                   <ChartRenderer
@@ -506,7 +527,6 @@ export default function AIAnalystPage() {
                       yKey: analysisResult.chart.yKey,
                     }}
                   />
-                  {/* Variability warning */}
                   {analysisResult.chart.data?.length > 1 && (() => {
                     const yKey = analysisResult.chart.yKey;
                     if (!yKey) return null;
@@ -525,24 +545,110 @@ export default function AIAnalystPage() {
                 </div>
               )}
 
-              {/* Key Findings (progressive disclosure) */}
-              {analysisResult.insights && analysisResult.insights.length > 0 && (
-                <details open style={card}>
-                  <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.95rem' }}>
-                    Key Findings ({analysisResult.insights.length})
+              {/* ── Observations ── */}
+              {analysisResult.explanation?.observations?.length > 0 && (
+                <details open style={{ ...card, borderLeft: '4px solid #8b5cf6' }}>
+                  <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>
+                    <Eye size={15} color="#8b5cf6" /> Observations ({analysisResult.explanation.observations.length})
                   </summary>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
-                    {analysisResult.insights.map((ins, i) => {
-                      const text = typeof ins === 'string' ? ins : ins.text || ins.message || JSON.stringify(ins);
-                      const isAction = /consider|recommend|should|investigate|review|ensure|monitor|check|verify/i.test(text);
+                    {analysisResult.explanation.observations.map((obs, i) => (
+                      <div key={i} style={{
+                        padding: '10px 14px', background: 'var(--ea-bg-hover)',
+                        borderRadius: 8, borderLeft: '3px solid #8b5cf6',
+                        fontSize: '0.88rem', color: 'var(--ea-text-primary)', lineHeight: 1.6,
+                      }}>
+                        {typeof obs === 'string' ? obs : obs.text || JSON.stringify(obs)}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              {/* ── Insights ── */}
+              {analysisResult.explanation?.insights?.length > 0 && (
+                <details open style={{ ...card, borderLeft: '4px solid #10b981' }}>
+                  <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>
+                    <Lightbulb size={15} color="#10b981" /> Insights ({analysisResult.explanation.insights.length})
+                  </summary>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                    {analysisResult.explanation.insights.map((ins, i) => (
+                      <div key={i} style={{
+                        padding: '10px 14px', background: 'rgba(16,185,129,0.06)',
+                        borderRadius: 8, borderLeft: '3px solid #10b981',
+                        fontSize: '0.88rem', color: 'var(--ea-text-primary)', lineHeight: 1.6,
+                      }}>
+                        {typeof ins === 'string' ? ins : ins.text || JSON.stringify(ins)}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              {/* ── Forecasts ── */}
+              {analysisResult.explanation?.forecasts && (
+                <details open style={{ ...card, borderLeft: '4px solid #f59e0b' }}>
+                  <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>
+                    <CalendarClock size={15} color="#f59e0b" /> Forecast & Projections
+                  </summary>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+                    {analysisResult.explanation.forecasts.projection && (
+                      <div style={{ padding: '10px 14px', background: 'var(--ea-bg-hover)', borderRadius: 8, fontSize: '0.88rem', lineHeight: 1.6 }}>
+                        <span style={{ fontWeight: 600, color: 'var(--ea-text-primary)' }}>Projection: </span>
+                        <span style={{ color: 'var(--ea-text-primary)' }}>{analysisResult.explanation.forecasts.projection}</span>
+                      </div>
+                    )}
+                    {analysisResult.explanation.forecasts.scenario_best && (
+                      <div style={{ padding: '10px 14px', background: 'rgba(16,185,129,0.06)', borderRadius: 8, fontSize: '0.88rem', lineHeight: 1.6 }}>
+                        <span style={{ fontWeight: 600, color: '#10b981' }}>Best Case: </span>
+                        <span style={{ color: 'var(--ea-text-primary)' }}>{analysisResult.explanation.forecasts.scenario_best}</span>
+                      </div>
+                    )}
+                    {analysisResult.explanation.forecasts.scenario_worst && (
+                      <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,0.06)', borderRadius: 8, fontSize: '0.88rem', lineHeight: 1.6 }}>
+                        <span style={{ fontWeight: 600, color: '#ef4444' }}>Worst Case: </span>
+                        <span style={{ color: 'var(--ea-text-primary)' }}>{analysisResult.explanation.forecasts.scenario_worst}</span>
+                      </div>
+                    )}
+                    {analysisResult.explanation.forecasts.trigger && (
+                      <div style={{ padding: '10px 14px', background: 'rgba(139,92,246,0.06)', borderRadius: 8, fontSize: '0.88rem', lineHeight: 1.6 }}>
+                        <span style={{ fontWeight: 600, color: '#8b5cf6' }}>Trigger to Change: </span>
+                        <span style={{ color: 'var(--ea-text-primary)' }}>{analysisResult.explanation.forecasts.trigger}</span>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
+
+              {/* ── Risk Analysis ── */}
+              {analysisResult.explanation?.risk_analysis?.length > 0 && (
+                <details open style={{ ...card, borderLeft: '4px solid #ef4444' }}>
+                  <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>
+                    <ShieldAlert size={15} color="#ef4444" /> Risk Analysis ({analysisResult.explanation.risk_analysis.length})
+                  </summary>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                    {analysisResult.explanation.risk_analysis.map((risk, i) => {
+                      const severity = risk.severity || 'medium';
+                      const sevColor = severity === 'high' ? '#ef4444' : severity === 'medium' ? '#f59e0b' : '#10b981';
                       return (
                         <div key={i} style={{
-                          padding: '10px 14px', background: isAction ? 'rgba(16,185,129,0.06)' : 'var(--ea-bg-hover)',
-                          borderRadius: 8, borderLeft: isAction ? '3px solid #10b981' : '3px solid var(--ea-primary)',
-                          fontSize: '0.88rem', color: 'var(--ea-text-primary)', lineHeight: 1.6,
+                          padding: '10px 14px', background: `${sevColor}08`,
+                          borderRadius: 8, borderLeft: `3px solid ${sevColor}`,
+                          fontSize: '0.88rem', lineHeight: 1.6,
                         }}>
-                          {isAction && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#10b981', textTransform: 'uppercase', letterSpacing: 0.3 }}>Action · </span>}
-                          {text}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 600, color: sevColor, textTransform: 'uppercase', padding: '2px 6px', background: `${sevColor}15`, borderRadius: 4 }}>
+                              {severity}
+                            </span>
+                            <span style={{ fontWeight: 600, color: 'var(--ea-text-primary)' }}>
+                              {risk.risk || risk.title || 'Risk identified'}
+                            </span>
+                          </div>
+                          {risk.impact && (
+                            <div style={{ color: 'var(--ea-text-secondary)', fontSize: '0.85rem' }}>
+                              Impact: {risk.impact}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -550,7 +656,78 @@ export default function AIAnalystPage() {
                 </details>
               )}
 
-              {/* Data table + SQL (collapsed by default) */}
+              {/* ── Recommendations ── */}
+              {analysisResult.explanation?.recommendations?.length > 0 && (
+                <details open style={{ ...card, borderLeft: '4px solid #06b6d4' }}>
+                  <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>
+                    <ArrowRight size={15} color="#06b6d4" /> Recommendations ({analysisResult.explanation.recommendations.length})
+                  </summary>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+                    {analysisResult.explanation.recommendations.map((rec, i) => {
+                      const priority = rec.priority || 'medium';
+                      const pColor = priority === 'high' ? '#ef4444' : priority === 'medium' ? '#f59e0b' : '#10b981';
+                      return (
+                        <div key={i} style={{
+                          padding: '12px 16px', background: 'var(--ea-bg-hover)',
+                          borderRadius: 8, borderLeft: `3px solid ${pColor}`,
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <span style={{
+                              fontSize: '0.68rem', fontWeight: 600, color: pColor,
+                              textTransform: 'uppercase', padding: '2px 8px',
+                              background: `${pColor}12`, borderRadius: 4,
+                            }}>
+                              {priority} priority
+                            </span>
+                            {rec.timeline && (
+                              <span style={{ fontSize: '0.72rem', color: 'var(--ea-text-secondary)' }}>
+                                {rec.timeline}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem', marginBottom: 4 }}>
+                            {rec.action}
+                          </div>
+                          {rec.expected_impact && (
+                            <div style={{ fontSize: '0.82rem', color: 'var(--ea-text-secondary)' }}>
+                              Expected impact: {rec.expected_impact}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </details>
+              )}
+
+              {/* ── Limitations & Assumptions ── */}
+              {(analysisResult.explanation?.limitations?.length > 0 || analysisResult.explanation?.assumptions?.length > 0) && (
+                <details style={card}>
+                  <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>
+                    <Info size={15} /> Assumptions & Limitations
+                  </summary>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 12 }}>
+                    {analysisResult.explanation.assumptions?.length > 0 && (
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--ea-text-secondary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 }}>Assumptions</div>
+                        <ul style={{ margin: 0, paddingLeft: 16, fontSize: '0.85rem', color: 'var(--ea-text-primary)', lineHeight: 1.7 }}>
+                          {analysisResult.explanation.assumptions.map((a, i) => <li key={i}>{a}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {analysisResult.explanation.limitations?.length > 0 && (
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--ea-text-secondary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 }}>Limitations</div>
+                        <ul style={{ margin: 0, paddingLeft: 16, fontSize: '0.85rem', color: 'var(--ea-text-primary)', lineHeight: 1.7 }}>
+                          {analysisResult.explanation.limitations.map((l, i) => <li key={i}>{l}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
+
+              {/* ── Data Table (collapsed) ── */}
               <details style={card}>
                 <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>
                   View Raw Data ({analysisResult.rows?.length || analysisResult.chart?.data?.length || 0} rows)
@@ -561,13 +738,13 @@ export default function AIAnalystPage() {
                       <thead>
                         <tr>
                           {Object.keys(analysisResult.chart.data[0]).map(k => (
-                            <th key={k} style={{ textAlign: 'left', padding: '6px 10px', borderBottom: '2px solid var(--ea-border)', color: 'var(--ea-text-secondary)', fontWeight: 600 }}>{k}</th>
+                            <th key={k} style={{ textAlign: 'left', padding: '6px 10px', borderBottom: '2px solid var(--ea-border)', color: 'var(--ea-text-secondary)', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.72rem', letterSpacing: 0.3 }}>{k.replace(/_/g, ' ')}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {analysisResult.chart.data.slice(0, 50).map((row, i) => (
-                          <tr key={i}>
+                          <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--ea-bg-hover)' }}>
                             {Object.values(row).map((v, j) => (
                               <td key={j} style={{ padding: '5px 10px', borderBottom: '1px solid var(--ea-border)', color: 'var(--ea-text-primary)' }}>
                                 {typeof v === 'number' ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(v ?? '')}
@@ -581,6 +758,7 @@ export default function AIAnalystPage() {
                 )}
               </details>
 
+              {/* ── SQL (collapsed) ── */}
               {analysisResult.sql && (
                 <details style={card}>
                   <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--ea-text-primary)', fontSize: '0.9rem' }}>

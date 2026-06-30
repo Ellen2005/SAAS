@@ -90,7 +90,14 @@ export default function ChartRenderer({ spec, height = 280 }) {
     return spec?.data ? (
       <div style={{ overflowX: 'auto' }}>
         {spec.title && (
-          <h4 style={{ fontSize: '0.95rem', marginBottom: 10, color: 'var(--ea-text-primary)', fontWeight: 600 }}>{spec.title}</h4>
+          <div style={{ marginBottom: 10 }}>
+            <h4 style={{ fontSize: '0.95rem', margin: 0, color: 'var(--ea-text-primary)', fontWeight: 600 }}>{spec.title}</h4>
+            {spec.data.length > 0 && (
+              <span style={{ fontSize: '0.72rem', color: 'var(--ea-text-secondary)' }}>
+                {spec.data.length} row{spec.data.length > 1 ? 's' : ''} · {Object.keys(spec.data[0]).length} columns
+              </span>
+            )}
+          </div>
         )}
         <div style={{ borderRadius: 10, border: '1px solid var(--ea-border)', overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
@@ -106,7 +113,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
                     textTransform: 'uppercase', letterSpacing: '0.04em',
                     whiteSpace: 'nowrap',
                   }}>
-                    {col}
+                    {col.replace(/_/g, ' ')}
                   </th>
                 ))}
               </tr>
@@ -542,13 +549,13 @@ export default function ChartRenderer({ spec, height = 280 }) {
     }
   };
 
-  // ── Meta info row ─────────────────────────────────────────
+  // ── Meta info & axis labels ──────────────────────────────
   const meta = spec.meta || {};
+  const xAxisLabel = meta.x_column ? meta.x_column.replace(/_/g, ' ') : null;
+  const yAxisLabel = meta.y_column ? meta.y_column.replace(/_/g, ' ') : null;
   const metaInfo = [];
-  if (meta.row_count) metaInfo.push(`${meta.row_count} rows displayed`);
-  if (meta.total_rows) metaInfo.push(`of ${meta.total_rows} total`);
-  if (meta.x_column) metaInfo.push(`X: ${meta.x_column}`);
-  if (meta.y_column) metaInfo.push(`Y: ${meta.y_column}`);
+  if (meta.row_count) metaInfo.push(`${meta.row_count} data points`);
+  if (meta.total_rows && meta.total_rows !== meta.row_count) metaInfo.push(`of ${meta.total_rows} total`);
 
   return (
     <div>
@@ -564,10 +571,17 @@ export default function ChartRenderer({ spec, height = 280 }) {
           )}
         </div>
       )}
-      <div style={{ borderRadius: 10, border: '1px solid var(--ea-border)', padding: '8px 4px', background: 'var(--ea-bg-card)' }}>
+      <div style={{ borderRadius: 10, border: '1px solid var(--ea-border)', padding: '12px 8px 8px', background: 'var(--ea-bg-card)' }}>
         <ResponsiveContainer width="100%" height={height}>
           {renderChart()}
         </ResponsiveContainer>
+        {/* Axis labels */}
+        {(xAxisLabel || yAxisLabel) && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 12px 0', fontSize: '0.7rem', color: 'var(--ea-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <span>{xAxisLabel || ''}</span>
+            <span>{yAxisLabel || ''}</span>
+          </div>
+        )}
       </div>
     </div>
   );
