@@ -101,7 +101,9 @@ _client_cache = {}
 def _build_client(url: str, key: str):
     key_id = f"{url}:{key[:16]}"
     if key_id not in _client_cache:
-        _client_cache[key_id] = create_client(url, key)
+        # Disable SSL verification if configured (for local dev on Windows)
+        ssl_verify = os.getenv("SUPABASE_SSL_VERIFY", "true").lower() != "false"
+        _client_cache[key_id] = create_client(url, key, options={"verify_ssl": ssl_verify})
     return _client_cache[key_id]
 
 

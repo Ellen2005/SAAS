@@ -2,10 +2,9 @@
 Groq utility — centralised client creation and model selection.
 
 Supported current models (June 2026):
-  qwen2.5-72b-instruct      — best quality, default (replaces deprecated llama-3.3-70b)
-  gpt-oss-120b              — alternative large model
-  qwen2.5-27b-instruct      — balanced performance
-  llama-3.1-8b-instant      — fast, lower latency
+  llama-3.3-70b-versatile   — best quality (restored as primary)
+  llama-3.1-8b-instant      — fast, lower latency (fallback)
+  mixtral-8x7b-32768        — good for long context (fallback)
   gemma2-9b-it              — lightweight fallback
 
 Set GROQ_MODEL in .env to override the default.
@@ -17,11 +16,10 @@ logger = logging.getLogger(__name__)
 
 # Ordered list of models to try — first available wins
 _CANDIDATE_MODELS = [
-    "qwen2.5-72b-instruct",
-    "gpt-oss-120b",
-    "qwen2.5-27b-instruct",
-    "llama-3.1-8b-instant",
-    "gemma2-9b-it",
+    "llama-3.3-70b-versatile",  # Primary - best quality
+    "llama-3.1-8b-instant",     # Fast fallback
+    "mixtral-8x7b-32768",       # Long context fallback
+    "gemma2-9b-it",             # Lightweight fallback
 ]
 
 _DECOMMISSION_SIGNALS = (
@@ -37,7 +35,7 @@ _DECOMMISSION_SIGNALS = (
 )
 
 
-def get_groq_model(default: str = "qwen2.5-72b-instruct") -> str:
+def get_groq_model(default: str = "llama-3.3-70b-versatile") -> str:
     """Return the configured model name, falling back to the best available."""
     return os.getenv("GROQ_MODEL", default)
 
