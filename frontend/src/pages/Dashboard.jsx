@@ -51,7 +51,7 @@ const MetricCard = ({ label, value, delta, status, icon, color, sparklineData, f
     if (Math.abs(num) >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1)}B`;
     if (Math.abs(num) >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
     if (Math.abs(num) >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
-    return num.toLocaleString('fr-FR', { maximumFractionDigits: 0 });
+    return num.toLocaleString('en-US', { maximumFractionDigits: 0 });
   });
   const deltaDisplay = delta != null && !isNaN(delta) && delta !== 0;
   const statusColor = status === 'CRITICAL' ? '#ef4444' : status === 'WARNING' ? '#f59e0b' : '#10b981';

@@ -219,8 +219,8 @@ export default function AIAnalystPage() {
   };
 
   const TABS = [
-    { id: 'insights', label: 'Augmented Insights', icon: <Zap size={15} /> },
-    { id: 'analysis', label: 'Goal Analysis', icon: <BarChart2 size={15} /> },
+    { id: 'insights', label: t('analyst_insights') || 'AI Insights', icon: <Zap size={15} /> },
+    { id: 'analysis', label: t('analyst_goal_analysis') || 'Goal Analysis', icon: <BarChart2 size={15} /> },
     { id: 'governance', label: 'Governance', icon: <Shield size={15} /> },
     { id: 'xai', label: 'Explainable AI', icon: <Brain size={15} /> },
     { id: 'collaboration', label: 'Collaboration', icon: <Users size={15} /> },

@@ -299,7 +299,7 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                             f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
                             f"FROM {quoted} "
                             f"WHERE \"{dt}\" > SYSDATE - 30 "
-                            f"GROUP BY TRUNC(\"{dt}\") ORDER BY 1 FETCH FIRST 30 ROWS ONLY"
+                            f"GROUP BY TRUNC(\"{dt}\"), '{label}' ORDER BY date FETCH FIRST 30 ROWS ONLY"
                         )
                     else:
                         gen_sql = (
