@@ -181,19 +181,19 @@ def extract_from_mapped_tables(user_id: str, db_connection_info: dict, supabase)
             if db_type == "sqlite":
                 gen_sql = (
                     f"SELECT date({dt}) AS date, '{label}' AS kpi_name, SUM({amt}) AS value "
-                    f"FROM {quoted} GROUP BY date({dt}), '{label}' ORDER BY 1 DESC LIMIT 90"
+                    f"FROM {quoted} GROUP BY date({dt}) ORDER BY 1 DESC LIMIT 90"
                 )
             elif db_type == "oracle":
                 gen_sql = (
                     f'SELECT TRUNC("{dt}") AS date, '
                     f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
                     f"FROM {quoted} "
-                    f"GROUP BY TRUNC(\"{dt}\"), '{label}' ORDER BY 1 FETCH FIRST 90 ROWS ONLY"
+                    f"GROUP BY TRUNC(\"{dt}\") ORDER BY 1 FETCH FIRST 90 ROWS ONLY"
                 )
             else:
                 gen_sql = (
                     f'SELECT "{dt}" AS date, \'{label}\' AS kpi_name, SUM("{amt}") AS value '
-                    f'FROM {quoted} GROUP BY "{dt}", \'{label}\' ORDER BY 1 DESC LIMIT 90'
+                    f'FROM {quoted} GROUP BY "{dt}" ORDER BY 1 DESC LIMIT 90'
                 )
             try:
                 with engine.connect() as connection:
@@ -290,7 +290,7 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                             f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
                             f"FROM {quoted} "
                             f"WHERE \"{dt}\" > NOW() - INTERVAL '30 days' "
-                            f"GROUP BY date_trunc('day', \"{dt}\"), '{label}' ORDER BY 1"
+                            f"GROUP BY 1 ORDER BY 1"
                         )
                     elif engine.dialect.name == "mysql":
                         gen_sql = (
@@ -298,7 +298,7 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                             f"'{label}' AS kpi_name, SUM(`{amt}`) AS value "
                             f"FROM {quoted} "
                             f"WHERE `{dt}` > (NOW() - INTERVAL 30 DAY) "
-                            f"GROUP BY DATE(`{dt}`), '{label}' ORDER BY 1"
+                            f"GROUP BY 1 ORDER BY 1"
                         )
                     elif engine.dialect.name == "oracle":
                         gen_sql = (
@@ -306,13 +306,13 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                             f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
                             f"FROM {quoted} "
                             f"WHERE \"{dt}\" > SYSDATE - 30 "
-                            f"GROUP BY TRUNC(\"{dt}\"), '{label}' ORDER BY 1 FETCH FIRST 30 ROWS ONLY"
+                            f"GROUP BY TRUNC(\"{dt}\") ORDER BY 1 FETCH FIRST 30 ROWS ONLY"
                         )
                     else:
                         gen_sql = (
                             f'SELECT "{dt}" AS date, '
                             f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
-                            f"FROM {quoted} GROUP BY \"{dt}\", '{label}' ORDER BY 1 DESC LIMIT 30"
+                            f"FROM {quoted} GROUP BY \"{dt}\" ORDER BY 1 DESC LIMIT 30"
                         )
                     try:
                         with engine.connect() as connection:
