@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Activity, LogIn, Lock, User, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { useLang } from '../lib/i18n';
 import LanguagePicker from '../components/LanguagePicker';
 
 const Login = () => {
+  const navigate = useNavigate();
   const { t } = useLang();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -50,6 +52,8 @@ const Login = () => {
         result = await supabase.auth.signInWithPassword({ email, password });
       }
       if (result.error) throw result.error;
+      // Redirect to dashboard after successful login/signup
+      setTimeout(() => navigate('/dashboard', { replace: true }), 100);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -98,32 +102,35 @@ const Login = () => {
           <form onSubmit={handleAuth}>
             {isSignUp && (
               <div className="form-group" style={{ textAlign: 'left' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label htmlFor="login-name" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <UserPlus size={16} /> {t('login_name')}
                 </label>
-                <input type="text" placeholder="Department or Username" required value={name} onChange={(e) => setName(e.target.value)} />
+                <input id="login-name" name="name" type="text" placeholder="Department or Username" required value={name} onChange={(e) => setName(e.target.value)} />
               </div>
             )}
 
             <div className="form-group" style={{ textAlign: 'left' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <label htmlFor="login-email" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <User size={16} /> {t('login_email')}
               </label>
-              <input type="email" placeholder="name@company.com" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <input id="login-email" name="email" type="email" placeholder="name@company.com" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
             </div>
 
             <div className="form-group" style={{ textAlign: 'left', position: 'relative' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <label htmlFor="login-password" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Lock size={16} /> {t('login_password')}
               </label>
               <div style={{ position: 'relative' }}>
                 <input
+                  id="login-password"
+                  name="password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   style={{ paddingRight: '45px' }}
+                  autoComplete={isSignUp ? 'new-password' : 'current-password'}
                 />
                 <button type="button" onClick={() => setShowPassword(!showPassword)}
                   style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
@@ -143,7 +150,7 @@ const Login = () => {
 
             {!isSignUp && showReset && (
               <div style={{ textAlign: 'left', marginBottom: '14px', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)' }}>
-                <input type="email" placeholder="name@company.com" required value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} style={{ marginBottom: '12px' }} />
+                <input id="reset-email" name="resetEmail" type="email" placeholder="name@company.com" required value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} style={{ marginBottom: '12px', width: '100%' }} />
                 <button type="button" className="btn btn-primary" onClick={handleResetPassword} disabled={resetLoading} style={{ width: '100%' }}>
                   {resetLoading ? t('login_processing') : t('login_reset_send')}
                 </button>
@@ -153,10 +160,10 @@ const Login = () => {
 
             {isSignUp && (
               <div className="form-group" style={{ textAlign: 'left' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label htmlFor="login-confirm-password" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Lock size={16} /> {t('login_confirm_password')}
                 </label>
-                <input type={showPassword ? 'text' : 'password'} placeholder="••••••••" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+                <input id="login-confirm-password" name="confirmPassword" type={showPassword ? 'text' : 'password'} placeholder="••••••••" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" />
               </div>
             )}
 

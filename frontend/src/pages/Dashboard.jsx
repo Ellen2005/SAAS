@@ -212,7 +212,11 @@ const Dashboard = () => {
   fetchDataRef.current = fetchData;
 
   useEffect(() => {
-    if (user) fetchData();
+    if (user) {
+      // Small delay to ensure auth context is fully settled
+      const timer = setTimeout(() => fetchData(), 100);
+      return () => clearTimeout(timer);
+    }
     return () => { mountedRef.current = false; };
   }, [user, fetchData, dateRange]);
 
