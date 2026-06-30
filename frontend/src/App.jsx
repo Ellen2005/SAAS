@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useMemo } from 'react';
-import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut, Shield, Brain, Moon, Sun } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { AuthProvider, useAuth } from './lib/authContext.jsx';
@@ -79,6 +79,7 @@ function AdminSubNav() {
 function AppShell() {
   const { user, departmentName, loading, role, isAdmin, isManager } = useAuth();
   const { t } = useLang();
+  const navigate = useNavigate();
   useInactivityTimeout(!!user);
 
   const [isDark, setIsDark] = useState(() => {
@@ -105,6 +106,8 @@ function AppShell() {
       localStorage.removeItem('saas.user.role.v1');
     } catch { /* ignore */ }
     await supabase.auth.signOut();
+    // Redirect to login after signout
+    navigate('/login', { replace: true });
   };
 
   if (loading) {

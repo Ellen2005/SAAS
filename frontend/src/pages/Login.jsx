@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Activity, LogIn, Lock, User, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { useLang } from '../lib/i18n';
+import { useAuth } from '../lib/authContext';
 import LanguagePicker from '../components/LanguagePicker';
 
 const Login = () => {
   const navigate = useNavigate();
   const { t } = useLang();
+  const { user, loading: authLoading } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,6 +24,13 @@ const Login = () => {
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState(null);
+
+  // Redirect to dashboard if user is already logged in and auth is ready
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, authLoading, navigate]);
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -52,8 +61,14 @@ const Login = () => {
         result = await supabase.auth.signInWithPassword({ email, password });
       }
       if (result.error) throw result.error;
-      // Redirect to dashboard after successful login/signup
-      setTimeout(() => navigate('/dashboard', { replace: true }), 100);
+      
+      // Wait a bit for auth state to update, then redirect
+      // The useEffect above will also catch this and redirect
+      setTimeout(() => {
+        if (user) {
+          navigate('/dashboard', { replace: true });
+        }
+      }, 300);
     } catch (err) {
       setError(err.message);
     } finally {

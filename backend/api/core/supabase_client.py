@@ -2,7 +2,7 @@ import os
 import time
 import random
 from pathlib import Path
-from supabase import create_client
+from supabase import create_client, ClientOptions
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -101,9 +101,9 @@ _client_cache = {}
 def _build_client(url: str, key: str):
     key_id = f"{url}:{key[:16]}"
     if key_id not in _client_cache:
-        # Disable SSL verification if configured (for local dev on Windows)
-        ssl_verify = os.getenv("SUPABASE_SSL_VERIFY", "true").lower() != "false"
-        _client_cache[key_id] = create_client(url, key, options={"verify_ssl": ssl_verify})
+        # For supabase-py v2, just create client without custom options
+        # The library handles SSL verification internally
+        _client_cache[key_id] = create_client(url, key)
     return _client_cache[key_id]
 
 

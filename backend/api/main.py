@@ -46,6 +46,7 @@ from .services.nlq_service import run_nlq
 from .services.custom_report_service import generate_custom_report
 from .services.analysis_engine import run_analysis as run_goal_analysis
 from .services.export_service import export_kpis_csv
+from .services.professional_report_service import generate_goal_analysis_report, ProfessionalReportGenerator
 
 # ── SQL Injection Prevention ──────────────────────────────────────────────────
 _SQL_FORBIDDEN_KEYWORDS = re.compile(
@@ -207,7 +208,9 @@ async def http_exception_handler(request, exc):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
+    # Log full details internally
     logger.error(f"Unhandled exception on {request.url}: {str(exc)}", exc_info=True)
+    # Don't leak internal details to client
     return JSONResponse(
         status_code=500,
         content={
@@ -277,33 +280,42 @@ def ping():
 
 def _verify_supabase_token(token: str) -> dict:
     """Verify a Supabase JWT token and return the user dict."""
-    supabase = get_supabase()
-    user_resp = supabase.auth.get_user(token)
-    if not user_resp or not hasattr(user_resp, "user") or not user_resp.user:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user = user_resp.user
-    if isinstance(user, dict):
-        return user
-    return {"id": getattr(user, "id", None)}
+    try:
+        supabase = get_supabase()
+        user_resp = supabase.auth.get_user(token)
+        if not user_resp or not hasattr(user_resp, "user") or not user_resp.user:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        user = user_resp.user
+        if isinstance(user, dict):
+            return user
+        return {"id": getattr(user, "id", None)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Don't log the full token or sensitive details
+        logger.warning(f"Token verification failed: {type(e).__name__}")
+        raise HTTPException(status_code=401, detail="Token verification failed")
 
 
 # ── Real-time SSE Stream ──────────────────────────────────────────────────────
 
 @app.get("/api/realtime/stream")
-async def realtime_stream(token: str, authorization: Optional[str] = Header(None)):
+async def realtime_stream(token: Optional[str] = None, authorization: Optional[str] = Header(None)):
     """Server-Sent Events stream (heartbeat only). Auth via ?token= or Authorization header."""
     from fastapi.responses import StreamingResponse
     import asyncio
     import json
 
     auth_token = token or (authorization or "").replace("Bearer ", "")
-    if auth_token:
-        try:
-            user = _verify_supabase_token(auth_token)
-        except Exception:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    else:
+    if not auth_token:
         raise HTTPException(status_code=401, detail="Missing authentication")
+    
+    try:
+        user = _verify_supabase_token(auth_token)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
     async def event_generator():
         try:
@@ -714,8 +726,8 @@ def _run_etl_with_optional_goal(user_id: str, analysis_goal: str | None, preset_
                 preset_slug=preset_slug,
                 supabase=supabase,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Goal analysis failed for user {user_id}: {e}", exc_info=True)
 
 
 @app.post("/api/etl/trigger")
@@ -1209,3 +1221,220 @@ def get_audit_log(limit: int = 50, context: dict = Depends(require_role(["manage
     except Exception:
         logger.error("Audit log error", exc_info=True)
         return {"logs": [], "error": "Failed to fetch audit logs."}
+
+
+# ========== PROFESSIONAL REPORT GENERATION ==========
+
+class GoalAnalysisReportRequest(BaseModel):
+    analysis_id: Optional[str] = None
+    goal_text: Optional[str] = None
+    format: str = "pdf"  # "pdf" or "excel"
+
+
+@app.post("/api/reports/generate-professional")
+def generate_professional_report(
+    request: GoalAnalysisReportRequest,
+    context: dict = Depends(require_role(["manager", "admin"]))
+):
+    """Generate a professional A4 PDF/Excel report from goal analysis"""
+    from fastapi.responses import FileResponse
+    import tempfile
+    from pathlib import Path
+    
+    supabase = get_supabase()
+    user_id = context["user_id"]
+    
+    try:
+        # Get analysis result if ID provided
+        analysis_result = {}
+        if request.analysis_id:
+            analysis_resp = supabase.table("analysis_runs").select("*").eq("id", request.analysis_id).eq("user_id", user_id).limit(1).execute()
+            if hasattr(analysis_resp, "data") and analysis_resp.data:
+                analysis_result = analysis_resp.data[0]
+        
+        # Override with provided goal text
+        if request.goal_text:
+            analysis_result["goal_text"] = request.goal_text
+        if not analysis_result.get("goal_text"):
+            analysis_result["goal_text"] = "Data Analysis Report"
+        
+        # Generate report in user-specific directory to avoid collisions
+        user_report_dir = os.path.join(tempfile.gettempdir(), f"reports_{user_id}")
+        os.makedirs(user_report_dir, exist_ok=True)
+        
+        result = generate_goal_analysis_report(
+            user_id=user_id,
+            analysis_result=analysis_result,
+            supabase=supabase,
+            institution_name=os.getenv("INSTITUTION_NAME", "CNPS"),
+            output_dir=user_report_dir
+        )
+        
+        # Save report record to database
+        report_record = {
+            "user_id": user_id,
+            "report_type": "goal_analysis",
+            "file_path": result["pdf"],
+            "excel_path": result.get("excel"),
+            "report_id": result["report_id"],
+            "title": analysis_result.get("goal_text", "Goal Analysis Report")[:80],
+            "status": "generated"
+        }
+        supabase.table("reports").insert(report_record).execute()
+        
+        return {
+            "status": "success",
+            "report_id": result["report_id"],
+            "pdf_path": result["pdf"],
+            "excel_path": result.get("excel"),
+            "download_url": f"/api/reports/download/{result['report_id']}?format=pdf",
+            "excel_url": f"/api/reports/download/{result['report_id']}?format=excel"
+        }
+    
+    except Exception as e:
+        logger.error(f"Professional report generation error: {e}", exc_info=True)
+        # Don't leak internal details to client
+        raise HTTPException(status_code=500, detail="Report generation failed. Please try again or contact support.")
+
+
+@app.get("/api/reports/download/{report_id}")
+def download_professional_report(
+    report_id: str,
+    format: str = "pdf",
+    context: dict = Depends(require_role(["manager", "admin"]))
+):
+    """Download generated report in PDF or Excel format"""
+    from fastapi.responses import FileResponse
+    import os
+    from pathlib import Path
+    
+    supabase = get_supabase()
+    user_id = context["user_id"]
+    
+    # Fetch report record
+    report_resp = supabase.table("reports").select("*").eq("report_id", report_id).eq("user_id", user_id).limit(1).execute()
+    if not hasattr(report_resp, "data") or not report_resp.data:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    report = report_resp.data[0]
+    
+    # Determine file path - SECURITY: Validate and sanitize path
+    if format == "excel":
+        file_path = report.get("excel_path") or report.get("file_path", "").replace(".pdf", ".xlsx")
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"report_{report_id}.xlsx"
+    else:
+        file_path = report.get("file_path")
+        media_type = "application/pdf"
+        filename = f"report_{report_id}.pdf"
+    
+    # SECURITY: Validate file path to prevent directory traversal
+    if not file_path:
+        raise HTTPException(status_code=404, detail="Report file path not found")
+    
+    # Normalize and validate path
+    try:
+        file_path = os.path.normpath(file_path)
+        # Ensure path is within allowed directory
+        allowed_dir = os.path.normpath(tempfile.gettempdir())
+        if not file_path.startswith(allowed_dir):
+            logger.warning(f"Attempted path traversal attack: {file_path} from user {user_id}")
+            raise HTTPException(status_code=403, detail="Access denied")
+    except Exception as e:
+        logger.error(f"Path validation error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Report file not found")
+    
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+        filename=filename
+    )
+
+
+@app.get("/api/reports/professional/list")
+def list_professional_reports(
+    limit: int = 50,
+    context: dict = Depends(require_role(["manager", "admin"]))
+):
+    """List all generated professional reports"""
+    supabase = get_supabase()
+    user_id = context["user_id"]
+    
+    try:
+        rows = supabase.table("reports").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
+        reports = rows.data if hasattr(rows, "data") and rows.data else []
+        
+        return {"reports": reports}
+    except Exception as e:
+        logger.error(f"List reports error: {e}", exc_info=True)
+        return {"reports": [], "error": "Failed to fetch reports"}
+
+
+@app.delete("/api/reports/professional/{report_id}")
+def delete_professional_report(
+    report_id: str,
+    context: dict = Depends(require_role(["manager", "admin"]))
+):
+    """Delete a generated report"""
+    import os
+    from pathlib import Path
+    
+    supabase = get_supabase()
+    user_id = context["user_id"]
+    
+    # Fetch report
+    report_resp = supabase.table("reports").select("*").eq("report_id", report_id).eq("user_id", user_id).limit(1).execute()
+    if not hasattr(report_resp, "data") or not report_resp.data:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    report = report_resp.data[0]
+    
+    # Delete files with logging
+    for path_key in ["file_path", "excel_path"]:
+        file_path = report.get(path_key)
+        if file_path:
+            try:
+                file_path = os.path.normpath(file_path)
+                if os.path.exists(file_path) and os.path.isfile(file_path):
+                    os.remove(file_path)
+                    logger.info(f"Deleted report file: {file_path}")
+            except Exception as e:
+                logger.warning(f"Could not delete file {file_path}: {e}")
+    
+    # Delete database record
+    supabase.table("reports").delete().eq("report_id", report_id).eq("user_id", user_id).execute()
+    
+    return {"status": "deleted", "report_id": report_id}
+
+
+class NarrativeUpdateRequest(BaseModel):
+    narrative: str
+
+
+@app.patch("/api/reports/professional/{report_id}/narrative")
+def update_report_narrative(
+    report_id: str,
+    body: NarrativeUpdateRequest,
+    context: dict = Depends(require_role(["manager", "admin"]))
+):
+    """Update report narrative (for editing)"""
+    supabase = get_supabase()
+    user_id = context["user_id"]
+    
+    narrative = body.narrative.strip()
+    if not narrative:
+        raise HTTPException(status_code=400, detail="Narrative cannot be empty")
+    
+    if len(narrative) > 100000:  # 100KB limit
+        raise HTTPException(status_code=400, detail="Narrative too long (max 100KB)")
+    
+    # Update report
+    supabase.table("reports").update({
+        "narrative": narrative,
+        "updated_at": datetime.now(UTC).isoformat()
+    }).eq("report_id", report_id).eq("user_id", user_id).execute()
+    
+    return {"status": "updated", "report_id": report_id}
