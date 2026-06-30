@@ -261,7 +261,7 @@ const Settings = () => {
     setTriggeringSync(true);
     try {
       await apiFetch('/api/etl/trigger', { method: 'POST' });
-      alert('Department sync triggered. Please check the Dashboard for live progress.');
+      navigate('/dashboard');
     } catch (error) {
       alert(`Unable to trigger sync: ${error.message}`);
     } finally {
