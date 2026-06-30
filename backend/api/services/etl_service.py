@@ -903,10 +903,11 @@ def run_user_etl_pipeline(user_id: str):
 
         update_sync_status(user_id, "SENDING_EMAILS")
         try:
-            send_automated_briefing(
+            email_result = send_automated_briefing(
                 user_id, kpis, anomalies, narrative_text, raw_df,
                 report_type=report_type, report_period=report_period,
             )
+            print(f"[{datetime.now().isoformat()}] Email result for {user_id}: {email_result}")
         except Exception as error:
             print(f"[{datetime.now().isoformat()}] Email delivery failed for user {user_id}: {error}")
 

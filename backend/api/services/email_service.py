@@ -220,7 +220,7 @@ def send_automated_briefing(
     recipients = [row["email"] for row in response.data] if hasattr(response, "data") and response.data else []
 
     if not recipients:
-        print(f"[{datetime.now().isoformat()}] WARNING: No recipients for user {user_id}. Add email recipients in Settings.")
+        print(f"[{datetime.now().isoformat()}] WARNING: No email recipients configured for user {user_id}. Go to Settings > Email Recipients to add at least one.")
         return {"status": "skipped", "reason": "no_recipients"}
 
     department_name = None

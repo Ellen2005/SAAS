@@ -404,27 +404,21 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
         narrative = "No analytics report generated yet. Go to Dashboard and click Sync Now to generate your first report."
         last_refreshed = "Never"
         
-        if hasattr(analysis_resp, "data") and analysis_resp.data:
-            analysis = analysis_resp.data[0]
-            analysis_date = analysis.get("completed_at", "")
-            show_analysis = True
-            if hasattr(report_resp, "data") and report_resp.data:
-                reports = [row for row in report_resp.data if not _is_legacy_demo_report(row)]
-                if reports:
-                    report_date = reports[0]["report_date"]
-                    if analysis_date < str(report_date):
-                        show_analysis = False
-                        narrative = reports[0]["narrative"]
-                        last_refreshed = str(reports[0]["report_date"])
-            
-            if show_analysis:
-                narrative = f"Latest Analysis: {analysis.get('goal_text', 'Analysis completed')}\n\n{analysis.get('result_summary', 'Analysis completed successfully.')}"
-                last_refreshed = analysis_date[:10] if analysis_date else "Recent"
-        elif hasattr(report_resp, "data") and report_resp.data:
+        # Priority 1: Use daily_reports narrative (autonomous narrative from ETL sync)
+        if hasattr(report_resp, "data") and report_resp.data:
             reports = [row for row in report_resp.data if not _is_legacy_demo_report(row)]
             if reports:
-                narrative = reports[0]["narrative"]
+                narrative = reports[0].get("narrative") or narrative
                 last_refreshed = str(reports[0]["report_date"])
+        
+        # Priority 2: If no daily report but analysis exists, show analysis summary
+        if narrative.startswith("No analytics") and hasattr(analysis_resp, "data") and analysis_resp.data:
+            analysis = analysis_resp.data[0]
+            analysis_date = analysis.get("completed_at", "")
+            explanation = analysis.get("metrics_json", {}).get("explanation", {})
+            overview = explanation.get("overview") or explanation.get("what_this_means") or ""
+            narrative = f"Latest Analysis: {analysis.get('goal_text', 'Analysis completed')}\n\n{overview or analysis.get('result_summary', 'Analysis completed successfully.')}"
+            last_refreshed = analysis_date[:10] if analysis_date else "Recent"
 
         summary = DashboardSummary(kpis=kpis, anomalies=anomalies, narrative=narrative, last_refreshed=last_refreshed)
         summary_dict = summary.model_dump()
