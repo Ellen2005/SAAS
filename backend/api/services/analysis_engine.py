@@ -531,7 +531,18 @@ def run_analysis(
             # Sanitize SQL for the target dialect
             from .nlq_service import _sanitize_sql_for_dialect
             sql = _sanitize_sql_for_dialect(sql, db_type)
-            _, rows = _execute_sql(user_id, sql, supabase)
+            # Try executing the query; if it fails, retry with rule-based fallback
+            try:
+                _, rows = _execute_sql(user_id, sql, supabase)
+            except Exception as sql_err:
+                logger.warning(f"SQL execution failed, trying rule-based fallback: {sql_err}")
+                fallback_sql = _rule_based_sql(goal_text, db_type)
+                if fallback_sql:
+                    fallback_sql = _sanitize_sql_for_dialect(fallback_sql, db_type)
+                    _, rows = _execute_sql(user_id, fallback_sql, supabase)
+                    plan["sql"] = fallback_sql
+                else:
+                    raise
             plan["sql"] = sql
 
         chart = _build_chart(rows, plan)

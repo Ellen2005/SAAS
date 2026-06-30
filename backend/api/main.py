@@ -772,11 +772,15 @@ def get_dashboard_widgets(user_id: str = Depends(resolve_user_id)):
 
 @app.get("/api/etl/status")
 def get_etl_status(user_id: str = Depends(resolve_user_id)):
-    supabase = get_supabase()
-    response = supabase.table("user_preferences").select("last_sync_status").eq("user_id", user_id).execute()
-    if hasattr(response, "data") and response.data:
-        return {"status": response.data[0].get("last_sync_status", "IDLE")}
-    return {"status": "IDLE"}
+    try:
+        supabase = get_supabase()
+        response = supabase.table("user_preferences").select("last_sync_status").eq("user_id", user_id).execute()
+        if hasattr(response, "data") and response.data:
+            return {"status": response.data[0].get("last_sync_status", "IDLE")}
+        return {"status": "IDLE"}
+    except Exception as e:
+        logger.warning(f"ETL status fetch failed: {e}")
+        return {"status": "IDLE"}
 
 
 @app.get("/api/forecasts")
@@ -926,8 +930,8 @@ def test_db_connection(connection_data: dict):
         if engine is not None:
             try:
                 engine.dispose()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Engine dispose failed (non-critical): {e}")
         if tunnel_proc is not None:
             try:
                 tunnel_proc.terminate()

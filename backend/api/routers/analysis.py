@@ -96,7 +96,8 @@ def post_run(
         supabase=supabase,
     )
     if result.get("status") == "failed":
-        raise HTTPException(status_code=422, detail=result.get("error", "Analysis failed"))
+        error_msg = result.get("error", "Analysis failed")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {error_msg}")
     # Auto-generate report in background after successful analysis
     analysis_id = result.get("id") or result.get("run_id") or ""
     background_tasks.add_task(
