@@ -293,14 +293,73 @@ Step 3c: Render dashboard
 
 ---
 
-# 4. AI ANALYST — GOAL ANALYSIS FLOW
+# 4. AI ANALYST — GOAL ANALYSIS FLOW (WITH SEQUENCE DIAGRAM)
+
+## Complete Sequence Diagram
 
 ```
-┌──────────┐     ┌───────────┐     ┌────────────┐     ┌──────────┐     ┌─────────────┐
-│  User    │────▶│  React    │────▶│  FastAPI   │────▶│  Target   │     │  Groq AI    │
-│  Types   │     │ AIAnalyst │     │ /api/      │     │ Database  │────▶│  (LLM)      │
-│  Goal    │     │  Page     │     │ analysis   │     │ (Oracle)  │     │             │
-└──────────┘     └──────────┘     └───────────┘     └──────────┘     └─────────────┘
+┌──────────┐     ┌───────────┐     ┌────────────┐     ┌──────────┐     ┌─────────────┐     ┌──────────┐
+│  User    │────▶│  React    │────▶│  FastAPI   │────▶│  Supabase │     │  Groq AI    │────▶│  Target   │
+│          │     │ AIAnalyst │     │ /api/      │     │ (Metadata)│     │  (LLM)      │     │ Database  │
+│          │     │  Page     │     │ analysis   │     │           │     │             │     │ (Oracle)  │
+└──────────┘     └──────────┘     └──────────┘     └──────────┘     └─────────────┘     └──────────┘
+     │                │                │                │                │                   │
+     │ 1. Enter goal  │                │                │                │                   │
+     │────────────────│ POST /run      │                │                │                   │
+     │                │────────────────│────────────────│                │                   │
+     │                │                │ 2. Validate    │                │                   │
+     │                │                │    auth & role │                │                   │
+     │                │                │────────────────│                │                   │
+     │                │                │ 3. Create run  │                │                   │
+     │                │                │    record      │                │                   │
+     │                │                │ (status:planning)│              │                   │
+     │                │                │────────────────│                │                   │
+     │                │                │ 4. Load DB     │                │                   │
+     │                │                │    connection  │                │                   │
+     │                │                │────────────────│                │                   │
+     │                │                │ 5. Introspect  │                │                   │
+     │                │                │    schema      │                │                   │
+     │                │                │────────────────│                │                   │
+     │                │                │ 6. Generate    │                │                   │
+     │                │                │    SQL plan    │                │                   │
+     │                │                │────────────────────────────────────▶│                   │
+     │                │                │                │ 7. LLM plans   │                   │
+     │                │                │                │    SQL query   │                   │
+     │                │                │                │◀────────────────────────────────────│
+     │                │                │ 8. Validate    │                │                   │
+     │                │                │    SQL (read-  │                │                   │
+     │                │                │    only check) │                │                   │
+     │                │                │────────────────│                │                   │
+     │                │                │ 9. Execute SQL │                │                   │
+     │                │                │────────────────│────────────────│                   │
+     │                │                │                │                │                   │
+     │                │                │                │ 10. Query data │                   │
+     │                │                │                │◀────────────────────────────────────│
+     │                │                │ 11. Build      │                │                   │
+     │                │                │     chart spec │                │                   │
+     │                │                │────────────────│                │                   │
+     │                │                │ 12. Generate   │                │                   │
+     │                │                │     insights   │                │                   │
+     │                │                │────────────────────────────────────▶│                   │
+     │                │                │                │ 13. LLM        │                   │
+     │                │                │                │     explains   │                   │
+     │                │                │                │◀────────────────────────────────────│
+     │                │                │ 14. Update run │                │                   │
+     │                │                │     (completed)│                │                   │
+     │                │                │────────────────│                │                   │
+     │                │                │ 15. Store KPI  │                │                   │
+     │                │                │     snapshot   │                │                   │
+     │                │                │────────────────│                │                   │
+     │ 16. Display   │◀───────────────│ 17. Return     │                │                   │
+     │     results   │                │     results    │                │                   │
+     │◀───────────────│                │                │                │                   │
+     │                │                │                │                │                   │
+     │ 18. View SQL   │                │                │                │                   │
+     │     & chart   │                │                │                │                   │
+     │◀───────────────│                │                │                │                   │
+```
+
+### Step-by-Step Detailed Flow:
        │               │                │                │                  │
        │  Enter goal   │                │                │                  │
        ├──────────────▶│   POST        │                │                  │
@@ -318,7 +377,7 @@ Step 3c: Render dashboard
        │◀──────────────┤  results      │                  │                  │
 ```
 
-### Step-by-Step:
+### Phase 1: User Input & Authentication
 
 **1. User navigates to AI Analyst page**
 ```
@@ -328,6 +387,8 @@ Page has 2 tabs:
   - "Goal Analysis" (enter analytical goals)
   - "Analysis History" (past analysis runs)
 ```
+
+### Phase 2: Analysis Planning
 
 **2. User enters a goal and runs analysis**
 ```
@@ -340,12 +401,25 @@ React → POST /api/analysis/run
   }
 ```
 
+### Phase 3: AI Planning & SQL Generation
+
 **3. Backend processes analysis**
 
 ```
 FastAPI enters analysis_engine.run_analysis():
 
-Step 3a: Load user's database connection from Supabase
+Step 3a: Validate authentication & authorization
+  - require_role(["manager", "admin"]) validates JWT
+  - Extracts user_id from token
+  - Checks user role in Supabase
+
+Step 3b: Create analysis run record
+  INSERT INTO analysis_runs (user_id, goal_text, goal_type, status, started_at)
+  VALUES (user_id, goal_text, "natural_language", "planning", NOW())
+  
+  Returns: run_id for tracking
+
+Step 3c: Load user's database connection from Supabase
   - Decrypt credentials
   - Create SQLAlchemy engine
 
@@ -358,7 +432,57 @@ Step 3b: Introspect schema (get table/column info)
   Tables: CONTRIBUTIONS(contribution_date, contribution_amount, regional_code, ...)
           EMPLOYERS(name, sector, employee_count, ...)
 
-Step 3c: Convert natural language goal to SQL using AI
+Step 3d: Generate SQL using AI (Groq LLM)
+  Model: qwen2.5-72b-instruct (with fallback chain: gpt-oss-120b, qwen2.5-27b, llama-3.1-8b, gemma2-9b)
+  
+  Prompt to Groq:
+    System: "You are a CNPS Oracle SQL expert. Generate read-only SELECT queries.
+             Use Oracle 19c syntax: FETCH FIRST N ROWS ONLY (not LIMIT),
+             TRUNC(date,'MM') for month truncation, SYSDATE for current date."
+    
+    User: f"""
+    Analysis Goal: {goal_text}
+    
+    Database Schema:
+    {schema_hint}
+    
+    Generate a JSON response:
+    {{
+      "sql": "<Oracle SELECT query>",
+      "summary_hint": "<one-line summary>",
+      "chart_type": "bar|line|pie|table",
+      "x_column": "<column for x-axis>",
+      "y_column": "<column for y-axis>"
+    }}
+    """
+  
+  Groq returns:
+    {
+      "sql": "SELECT c.regional_code, COUNT(*) as payment_count, SUM(c.contribution_amount) as total_amount FROM contributions c WHERE EXTRACT(YEAR FROM c.contribution_date) = 2024 GROUP BY c.regional_code ORDER BY total_amount DESC FETCH FIRST 10 ROWS ONLY",
+      "summary_hint": "Total contributions by region for 2024",
+      "chart_type": "bar",
+      "x_column": "regional_code",
+      "y_column": "total_amount"
+    }
+
+Step 3e: Validate SQL (security check)
+  _validate_readonly_sql(sql):
+    - Must start with SELECT, WITH, or PRAGMA
+    - No forbidden keywords: INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE
+    - No semicolons (single statement only)
+    - Raises ValueError if validation fails
+
+Step 3f: Execute SQL against target database
+  engine.execute(validated_sql)
+  
+  Oracle returns:
+    [
+      { regional_code: "DOU", payment_count: 15000, total_amount: 450000000, avg_amount: 30000 },
+      { regional_code: "YAO", payment_count: 12000, total_amount: 380000000, avg_amount: 31666 },
+      { regional_code: "GAR", payment_count: 8500, total_amount: 210000000, avg_amount: 24705 },
+      ...
+    ]
+```
   Sends to Groq LLM:
     System Prompt:
       "You are an Oracle SQL expert. Convert this analytical goal into
@@ -415,7 +539,64 @@ Step 3g: Return results to frontend
   }
 ```
 
-**4. Frontend displays results**
+### Phase 4: Insight Generation & Storage
+
+**4. Generate AI insights from results**
+
+```
+Step 4a: Build chart specification
+  build_chart_from_rows(rows, columns, chart_type="bar")
+  - Auto-detects best chart type if not specified
+  - Creates Recharts-compatible spec:
+    {
+      "type": "bar",
+      "data": rows,
+      "xKey": "regional_code",
+      "yKey": "total_amount",
+      "title": "Total Contributions by Region (2024)"
+    }
+
+Step 4b: Generate insights using Groq LLM
+  Prompt:
+    System: "You are a CNPS business analyst. Explain these results in plain French.
+             No markdown, no asterisks. Professional tone. Max 3 sentences."
+    
+    User: f"""
+    Goal: {goal_text}
+    SQL: {sql}
+    Results: {json.dumps(rows[:10])}
+    
+    Provide:
+    1. What this means (plain language)
+    2. Key insights (bullet points)
+    3. Recommended actions
+    """
+  
+  Groq returns:
+    "Douala region leads with 450M XAF (32% of total), followed by Yaoundé at 380M XAF (27%).
+     Garoua shows lower performance at 210M XAF (15%). Consider targeted collection
+     efforts in underperforming regions. Review regional staffing levels in GAR."
+
+Step 4c: Store complete analysis run
+  UPDATE analysis_runs SET
+    status = "completed",
+    plan_json = {sql, chart_type, summary_hint},
+    result_summary = insights,
+    chart_json = chart_spec,
+    metrics_json = {row_count, columns, sample_rows, explanation},
+    completed_at = NOW()
+  WHERE id = run_id
+
+Step 4d: Publish primary metric to dashboard
+  INSERT INTO kpi_results (user_id, kpi_name, value, status, source, recorded_at)
+  VALUES (user_id, "custom_analysis", first_row_value, "normal", "goal_run", NOW())
+  
+  This makes the result visible on the dashboard as a KPI
+```
+
+### Phase 5: Frontend Display
+
+**5. Frontend displays results**
 ```
 React receives analysis results:
 
@@ -1080,11 +1261,14 @@ SUPABASE (Cloud - Auth + Metadata Storage):
 
 GROQ AI (Cloud - LLM):
   ┌────────────────────────────────────────────────────────────────────┐
-  │  Model: llama-3.3-70b-versatile                                   │
+  │  Primary Model: qwen2.5-72b-instruct                              │
+  │  Fallback Chain: gpt-oss-120b → qwen2.5-27b-instruct →           │
+  │                  llama-3.1-8b-instant → gemma2-9b-it              │
   │  Purpose:                                                          │
   │  - Natural Language → SQL conversion (NLQ)                        │
   │  - Goal analysis interpretation (Analyst)                          │
   │  - Narrative/report generation (Dashboard)                         │
+  │  - Auto-fallback on model decommission/deprecation                 │
   └────────────────────────────────────────────────────────────────────┘
 
 BREVO (Cloud - Email):
@@ -1234,7 +1418,7 @@ connection_utils.py:
 │                                                                     │
 │  EXTERNAL SERVICES:                                                  │
 │    Supabase (Auth + PostgreSQL + Storage)                            │
-│    Groq Cloud (LLM: llama-3.3-70b)                                  │
+│    Groq Cloud (LLM: qwen2.5-72b-instruct with auto-fallback)       │
 │    Brevo (Email delivery)                                            │
 │    Target Database (Oracle 19c, MySQL, PostgreSQL, SQLite, etc.)     │
 │                                                                     │
