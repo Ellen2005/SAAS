@@ -116,6 +116,8 @@ export function AuthProvider({ children }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
+        // Unblock UI immediately on any auth state change
+        setLoading(false);
         if (session?.user) {
           setUser(session.user);
           // Fire and forget — never block the auth state change callback

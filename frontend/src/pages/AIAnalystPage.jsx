@@ -194,10 +194,13 @@ export default function AIAnalystPage() {
     }
   };
 
+  const [reportStatus, setReportStatus] = useState(''); // '', 'generating', 'done', 'error'
+
   const runAnalysis = async (presetSlug = null) => {
     setAnalysisLoading(true);
     setAnalysisError('');
     setAnalysisResult(null);
+    setReportStatus('');
     try {
       const body = {
         goal_text: goal || (presetSlug ? '' : 'Institutional KPI summary'),
@@ -211,6 +214,18 @@ export default function AIAnalystPage() {
       });
       setAnalysisResult(res);
       loadAnalysisMeta();
+
+      // Auto-generate report after analysis completes
+      if (res.status === 'completed' && res.run_id) {
+        setReportStatus('generating');
+        try {
+          await apiFetch('/api/reports/generate', { method: 'POST' });
+          setReportStatus('done');
+        } catch (reportErr) {
+          console.error('Auto-report generation failed:', reportErr);
+          setReportStatus('error');
+        }
+      }
     } catch (e) {
       setAnalysisError(e.message || 'Analysis failed');
     } finally {
@@ -495,6 +510,35 @@ export default function AIAnalystPage() {
                   </pre>
                 </details>
               )}
+            </div>
+          )}
+
+          {/* Auto-report status */}
+          {reportStatus && (
+            <div style={{ ...card, borderLeft: `4px solid ${reportStatus === 'done' ? '#10b981' : reportStatus === 'error' ? '#ef4444' : '#3b82f6'}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {reportStatus === 'generating' && (
+                  <>
+                    <div style={{ width: 18, height: 18, border: '2px solid var(--ea-border)', borderTopColor: 'var(--ea-primary)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                    <span style={{ color: 'var(--ea-text-primary)' }}>Generating report...</span>
+                  </>
+                )}
+                {reportStatus === 'done' && (
+                  <>
+                    <CheckCircle size={18} color="#10b981" />
+                    <span style={{ color: 'var(--ea-text-primary)' }}>Report generated! </span>
+                    <button className="ea-btn ea-btn-secondary" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => window.open('/reports', '_blank')}>
+                      View Reports
+                    </button>
+                  </>
+                )}
+                {reportStatus === 'error' && (
+                  <>
+                    <AlertTriangle size={18} color="#ef4444" />
+                    <span style={{ color: 'var(--ea-text-secondary)' }}>Report generation failed. You can generate one manually from the Dashboard.</span>
+                  </>
+                )}
+              </div>
             </div>
           )}
 

@@ -62,11 +62,7 @@ const Login = () => {
       }
       if (result.error) throw result.error;
       
-      // Wait a bit for auth state to update, then redirect
-      // The useEffect above will also catch this and redirect
-      setTimeout(() => {
-        navigate('/dashboard', { replace: true });
-      }, 500);
+      // Auth state change in authContext will trigger the useEffect above to navigate
     } catch (err) {
       setError(err.message);
     } finally {

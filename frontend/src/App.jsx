@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useState, useEffect, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Shield, Brain, Moon, Sun } from 'lucide-react';
+import { LogOut, Shield, Moon, Sun } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { AuthProvider, useAuth } from './lib/authContext.jsx';
 import { LangProvider, useLang } from './lib/i18n.jsx';
@@ -154,17 +154,8 @@ function AppShell() {
                   )}
                   <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_dashboard')}</NavLink>
                   <NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_reports')}</NavLink>
-                  {/* Show manager features only when role is confirmed as manager or admin */}
                   {(isManager || isAdmin) && (
-                    <>
-                      <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <Brain size={13} /> Analyst
-                      </NavLink>
-                      <NavLink to="/explorer" className={({ isActive }) => isActive ? 'active' : ''}>Schema</NavLink>
-                      <NavLink to="/query" className={({ isActive }) => isActive ? 'active' : ''}>Ask your data</NavLink>
-                      <NavLink to="/validation" className={({ isActive }) => isActive ? 'active' : ''}>Validation</NavLink>
-                      <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}>Settings</NavLink>
-                    </>
+                    <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_analysis')}</NavLink>
                   )}
                   <button 
                     onClick={() => setIsDark(!isDark)} 

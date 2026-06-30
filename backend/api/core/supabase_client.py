@@ -113,8 +113,14 @@ def _exec_with_retry(client_method, max_retries=2):
             return client_method()
         except Exception as exc:
             err_msg = str(exc).lower()
-            is_disconnect = "server disconnected" in err_msg or "connection" in err_msg
-            if attempt < max_retries and is_disconnect:
+            is_transient = (
+                "server disconnected" in err_msg
+                or "connection" in err_msg
+                or "getaddrinfo" in err_msg
+                or "name or service not known" in err_msg
+                or "errno 11002" in err_msg
+            )
+            if attempt < max_retries and is_transient:
                 time.sleep(0.5 * (attempt + 1) + random.uniform(0, 0.5))
                 continue
             raise
