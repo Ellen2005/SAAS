@@ -457,7 +457,7 @@ def detect_pattern_anomalies(
                 if recent[i-1] != 0:
                     growth = (recent[i] - recent[i-1]) / recent[i-1] * 100
                     if abs(growth) > 100:  # More than 100% change
-                        direction = "augmentation" if growth > 0 else "diminution"
+                        direction = "increased" if growth > 0 else "decreased"
                         alerts.append(FraudAlert(
                             alert_type="pattern_abnormal",
                             severity="HIGH" if abs(growth) > 300 else "MEDIUM",
@@ -468,8 +468,8 @@ def detect_pattern_anomalies(
                             expected_value=recent[i-1],
                             deviation=abs(growth),
                             confidence=min(0.85, abs(growth) / 400),
-                            description=f"Variation anormale: {kpi_name} a {direction} de {abs(growth):.0f}% entre la dernière période",
-                            recommendation=f"Analyser les causes de cette {direction} significative pour {kpi_name}. Vérifier les données sources.",
+                            description=f"Abnormal variation: {kpi_name} has {direction} by {abs(growth):.0f}% between the last two periods",
+                            recommendation=f"Analyze the causes of this significant {direction} for {kpi_name}. Verify source data.",
                             raw_data={"growth_pct": growth, "previous": recent[i-1], "current": recent[i]},
                         ))
     

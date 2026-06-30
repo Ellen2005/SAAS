@@ -14,6 +14,7 @@
 
 # ── Python ────────────────────────────────────────────────────────────────
 backend/venv/
+.venv/
 __pycache__/
 **/__pycache__/
 *.pyc
@@ -39,11 +40,11 @@ frontend/dist/
 npm-debug.log*
 backend_run.log
 backend_test.log
-pyproject.toml
 
 # ── OS / Editor ───────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
 .vscode/
 .idea/
 *.swp
@@ -54,3 +55,10 @@ Thumbs.db
 replit.nix
 ping_status.txt
 attached_assets/
+
+# ── IDE tooling ───────────────────────────────────────────────────────────
+.qodo/
+.llm-chat-history/
+
+# ── Archive ───────────────────────────────────────────────────────────────
+_archive/

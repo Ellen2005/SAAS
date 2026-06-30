@@ -485,10 +485,10 @@ const Dashboard = () => {
               </h3>
               <p style={{ fontSize: '0.82rem', marginBottom: 16, color: 'var(--ea-text-secondary)' }}>Geographic distribution of key metrics</p>
               <MapVisualization 
-                data={kpiCards.slice(0, 8).map((k, i) => ({
-                  region_id: `region_${i}`,
+                data={kpiCards.slice(0, 10).map((k, i) => ({
+                  region_id: ['douala', 'yaounde', 'bafoussam', 'garoua', 'maroua', 'bamenda', 'ebolowa', 'bertoua', 'nanga', 'buea'][i] || `region_${i}`,
                   region_name: k.label?.replace(/_/g, ' ') || `KPI ${i}`,
-                  value: typeof k.value === 'number' ? k.value : Math.round(Math.random() * 1000000),
+                  value: typeof k.value === 'number' ? k.value : 0,
                 }))}
                 onRegionClick={(region) => {
                   alert(`Region: ${region.name}\nValue: ${region.value?.toLocaleString()}\n\nClick OK to see detailed analytics for this region.`);

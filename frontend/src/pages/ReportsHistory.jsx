@@ -68,8 +68,16 @@ const ReportsHistory = () => {
 
   const handleExcelExport = async (reportId) => {
     try {
-      const url = `${API_URL}/api/export/reports/${reportId}/excel`;
-      window.open(url, '_blank', 'noopener,noreferrer');
+      const response = await apiFetch(`/api/export/reports/${reportId}/excel`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `report-${reportId}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
     } catch (err) {
       alert(`Excel export failed: ${err.message}`);
     }

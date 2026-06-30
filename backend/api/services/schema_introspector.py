@@ -718,7 +718,7 @@ def run_analysis(
         with engine.connect() as conn:
             if kind == "time_series_sum" and amt and dt:
                 if dialect == "oracle":
-                    sql = f'SELECT TO_CHAR({safe_dt}, \'YYYY-MM\') AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY TO_CHAR({safe_dt}, \'YYYY-MM\'), bucket ORDER BY bucket DESC FETCH FIRST 24 ROWS ONLY'
+                    sql = f'SELECT TO_CHAR({safe_dt}, \'YYYY-MM\') AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY TO_CHAR({safe_dt}, \'YYYY-MM\') ORDER BY bucket DESC FETCH FIRST 24 ROWS ONLY'
                 elif dialect == "mysql":
                     sql = f"SELECT DATE_FORMAT({safe_dt}, '%Y-%m-01') AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 24"
                 elif dialect == "postgresql":
@@ -740,7 +740,7 @@ def run_analysis(
 
             if kind == "count_over_time" and dt:
                 if dialect == "oracle":
-                    sql = f'SELECT TO_CHAR({safe_dt}, \'YYYY-WW\') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY TO_CHAR({safe_dt}, \'YYYY-WW\'), bucket ORDER BY bucket DESC FETCH FIRST 26 ROWS ONLY'
+                    sql = f'SELECT TO_CHAR({safe_dt}, \'YYYY-WW\') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY TO_CHAR({safe_dt}, \'YYYY-WW\') ORDER BY bucket DESC FETCH FIRST 26 ROWS ONLY'
                 elif dialect == "mysql":
                     sql = f"SELECT DATE_FORMAT({safe_dt}, '%Y-%u') AS bucket, COUNT(*) AS total FROM {ident} GROUP BY bucket ORDER BY bucket DESC LIMIT 26"
                 elif dialect == "postgresql":
@@ -834,7 +834,7 @@ def run_analysis(
                 safe_amt = _safe_ident(amt, dialect)
                 safe_dt = _safe_ident(dt, dialect)
                 if dialect == "oracle":
-                    sql = f'SELECT TO_CHAR({safe_dt}, \'YYYY-MM\') AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY TO_CHAR({safe_dt}, \'YYYY-MM\'), bucket ORDER BY bucket'
+                    sql = f'SELECT TO_CHAR({safe_dt}, \'YYYY-MM\') AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY TO_CHAR({safe_dt}, \'YYYY-MM\') ORDER BY bucket'
                 elif dialect == "mysql":
                     sql = f"SELECT DATE_FORMAT({safe_dt}, '%Y-%m-01') AS bucket, SUM({safe_amt}) AS total FROM {ident} GROUP BY bucket ORDER BY bucket"
                 elif dialect == "postgresql":

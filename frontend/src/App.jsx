@@ -154,8 +154,8 @@ function AppShell() {
                   )}
                   <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_dashboard')}</NavLink>
                   <NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_reports')}</NavLink>
-                  {/* Show manager features if role is manager/admin OR if role hasn't resolved yet (optimistic) */}
-                  {(isManager || role === null) && (
+                  {/* Show manager features only when role is confirmed as manager or admin */}
+                  {(isManager || isAdmin) && (
                     <>
                       <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <Brain size={13} /> Analyst
@@ -197,10 +197,10 @@ function AppShell() {
                       <RoleGuard allowedRoles={['manager', 'admin']}><NLQPage /></RoleGuard>
                     } />
                     <Route path="/validation" element={
-                      <RoleGuard allowedRoles={['manager']} fallback="/dashboard"><ValidationHistory /></RoleGuard>
+                      <RoleGuard allowedRoles={['manager', 'admin']} fallback="/dashboard"><ValidationHistory /></RoleGuard>
                     } />
                     <Route path="/settings" element={
-                      <RoleGuard allowedRoles={['manager']} fallback="/dashboard"><Settings /></RoleGuard>
+                      <RoleGuard allowedRoles={['manager', 'admin']} fallback="/dashboard"><Settings /></RoleGuard>
                     } />
                     <Route path="/explorer" element={
                       <RoleGuard allowedRoles={['manager', 'admin']}><SchemaExplorer /></RoleGuard>

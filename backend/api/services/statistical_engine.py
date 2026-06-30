@@ -42,7 +42,7 @@ def compute_mean(values: list) -> dict:
 def compute_median(values: list) -> dict:
     """Compute median (50th percentile)."""
     if not values:
-        return {"method": "Median", "formula": "Médiane = valeur du milieu", "result": 0, "interpretation": "No data"}
+        return {"method": "Median", "formula": "Median = middle value", "result": 0, "interpretation": "No data"}
     sorted_vals = sorted(values)
     n = len(sorted_vals)
     if n % 2 == 0:
@@ -50,28 +50,28 @@ def compute_median(values: list) -> dict:
     else:
         result = sorted_vals[n // 2]
     return {
-        "method": "Median (Médiane)",
-        "formula": "Médiane = valeur centrale des données triées",
+        "method": "Median",
+        "formula": "Median = central value of sorted data",
         "result": round(result, 4),
-        "interpretation": f"50% des valeurs sont inférieures à {result:,.2f} et 50% sont supérieures.",
+        "interpretation": f"50% of values are below {result:,.2f} and 50% are above.",
     }
 
 
 def compute_mode(values: list) -> dict:
     """Compute mode (most frequent value)."""
     if not values:
-        return {"method": "Mode", "formula": "Mode = valeur la plus fréquente", "result": None, "interpretation": "No data"}
+        return {"method": "Mode", "formula": "Mode = most frequent value", "result": None, "interpretation": "No data"}
     counter = Counter(values)
     most_common = counter.most_common(1)
     if most_common:
         result, count = most_common[0]
         return {
-            "method": "Mode (Mode)",
-            "formula": "Mode = valeur la plus fréquente",
+            "method": "Mode",
+            "formula": "Mode = most frequent value",
             "result": round(result, 4) if isinstance(result, float) else result,
-            "interpretation": f"La valeur la plus fréquente est {result:,.2f} (apparue {count} fois).",
+            "interpretation": f"The most frequent value is {result:,.2f} (appeared {count} times).",
         }
-    return {"method": "Mode", "formula": "Mode = valeur la plus fréquente", "result": None, "interpretation": "Aucune valeur dominante détectée."}
+    return {"method": "Mode", "formula": "Mode = most frequent value", "result": None, "interpretation": "No dominant value detected."}
 
 
 def compute_variance(values: list, population: bool = True) -> dict:
@@ -86,7 +86,7 @@ def compute_variance(values: list, population: bool = True) -> dict:
         "method": f"Variance ({label})",
         "formula": "σ² = Σ(x - μ)² / n" if population else "s² = Σ(x - x̄)² / (n-1)",
         "result": round(result, 4),
-        "interpretation": f"La variance mesure la dispersion des données autour de la moyenne ({result:,.2f}). Une variance élevée indique une forte dispersion.",
+        "interpretation": f"Variance measures data spread around the mean ({result:,.2f}). High variance indicates high dispersion.",
     }
 
 
@@ -95,10 +95,10 @@ def compute_std_dev(values: list, population: bool = True) -> dict:
     var_result = compute_variance(values, population)
     result = math.sqrt(var_result["result"]) if var_result["result"] > 0 else 0
     return {
-        "method": "Standard Deviation (Écart-type)",
+        "method": "Standard Deviation",
         "formula": "σ = √σ²" if population else "s = √s²",
         "result": round(result, 4),
-        "interpretation": f"L'écart-type est de {result:,.2f}. Environ 68% des données se situent à ±{result:,.2f} de la moyenne.",
+        "interpretation": f"The standard deviation is {result:,.2f}. Approximately 68% of data falls within ±{result:,.2f} of the mean.",
     }
 
 
@@ -123,10 +123,10 @@ def compute_quartiles(values: list) -> dict:
     iqr = q3 - q1
     
     return {
-        "method": "Quartiles (Quartiles)",
-        "formula": "Q1 (25e), Q2 (50e), Q3 (75e), IQR = Q3 - Q1",
+        "method": "Quartiles",
+        "formula": "Q1 (25th), Q2 (50th), Q3 (75th), IQR = Q3 - Q1",
         "result": {"Q1": round(q1, 2), "Q2 (Median)": round(q2, 2), "Q3": round(q3, 2), "IQR": round(iqr, 2)},
-        "interpretation": f"Q1={q1:,.2f}, Médiane={q2:,.2f}, Q3={q3:,.2f}. L'intervalle interquartile (IQR) est de {iqr:,.2f}.",
+        "interpretation": f"Q1={q1:,.2f}, Median={q2:,.2f}, Q3={q3:,.2f}. The interquartile range (IQR) is {iqr:,.2f}.",
     }
 
 
@@ -179,22 +179,22 @@ def compute_correlation(x_values: list, y_values: list) -> dict:
     
     # Interpretation
     if abs(r) > 0.8:
-        strength = "très forte"
+        strength = "very strong"
     elif abs(r) > 0.6:
-        strength = "forte"
+        strength = "strong"
     elif abs(r) > 0.4:
-        strength = "modérée"
+        strength = "moderate"
     elif abs(r) > 0.2:
-        strength = "faible"
+        strength = "weak"
     else:
-        strength = "très faible"
+        strength = "very weak"
     
-    direction = "positive" if r > 0 else "négative"
+    direction = "positive" if r > 0 else "negative"
     return {
-        "method": "Pearson Correlation (Corrélation de Pearson)",
+        "method": "Pearson Correlation",
         "formula": "r = Σ((xi - x̄)(yi - ȳ)) / √(Σ(xi - x̄)² × Σ(yi - ȳ)²)",
         "result": round(r, 4),
-        "interpretation": f"Corrélation {direction} {strength} (r={r:.3f}). {'Quand X augmente, Y augmente' if r > 0 else 'Quand X augmente, Y diminue'}.",
+        "interpretation": f"{strength.title()} {direction} correlation (r={r:.3f}). {'When X increases, Y increases.' if r > 0 else 'When X increases, Y decreases.'}",
     }
 
 
@@ -222,15 +222,15 @@ def compute_linear_regression(x_values: list, y_values: list) -> dict:
     r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
     
     return {
-        "method": "Linear Regression (Régression Linéaire)",
-        "formula": "y = ax + b, où a = pente, b = ordonnée à l'origine",
+        "method": "Linear Regression",
+        "formula": "y = ax + b, where a = slope, b = intercept",
         "result": {
             "slope (a)": round(a, 4),
             "intercept (b)": round(b, 2),
             "r_squared": round(r_squared, 4),
             "equation": f"y = {a:.4f}x + {b:.2f}",
         },
-        "interpretation": f"Équation: y = {a:.4f}x + {b:.2f}. R² = {r_squared:.3f}. {'Le modèle explique bien la variance' if r_squared > 0.7 else 'Le modèle explique modérément la variance'}.",
+        "interpretation": f"Equation: y = {a:.4f}x + {b:.2f}. R² = {r_squared:.3f}. {'The model explains the variance well.' if r_squared > 0.7 else 'The model explains the variance moderately.'}",
     }
 
 
@@ -255,10 +255,10 @@ def detect_outliers_zscore(values: list, threshold: float = 2.5) -> dict:
             outliers.append({"index": i, "value": round(val, 2), "z_score": round(z, 2)})
     
     return {
-        "method": "Outlier Detection (Détection d'anomalies - Z-Score)",
-        "formula": "z = |x - μ| / σ, seuil = {threshold}".format(threshold=threshold),
+        "method": "Outlier Detection (Z-Score)",
+        "formula": "z = |x - μ| / σ, threshold = {threshold}".format(threshold=threshold),
         "result": {"outliers": outliers, "count": len(outliers), "threshold": threshold},
-        "interpretation": f"{len(outliers)} valeur(s) anormale(s) détectée(s) sur {n} (seuil z>{threshold}).",
+        "interpretation": f"{len(outliers)} outlier(s) detected out of {n} (z>{threshold}).",
     }
 
 
@@ -287,8 +287,8 @@ def detect_outliers_iqr(values: list) -> dict:
     outliers = [{"value": round(v, 2)} for v in values if v < lower_bound or v > upper_bound]
     
     return {
-        "method": "IQR Outlier Detection (Détection d'anomalies - IQR)",
-        "formula": "Seuil inférieur = Q1 - 1.5×IQR, Seuil supérieur = Q3 + 1.5×IQR",
+        "method": "IQR Outlier Detection",
+        "formula": "Lower bound = Q1 - 1.5×IQR, Upper bound = Q3 + 1.5×IQR",
         "result": {
             "outliers": outliers,
             "count": len(outliers),
@@ -298,7 +298,7 @@ def detect_outliers_iqr(values: list) -> dict:
             "q3": round(q3, 2),
             "iqr": round(iqr, 2),
         },
-        "interpretation": f"{len(outliers)} valeur(s) anormale(s) hors de [{lower_bound:,.2f}, {upper_bound:,.2f}].",
+        "interpretation": f"{len(outliers)} outlier(s) outside [{lower_bound:,.2f}, {upper_bound:,.2f}].",
     }
 
 
@@ -306,40 +306,40 @@ def detect_outliers_iqr(values: list) -> dict:
 
 FORMULA_CATALOG = {
     "sum": "SUM = Σx",
-    "count": "COUNT = nombre d'observations",
-    "average": "MOYENNE = Σx / n",
-    "growth": "CROISSANCE = ((Valeur_actuelle - Valeur_précédente) / Valeur_précédente) × 100",
-    "revenue": "REVENU = Quantité × Prix",
-    "profit": "PROFIT = Revenu - Coût",
-    "rate": "TAUX = (Partie / Total) × 100",
-    "ratio": "RATIO = Valeur1 / Valeur2",
-    "retention": "RÉTENTION = (Clients_fin / Clients_début) × 100",
-    "variance": "VARIANCE = Valeur_actuelle - Budget",
-    "attainment": "RÉALISATION = (Réalisé / Objectif) × 100",
-    "yoy": "Croissance annuelle = ((Année_N - Année_N-1) / Année_N-1) × 100",
-    "dod": "Variation J/J = ((Aujourd'hui - Hier) / Hier) × 100",
-    "wow": "Variation S/S = ((Cette_semaine - Semaine_dernière) / Semaine_dernière) × 100",
-    "mom": "Variation M/M = ((Ce_mois - Mois_dernier) / Mois_dernier) × 100",
+    "count": "COUNT = number of observations",
+    "average": "AVERAGE = Σx / n",
+    "growth": "GROWTH = ((Current_Value - Previous_Value) / Previous_Value) × 100",
+    "revenue": "REVENUE = Quantity × Price",
+    "profit": "PROFIT = Revenue - Cost",
+    "rate": "RATE = (Part / Total) × 100",
+    "ratio": "RATIO = Value1 / Value2",
+    "retention": "RETENTION = (End_Customers / Start_Customers) × 100",
+    "variance": "VARIANCE = Actual_Value - Budget",
+    "attainment": "ATTAINMENT = (Achieved / Target) × 100",
+    "yoy": "Year-over-Year Growth = ((Year_N - Year_N-1) / Year_N-1) × 100",
+    "dod": "Day-over-Day Change = ((Today - Yesterday) / Yesterday) × 100",
+    "wow": "Week-over-Week Change = ((This_Week - Last_Week) / Last_Week) × 100",
+    "mom": "Month-over-Month Change = ((This_Month - Last_Month) / Last_Month) × 100",
 }
 
 
 def get_formula(formula_key: str) -> str:
     """Get a human-readable formula by key."""
-    return FORMULA_CATALOG.get(formula_key.lower(), f"Formule personnalisée: {formula_key}")
+    return FORMULA_CATALOG.get(formula_key.lower(), f"Custom formula: {formula_key}")
 
 
 def explain_formula(metric_name: str, operation: str, values: list = None) -> str:
     """Generate a human-readable formula explanation."""
     if operation == "sum":
-        return f"{metric_name} = Σ de toutes les valeurs (total cumulé)"
+        return f"{metric_name} = Sum of all values (cumulative total)"
     elif operation == "average":
-        return f"{metric_name} = Σ des valeurs / {len(values) if values else 'n'} (moyenne arithmétique)"
+        return f"{metric_name} = Sum of values / {len(values) if values else 'n'} (arithmetic mean)"
     elif operation == "growth":
-        return f"Croissance de {metric_name} = ((Période actuelle - Période précédente) / Période précédente) × 100"
+        return f"Growth of {metric_name} = ((Current Period - Previous Period) / Previous Period) × 100"
     elif operation == "percentage":
-        return f"{metric_name} = (Partie / Total) × 100"
+        return f"{metric_name} = (Part / Total) × 100"
     elif operation == "correlation":
-        return f"Corrélation = Covariance(X,Y) / (Écart-type(X) × Écart-type(Y))"
+        return f"Correlation = Covariance(X,Y) / (StdDev(X) × StdDev(Y))"
     return get_formula(operation)
 
 
@@ -396,7 +396,7 @@ def run_full_statistical_analysis(values: list, label: str = "Dataset") -> dict:
                 "mean": round(mean_val, 2),
                 "margin": round(1.96 * std_val / math.sqrt(n), 2),
             },
-            "interpretation": f"Nous sommes confiants à 95% que la vraie moyenne se situe entre {mean_val - 1.96 * std_val / math.sqrt(n):,.2f} et {mean_val + 1.96 * std_val / math.sqrt(n):,.2f}.",
+            "interpretation": f"We are 95% confident that the true mean lies between {mean_val - 1.96 * std_val / math.sqrt(n):,.2f} and {mean_val + 1.96 * std_val / math.sqrt(n):,.2f}.",
         }
     
     return results

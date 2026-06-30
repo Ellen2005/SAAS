@@ -8,6 +8,10 @@ logger = logging.getLogger(__name__)
 # Global scheduler instance
 scheduler = BackgroundScheduler()
 
+# Track recently triggered users to avoid duplicate ETL runs within a short window
+_recently_triggered: dict[str, float] = {}  # user_id -> timestamp of last trigger
+_TRIGGER_COOLDOWN_SECONDS = 600  # 10 minutes
+
 from ..core.supabase_client import get_supabase
 
 
@@ -39,6 +43,7 @@ def process_scheduled_etl():
         response = None
 
     if response and hasattr(response, "data") and response.data:
+        now_ts = now.timestamp()
         for pref in response.data:
             user_id = pref["user_id"]
             freq = pref.get("sync_frequency", "daily").lower()
@@ -55,7 +60,13 @@ def process_scheduled_etl():
             elif freq == "yearly" and today_month_day == y_date:
                 should_trigger = True
 
+            # Skip if this user was triggered recently (deduplication)
+            last_trigger = _recently_triggered.get(user_id, 0)
+            if now_ts - last_trigger < _TRIGGER_COOLDOWN_SECONDS:
+                should_trigger = False
+
             if should_trigger:
+                _recently_triggered[user_id] = now_ts
                 try:
                     logger.info(f"Triggering {freq} ETL for user {user_id} at {now_hm}")
                     run_user_etl_pipeline(user_id)
@@ -108,11 +119,16 @@ def process_scheduled_etl():
                     if hasattr(users_resp, "data") and users_resp.data:
                         for user_role in users_resp.data:
                             uid = user_role["user_id"]
+                            # Skip if this user was triggered recently
+                            last_trigger = _recently_triggered.get(uid, 0)
+                            if now.timestamp() - last_trigger < _TRIGGER_COOLDOWN_SECONDS:
+                                continue
                             try:
                                 logger.info(
                                     f"Dept heartbeat: triggering {dept_freq} ETL for user {uid} in {dept['name']}"
                                 )
                                 run_user_etl_pipeline(uid)
+                                _recently_triggered[uid] = now.timestamp()
                             except Exception as e:
                                 logger.error(f"Dept heartbeat ETL fail for {uid}: {e}")
     except Exception as e:
@@ -123,17 +139,17 @@ def start_scheduler():
     """
     Start the APScheduler instance.
     """
-    # Check every minute
+    # Check every 5 minutes (sync_time matches are minute-level, so 5-min window is sufficient)
     scheduler.add_job(
         process_scheduled_etl,
         "interval",
-        minutes=1,
+        minutes=5,
         id="scheduled_etl_check",
         replace_existing=True,
     )
 
     scheduler.start()
-    logger.info("APScheduler started (1-minute heartbeat for governed mesh syncs).")
+    logger.info("APScheduler started (5-minute heartbeat for governed mesh syncs).")
 
 
 def shutdown_scheduler():

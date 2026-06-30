@@ -181,12 +181,19 @@ def extract_from_mapped_tables(user_id: str, db_connection_info: dict, supabase)
             if db_type == "sqlite":
                 gen_sql = (
                     f"SELECT date({dt}) AS date, '{label}' AS kpi_name, SUM({amt}) AS value "
-                    f"FROM {quoted} GROUP BY 1 ORDER BY 1 DESC LIMIT 90"
+                    f"FROM {quoted} GROUP BY date({dt}), '{label}' ORDER BY 1 DESC LIMIT 90"
+                )
+            elif db_type == "oracle":
+                gen_sql = (
+                    f'SELECT TRUNC("{dt}") AS date, '
+                    f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
+                    f"FROM {quoted} "
+                    f"GROUP BY TRUNC(\"{dt}\"), '{label}' ORDER BY 1 FETCH FIRST 90 ROWS ONLY"
                 )
             else:
                 gen_sql = (
                     f'SELECT "{dt}" AS date, \'{label}\' AS kpi_name, SUM("{amt}") AS value '
-                    f"FROM {quoted} GROUP BY 1 ORDER BY 1 DESC LIMIT 90"
+                    f'FROM {quoted} GROUP BY "{dt}", \'{label}\' ORDER BY 1 DESC LIMIT 90'
                 )
             try:
                 with engine.connect() as connection:
@@ -279,11 +286,11 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                     )
                     if engine.dialect.name == "postgresql":
                         gen_sql = (
-                            f'SELECT date_trunc(\'day\', "{dt}") AS date, '
+                            f"SELECT date_trunc('day', \"{dt}\") AS date, "
                             f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
                             f"FROM {quoted} "
                             f"WHERE \"{dt}\" > NOW() - INTERVAL '30 days' "
-                            f"GROUP BY 1 ORDER BY 1"
+                            f"GROUP BY date_trunc('day', \"{dt}\"), '{label}' ORDER BY 1"
                         )
                     elif engine.dialect.name == "mysql":
                         gen_sql = (
@@ -291,21 +298,21 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                             f"'{label}' AS kpi_name, SUM(`{amt}`) AS value "
                             f"FROM {quoted} "
                             f"WHERE `{dt}` > (NOW() - INTERVAL 30 DAY) "
-                            f"GROUP BY 1 ORDER BY 1"
+                            f"GROUP BY DATE(`{dt}`), '{label}' ORDER BY 1"
                         )
                     elif engine.dialect.name == "oracle":
                         gen_sql = (
-                            f'SELECT TRUNC("{dt}") AS date, '
+                            f"SELECT TRUNC(\"{dt}\") AS date, "
                             f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
                             f"FROM {quoted} "
                             f"WHERE \"{dt}\" > SYSDATE - 30 "
-                            f"GROUP BY TRUNC(\"{dt}\"), '{label}' ORDER BY date FETCH FIRST 30 ROWS ONLY"
+                            f"GROUP BY TRUNC(\"{dt}\"), '{label}' ORDER BY 1 FETCH FIRST 30 ROWS ONLY"
                         )
                     else:
                         gen_sql = (
                             f'SELECT "{dt}" AS date, '
                             f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
-                            f"FROM {quoted} GROUP BY 1 ORDER BY 1 DESC LIMIT 30"
+                            f"FROM {quoted} GROUP BY \"{dt}\", '{label}' ORDER BY 1 DESC LIMIT 30"
                         )
                     try:
                         with engine.connect() as connection:
@@ -837,10 +844,10 @@ def run_user_etl_pipeline(user_id: str):
 
         if user_instruction:
             try:
-                hist_resp = supabase.table("analysis_history").select("instruction").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
-                latest_instruction = hist_resp.data[0]["instruction"] if hasattr(hist_resp, "data") and hist_resp.data else None
+                hist_resp = supabase.table("analysis_runs").select("goal_text").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
+                latest_instruction = hist_resp.data[0]["goal_text"] if hasattr(hist_resp, "data") and hist_resp.data else None
                 if latest_instruction != user_instruction:
-                    supabase.table("analysis_history").insert({"user_id": user_id, "instruction": user_instruction}).execute()
+                    supabase.table("analysis_runs").insert({"user_id": user_id, "goal_text": user_instruction, "goal_type": "instruction"}).execute()
             except Exception as error:
                 print(f"[{datetime.now().isoformat()}] Failed to sync instruction history: {error}")
 

@@ -18,20 +18,22 @@ const REGIONS = [
 
 export default function MapVisualization({ data = [], onRegionClick, height = 400 }) {
   // data format: [{ region_id, region_name, value, color?, size? }]
+  const maxValue = Math.max(...data.map((d) => Math.abs(d.value || 0)), 1);
+
   const dataMap = new Map();
-  data.forEach((d) => {
-    const region = REGIONS.find((r) => r.id === d.region_id || r.name === d.region_name);
+  data.forEach((d, idx) => {
+    // Match by region_id or region_name, or fall back to index-based assignment
+    const region = REGIONS.find((r) => r.id === d.region_id || r.name === d.region_name)
+      || REGIONS[idx % REGIONS.length];
     if (region) {
       dataMap.set(region.id, {
         ...region,
         value: d.value,
         customColor: d.color,
-        size: d.size || Math.max(20, Math.min(60, Math.abs(d.value || 0) / 1000)),
+        size: d.size || Math.max(12, Math.min(50, Math.abs(d.value || 0) / maxValue * 40 + 10)),
       });
     }
   });
-
-  const maxValue = Math.max(...data.map((d) => Math.abs(d.value || 0)), 1);
 
   return (
     <div style={{ position: 'relative', width: '100%', height, background: 'var(--ea-bg)', borderRadius: 'var(--ea-radius-lg)', border: '1px solid var(--ea-border)', overflow: 'hidden' }}>

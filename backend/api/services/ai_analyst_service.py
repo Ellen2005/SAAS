@@ -284,7 +284,7 @@ def generate_augmented_insights(df: pd.DataFrame, kpis: list, anomalies: list) -
                             "description": f"Shift of {change:.1f}% in {kpi_name}",
                             "details": f"{'Increase' if change > 0 else 'Decrease'} from {older:.2f} to {recent:.2f}",
                             "change_pct": round(change, 1),
-                            "explanation": f"La métrique {kpi_name} a {'augmenté' if change > 0 else 'diminué'} de {abs(change):.1f}% entre les deux périodes.",
+                            "explanation": f"The metric {kpi_name} {'increased' if change > 0 else 'decreased'} by {abs(change):.1f}% between the two periods.",
                         })
     
     # 2. Correlations
@@ -304,7 +304,7 @@ def generate_augmented_insights(df: pd.DataFrame, kpis: list, anomalies: list) -
                                 "severity": "info",
                                 "description": f"Strong correlation ({r:.2f}) between {col1} and {col2}",
                                 "correlation": round(r, 3),
-                                "explanation": f"Une forte corrélation (r={r:.3f}) existe entre {col1} et {col2}.",
+                                "explanation": f"A strong correlation (r={r:.3f}) exists between {col1} and {col2}.",
                             })
     
     # 3. Concentration risk
@@ -320,7 +320,7 @@ def generate_augmented_insights(df: pd.DataFrame, kpis: list, anomalies: list) -
                     "severity": "warning",
                     "description": f"Top 5 entities represent {top5_pct:.1f}% of total value",
                     "concentration_pct": round(top5_pct, 1),
-                    "explanation": f"Les 5 principales entités représentent {top5_pct:.1f}% de la valeur totale, ce qui présente un risque de concentration.",
+                    "explanation": f"The top 5 entities represent {top5_pct:.1f}% of total value, presenting a concentration risk.",
                 })
     
     # 4. Data freshness
@@ -336,7 +336,7 @@ def generate_augmented_insights(df: pd.DataFrame, kpis: list, anomalies: list) -
                     "severity": "warning" if days_stale > 7 else "info",
                     "description": f"Data is {days_stale} days stale (last: {latest.date()})",
                     "days_stale": days_stale,
-                    "explanation": f"Les données n'ont pas été mises à jour depuis {days_stale} jours. Les dernières données datent du {latest.date()}.",
+                    "explanation": f"Data has not been updated for {days_stale} days. The most recent data is from {latest.date()}.",
                 })
         except Exception:
             pass
@@ -354,13 +354,13 @@ def explain_anomaly(anomaly: dict) -> str:
     context = anomaly.get("context", {})
     reason = context.get("reason", "")
     
-    sev_labels = {"CRITICAL": "critique", "WARNING": "notable"}
+    sev_labels = {"CRITICAL": "critical", "WARNING": "notable"}
     sev_label = sev_labels.get(severity, "notable")
     
     # Try Groq LLM first
     try:
         from .groq_utils import execute_groq_completion
-        prompt = f"""Explain this CNPS data anomaly in simple French (max 3 sentences):
+        prompt = f"""Explain this CNPS data anomaly in simple English (max 3 sentences):
 KPI: {kpi_name}
 Severity: {sev_label}
 Deviation: {deviation:.1f}%
@@ -374,7 +374,7 @@ Format: Plain explanation, no technical jargon."""
         pass
     
     # Fallback
-    return f"Une anomalie de niveau {sev_label} a été détectée sur {kpi_name} avec un écart de {deviation:.1f}%. {reason}"
+    return f"A {sev_label} anomaly was detected on {kpi_name} with a deviation of {deviation:.1f}%. {reason}"
 
 
 def explain_kpi_movement(kpi: dict) -> str:
@@ -384,15 +384,15 @@ def explain_kpi_movement(kpi: dict) -> str:
     dod = float(kpi.get("dod_pct", 0)) if kpi.get("dod_pct") is not None else None
     wow = float(kpi.get("wow_pct", 0)) if kpi.get("wow_pct") is not None else None
     
-    parts = [f"{kpi_name} est actuellement à {value:,.2f}."]
+    parts = [f"{kpi_name} is currently at {value:,.2f}."]
     
     if dod is not None and abs(dod) > 0.5:
-        direction = "augmenté" if dod > 0 else "diminué"
-        parts.append(f"Par rapport à hier, elle a {direction} de {abs(dod):.1f}%.")
+        direction = "increased" if dod > 0 else "decreased"
+        parts.append(f"Compared to yesterday, it has {direction} by {abs(dod):.1f}%.")
     
     if wow is not None and abs(wow) > 0.5:
-        direction = "augmenté" if wow > 0 else "diminué"
-        parts.append(f"Par rapport à la semaine dernière, elle a {direction} de {abs(wow):.1f}%.")
+        direction = "increased" if wow > 0 else "decreased"
+        parts.append(f"Compared to last week, it has {direction} by {abs(wow):.1f}%.")
     
     return " ".join(parts)
 

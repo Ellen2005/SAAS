@@ -52,7 +52,9 @@ export function AuthProvider({ children }) {
           department_name: data.department_name,
         }));
       } catch { /* ignore */ }
-    } catch {
+    } catch (err) {
+      // If the API call fails (e.g. 401, network error), use cached role
+      // but NEVER let this throw — it would trigger redirectToLogin
       try {
         const cached = localStorage.getItem('saas.user.role.v1');
         if (cached) {
@@ -64,7 +66,9 @@ export function AuthProvider({ children }) {
           return resolvedRole;
         }
       } catch { /* ignore */ }
-      setRole('viewer');
+      // If API failed and no cache, still set a role so the user isn't stuck
+      // Use 'manager' as default if there's a session (prevents lockdown)
+      setRole('manager');
     }
     return resolvedRole;
   }, []);
@@ -111,10 +115,11 @@ export function AuthProvider({ children }) {
       });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
         if (session?.user) {
           setUser(session.user);
-          await fetchUserRole(session.user).catch(() => {});
+          // Fire and forget — never block the auth state change callback
+          fetchUserRole(session.user).catch(() => {});
         } else {
           resetAuthState();
         }

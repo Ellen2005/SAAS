@@ -65,7 +65,7 @@ function DimensionBar({ label, value }) {
 
 export default function AIAnalystPage() {
   const { isManager } = useAuth();
-  const { lang } = useLang();
+  const { lang, t } = useLang();
   const [tab, setTab] = useState('insights');
   const [loading, setLoading] = useState(false);
   const [fullResult, setFullResult] = useState(null);
@@ -221,9 +221,9 @@ export default function AIAnalystPage() {
   const TABS = [
     { id: 'insights', label: t('analyst_insights') || 'AI Insights', icon: <Zap size={15} /> },
     { id: 'analysis', label: t('analyst_goal_analysis') || 'Goal Analysis', icon: <BarChart2 size={15} /> },
-    { id: 'governance', label: 'Governance', icon: <Shield size={15} /> },
-    { id: 'xai', label: 'Explainable AI', icon: <Brain size={15} /> },
-    { id: 'collaboration', label: 'Collaboration', icon: <Users size={15} /> },
+    { id: 'governance', label: t('analyst_governance') || 'Governance', icon: <Shield size={15} /> },
+    { id: 'xai', label: t('analyst_xai') || 'Explainable AI', icon: <Brain size={15} /> },
+    { id: 'collaboration', label: t('analyst_collaboration') || 'Collaboration', icon: <Users size={15} /> },
   ];
 
   return (
@@ -336,7 +336,7 @@ export default function AIAnalystPage() {
               </div>
             );
           })}
-          {insights && (
+          {insights && insights.generated_at && (
             <p style={{ color: 'var(--ea-text-secondary)', fontSize: '0.8rem', textAlign: 'right' }}>
               Generated at {new Date(insights.generated_at).toLocaleString()}
             </p>
@@ -376,7 +376,7 @@ export default function AIAnalystPage() {
             </div>
             
             <button 
-              className="btn btn-primary" 
+              className="ea-btn ea-btn-primary" 
               disabled={analysisLoading} 
               onClick={() => runAnalysis()}
             >
@@ -434,6 +434,50 @@ export default function AIAnalystPage() {
                       yKey: analysisResult.chart.yKey,
                     }}
                   />
+                  {/* Auto-generated chart annotations */}
+                  {analysisResult.chart.data && analysisResult.chart.data.length > 0 && (() => {
+                    const yKey = analysisResult.chart.yKey;
+                    const xKey = analysisResult.chart.xKey || 'name';
+                    if (!yKey) return null;
+                    const values = analysisResult.chart.data.map(d => Number(d[yKey])).filter(v => !isNaN(v));
+                    if (values.length === 0) return null;
+                    const sum = values.reduce((a, b) => a + b, 0);
+                    const avg = sum / values.length;
+                    const max = Math.max(...values);
+                    const min = Math.min(...values);
+                    const maxItem = analysisResult.chart.data.find(d => Number(d[yKey]) === max);
+                    const minItem = analysisResult.chart.data.find(d => Number(d[yKey]) === min);
+                    return (
+                      <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--ea-bg-hover)', borderRadius: 10, border: '1px solid var(--ea-border)' }}>
+                        <h4 style={{ margin: '0 0 8px', fontSize: '0.85rem', color: 'var(--ea-text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Info size={14} /> Key Observations
+                        </h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, fontSize: '0.82rem', color: 'var(--ea-text-secondary)' }}>
+                          <div><strong>Average:</strong> {avg.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                          <div><strong>Highest:</strong> {max.toLocaleString(undefined, { maximumFractionDigits: 2 })} {maxItem ? `(${maxItem[xKey]})` : ''}</div>
+                          <div><strong>Lowest:</strong> {min.toLocaleString(undefined, { maximumFractionDigits: 2 })} {minItem ? `(${minItem[xKey]})` : ''}</div>
+                          <div><strong>Data Points:</strong> {values.length}</div>
+                        </div>
+                        {max > 0 && min > 0 && (max / min) > 3 && (
+                          <p style={{ margin: '8px 0 0', fontSize: '0.8rem', color: '#f59e0b' }}>
+                            High variability detected — the highest value is {((max / min)).toFixed(1)}x the lowest. Consider investigating the causes of this disparity.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+              {analysisResult.insights && analysisResult.insights.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <h4 style={{ margin: '0 0 8px', fontSize: '0.85rem', color: 'var(--ea-text-primary)' }}>Insights</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {analysisResult.insights.map((ins, i) => (
+                      <div key={i} style={{ padding: '8px 12px', background: 'var(--ea-bg-hover)', borderRadius: 8, fontSize: '0.85rem', color: 'var(--ea-text-primary)', borderLeft: '3px solid var(--ea-primary)' }}>
+                        {typeof ins === 'string' ? ins : ins.text || ins.message || JSON.stringify(ins)}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               {analysisResult.sql && (
@@ -604,7 +648,7 @@ export default function AIAnalystPage() {
               />
             </div>
             <button
-              className="btn btn-primary"
+              className="ea-btn ea-btn-primary"
               onClick={saveSnapshot}
               disabled={savingSnap || !snapshotTitle.trim() || !snapshotContent.trim()}
             >
@@ -624,7 +668,7 @@ export default function AIAnalystPage() {
                 placeholder="Ask for review, leave context, or coordinate follow-up..."
                 style={{ flex: 1 }}
               />
-              <button className="btn btn-primary" onClick={sendTeamMessage} disabled={savingSnap || !teamMessage.trim()}>
+              <button className="ea-btn ea-btn-primary" onClick={sendTeamMessage} disabled={savingSnap || !teamMessage.trim()}>
                 <Share2 size={14} /> Send
               </button>
             </div>

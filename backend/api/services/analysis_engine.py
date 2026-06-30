@@ -92,29 +92,39 @@ Schema:
 
 def _rule_based_sql(goal_text: str, db_type: str) -> str | None:
     g = goal_text.lower()
+    limit_clause = "FETCH FIRST 100 ROWS ONLY" if db_type == "oracle" else "LIMIT 100"
+    limit_clause_24 = "FETCH FIRST 24 ROWS ONLY" if db_type == "oracle" else "LIMIT 24"
     if "contribution" in g and "region" in g:
         return (
             "SELECT regional_code, SUM(contribution_amount) AS total_contributions "
-            "FROM contributions GROUP BY regional_code ORDER BY total_contributions DESC LIMIT 100"
+            f"FROM contributions GROUP BY regional_code ORDER BY total_contributions DESC {limit_clause}"
         )
     if "pension" in g:
-        return (
-            "SELECT strftime('%Y-%m', payment_date) AS month, SUM(pension_amount) AS total "
-            "FROM pension_payments GROUP BY month ORDER BY month LIMIT 24"
-        ) if db_type == "sqlite" else (
-            "SELECT DATE_TRUNC('month', payment_date) AS month, SUM(pension_amount) AS total "
-            "FROM pension_payments GROUP BY 1 ORDER BY 1 LIMIT 24"
-        )
+        if db_type == "sqlite":
+            return (
+                "SELECT strftime('%Y-%m', payment_date) AS month, SUM(pension_amount) AS total "
+                f"FROM pension_payments GROUP BY month ORDER BY month {limit_clause_24}"
+            )
+        elif db_type == "oracle":
+            return (
+                "SELECT TO_CHAR(payment_date, 'YYYY-MM') AS month, SUM(pension_amount) AS total "
+                f"FROM pension_payments GROUP BY TO_CHAR(payment_date, 'YYYY-MM') ORDER BY month {limit_clause_24}"
+            )
+        else:
+            return (
+                "SELECT DATE_TRUNC('month', payment_date) AS month, SUM(pension_amount) AS total "
+                f"FROM pension_payments GROUP BY 1 ORDER BY 1 {limit_clause_24}"
+            )
     if "accident" in g or "at/mp" in g or "sinistre" in g:
         return (
             "SELECT regional_code, claim_status, COUNT(*) AS accident_count "
-            "FROM workplace_accidents GROUP BY regional_code, claim_status LIMIT 100"
+            f"FROM workplace_accidents GROUP BY regional_code, claim_status {limit_clause}"
         )
     if "employer" in g and ("overdue" in g or "delinquent" in g or "compliance" in g):
         return (
             "SELECT regional_code, COUNT(DISTINCT employer_id) AS delinquent_employers "
-            "FROM contributions WHERE payment_status = 'overdue' "
-            "GROUP BY regional_code LIMIT 100"
+            f"FROM contributions WHERE payment_status = 'overdue' "
+            f"GROUP BY regional_code {limit_clause}"
         )
     return None
 
@@ -191,6 +201,14 @@ Sample rows: {json.dumps(sample_rows[:5], ensure_ascii=False)}
 def _extra_details_for_preset(*, user_id: str, preset_slug: str, supabase) -> dict:
     """Optional extra ranked tables for high-signal presets."""
     if preset_slug == "employer-compliance":
+        from .connection_crypto import maybe_decrypt_connection_row
+        from .connection_pool import get_engine
+        conn_resp = supabase.table("database_connections").select("*").eq("user_id", user_id).limit(1).execute()
+        db_type = "sqlite"
+        if hasattr(conn_resp, "data") and conn_resp.data:
+            conn_info = maybe_decrypt_connection_row(conn_resp.data[0])
+            db_type = (conn_info.get("db_type") or "sqlite").lower()
+        limit_clause = "FETCH FIRST 10 ROWS ONLY" if db_type == "oracle" else "LIMIT 10"
         sql = (
             "SELECT e.name AS employer, c.regional_code, COUNT(*) AS overdue_count, "
             "SUM(c.contribution_amount) AS overdue_amount "
@@ -198,8 +216,7 @@ def _extra_details_for_preset(*, user_id: str, preset_slug: str, supabase) -> di
             "JOIN employers e ON e.id = c.employer_id "
             "WHERE c.payment_status = 'overdue' "
             "GROUP BY e.name, c.regional_code "
-            "ORDER BY overdue_amount DESC "
-            "LIMIT 10"
+            f"ORDER BY overdue_amount DESC {limit_clause}"
         )
         try:
             _, rows = _execute_sql(user_id, sql, supabase)

@@ -5,10 +5,15 @@ export const API_URL =
     ? ''
     : (import.meta.env.VITE_API_URL || 'http://localhost:5000')
 
+let _isRedirectingToLogin = false
+
 function redirectToLogin() {
+  if (_isRedirectingToLogin) return
+  _isRedirectingToLogin = true
   if (window.location.pathname !== '/login') {
     window.location.href = '/login'
   }
+  setTimeout(() => { _isRedirectingToLogin = false }, 2000)
 }
 
 export async function getSessionSafe() {
@@ -33,8 +38,8 @@ function buildHeaders(existingHeaders = {}, includeJson = false) {
   return headers
 }
 
-async function doFetch(path, options = {}) {
-  const token = await getAccessToken()
+async function doFetch(path, options = {}, tokenOverride = null) {
+  const token = tokenOverride || await getAccessToken()
   const headers = buildHeaders(options.headers, !!(options.body && typeof options.body === 'string'))
   if (token) {
     headers.set('Authorization', `Bearer ${token}`)
@@ -55,11 +60,22 @@ export async function apiFetch(path, options = {}) {
 
     if (response.status === 401) {
       const { data: { session } } = await supabase.auth.refreshSession()
-      if (!session) {
+      if (!session?.access_token) {
         redirectToLogin()
         throw new Error('Session expired. Redirecting to login.')
       }
-      continue
+      // Retry with the freshly refreshed token
+      try {
+        response = await doFetch(path, options, session.access_token)
+      } catch (err) {
+        if (attempt < maxRetries) continue
+        throw err
+      }
+      // If still 401 after refresh, give up
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new Error('Session expired. Redirecting to login.')
+      }
     }
 
     if (!response.ok) {

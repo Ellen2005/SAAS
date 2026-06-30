@@ -214,6 +214,13 @@ export const translations = {
     admin_institutional_report: 'Institutional Report',
     admin_regional: 'Regional Offices',
 
+    // AI Analyst
+    analyst_insights: 'AI Insights',
+    analyst_goal_analysis: 'Goal Analysis',
+    analyst_governance: 'Governance',
+    analyst_xai: 'Explainable AI',
+    analyst_collaboration: 'Collaboration',
+
     // Onboarding
     onboarding_title: 'Welcome to CNPS Analytics!',
     onboarding_desc: 'Your account has been created. An admin will assign you to a department. You can already explore the dashboard.',
@@ -426,6 +433,13 @@ export const translations = {
     admin_templates: 'Modèles',
     admin_institutional_report: 'Rapport institutionnel',
     admin_regional: 'Agences régionales',
+
+    // AI Analyst
+    analyst_insights: 'Analyses IA',
+    analyst_goal_analysis: 'Analyse d\'objectifs',
+    analyst_governance: 'Gouvernance',
+    analyst_xai: 'IA explicable',
+    analyst_collaboration: 'Collaboration',
 
     // Onboarding
     onboarding_title: 'Bienvenue sur le système analytique !',

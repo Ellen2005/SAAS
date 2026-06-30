@@ -15,7 +15,9 @@ SENDER_EMAIL = os.getenv("EMAIL_SENDER_ADDRESS", "analytics@company.com")
 
 
 def _make_unsubscribe_token(email: str) -> str:
-    return hmac.new(
+    if not UNSUBSCRIBE_SECRET:
+        return ""
+    return hmac.HMAC(
         UNSUBSCRIBE_SECRET.encode(),
         email.encode(),
         hashlib.sha256,
