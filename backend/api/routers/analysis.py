@@ -18,7 +18,15 @@ def _auto_generate_report(user_id: str, analysis_id: str, goal_text: str):
     try:
         from ..services.professional_report_service import generate_goal_analysis_report
         supabase = get_supabase()
-        analysis_result = {"goal_text": goal_text, "id": analysis_id}
+        # Fetch the full analysis run to get the AI narrative (explanation)
+        run_resp = supabase.table("analysis_runs").select("*").eq("id", analysis_id).limit(1).execute()
+        run_data = run_resp.data[0] if hasattr(run_resp, "data") and run_resp.data else {}
+        analysis_result = {
+            "goal_text": goal_text,
+            "id": analysis_id,
+            "sql": run_data.get("plan_json", {}).get("sql", ""),
+            "metrics": run_data.get("metrics_json", {}),
+        }
         user_report_dir = os.path.join(tempfile.gettempdir(), f"reports_{user_id}")
         os.makedirs(user_report_dir, exist_ok=True)
         result = generate_goal_analysis_report(
@@ -37,7 +45,10 @@ def _auto_generate_report(user_id: str, analysis_id: str, goal_text: str):
             "title": (goal_text or "Goal Analysis Report")[:80],
             "status": "generated",
         }
-        supabase.table("reports").insert(report_record).execute()
+        try:
+            supabase.table("reports").insert(report_record).execute()
+        except Exception as insert_err:
+            logger.warning(f"Could not save report record to reports table: {insert_err}")
         logger.info(f"Auto-generated report for analysis {analysis_id}")
     except Exception as e:
         logger.warning(f"Auto-report generation failed for analysis {analysis_id}: {e}")

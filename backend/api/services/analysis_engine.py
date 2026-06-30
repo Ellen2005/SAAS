@@ -606,20 +606,28 @@ def run_analysis(
 
 
 def list_presets(supabase, lang: str = "en") -> list[dict]:
-    resp = supabase.table("cnps_analysis_presets").select("*").order("category").execute()
-    rows = resp.data if hasattr(resp, "data") and resp.data else []
-    for row in rows:
-        row["title"] = row.get("title_fr" if lang == "fr" else "title_en") or row.get("title_en")
-    return rows
+    try:
+        resp = supabase.table("cnps_analysis_presets").select("*").order("category").execute()
+        rows = resp.data if hasattr(resp, "data") and resp.data else []
+        for row in rows:
+            row["title"] = row.get("title_fr" if lang == "fr" else "title_en") or row.get("title_en")
+        return rows
+    except Exception as e:
+        logger.warning(f"Could not load analysis presets: {e}")
+        return []
 
 
 def list_runs(user_id: str, supabase, limit: int = 20) -> list[dict]:
-    resp = (
-        supabase.table("analysis_runs")
-        .select("*")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
-    return resp.data if hasattr(resp, "data") and resp.data else []
+    try:
+        resp = (
+            supabase.table("analysis_runs")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return resp.data if hasattr(resp, "data") and resp.data else []
+    except Exception as e:
+        logger.warning(f"Could not load analysis runs: {e}")
+        return []
