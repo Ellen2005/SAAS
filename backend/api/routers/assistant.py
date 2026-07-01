@@ -91,6 +91,17 @@ def assistant_chat(
 ):
     supabase = get_supabase()
 
+    # Sanitize user input
+    try:
+        from ..services.input_sanitizer import InputSanitizer
+        sanitizer = InputSanitizer()
+        if body.message:
+            body.message = sanitizer.clean_nlq_input(body.message)
+            if len(body.message) > 5000:
+                body.message = body.message[:5000]
+    except Exception:
+        pass
+
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     # Optionally inject user's data context
@@ -109,13 +120,24 @@ def assistant_chat(
     messages.append({"role": "user", "content": body.message})
 
     try:
-        completion = execute_groq_completion(
-            messages=messages,
-            temperature=0.4,
-            max_tokens=400,
-            model=get_groq_model(),
-        )
-        reply = completion.choices[0].message.content
+        try:
+            from ..services.ai_orchestrator import AIOrchestrator
+            orchestrator = AIOrchestrator()
+            result = orchestrator.execute_sync(
+                messages=messages,
+                temperature=0.4,
+                max_tokens=400,
+                model=get_groq_model(),
+            )
+            reply = result.choices[0].message.content
+        except Exception:
+            completion = execute_groq_completion(
+                messages=messages,
+                temperature=0.4,
+                max_tokens=400,
+                model=get_groq_model(),
+            )
+            reply = completion.choices[0].message.content
     except Exception as e:
         reply = (
             "I'm having trouble connecting to the AI right now. "

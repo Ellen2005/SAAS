@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Shield, AlertTriangle, CheckCircle, XCircle, FileText, RefreshCw } from 'lucide-react';
+import { Shield, AlertTriangle, CheckCircle, XCircle, FileText, RefreshCw, TrendingUp, MessageSquare } from 'lucide-react';
 import { apiJson } from '../lib/api';
 import KpiCard from '../components/KpiCard';
 
@@ -7,6 +7,7 @@ export default function DataQualityPage() {
   const [score, setScore] = useState(null);
   const [issues, setIssues] = useState(null);
   const [report, setReport] = useState(null);
+  const [aiFeedback, setAiFeedback] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -22,6 +23,9 @@ export default function DataQualityPage() {
       setScore(scRes);
       setIssues(isRes);
       setReport(rpRes);
+
+      // Load AI feedback summary (non-blocking, admin-only)
+      apiJson('/api/admin/ai/feedback/summary?days=30').then(setAiFeedback).catch(() => {});
     } catch (e) {
       setError(e.message);
     } finally {
@@ -188,6 +192,74 @@ export default function DataQualityPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* AI Feedback Summary (Enterprise) */}
+      {aiFeedback && aiFeedback.total_feedback > 0 && (
+        <div className="ea-card" style={{ marginTop: '24px' }}>
+          <div className="ea-card-header">
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <MessageSquare size={16} /> AI Response Quality (Last 30 Days)
+            </h3>
+          </div>
+          <div className="ea-card-body">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ padding: '14px', background: 'var(--ea-bg)', borderRadius: 'var(--ea-radius-md)', border: '1px solid var(--ea-border)' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--ea-text-secondary)' }}>Total Feedback</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{aiFeedback.total_feedback}</div>
+              </div>
+              <div style={{ padding: '14px', background: 'var(--ea-bg)', borderRadius: 'var(--ea-radius-md)', border: '1px solid var(--ea-border)' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--ea-text-secondary)' }}>Avg Rating</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{aiFeedback.avg_rating}/5</div>
+              </div>
+              <div style={{ padding: '14px', background: 'var(--ea-bg)', borderRadius: 'var(--ea-radius-md)', border: '1px solid var(--ea-border)' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--ea-text-secondary)' }}>Satisfaction</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: aiFeedback.satisfaction_rate >= 70 ? 'var(--ea-success)' : 'var(--ea-warning)' }}>
+                  {aiFeedback.satisfaction_rate}%
+                </div>
+              </div>
+              <div style={{ padding: '14px', background: 'var(--ea-bg)', borderRadius: 'var(--ea-radius-md)', border: '1px solid var(--ea-border)' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--ea-text-secondary)' }}>Thumbs Up / Down</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>
+                  <span style={{ color: 'var(--ea-success)' }}>{aiFeedback.thumbs_up}</span>
+                  {' / '}
+                  <span style={{ color: 'var(--ea-danger)' }}>{aiFeedback.thumbs_down}</span>
+                </div>
+              </div>
+            </div>
+
+            {aiFeedback.by_category && Object.keys(aiFeedback.by_category).length > 0 && (
+              <div>
+                <h4 style={{ fontSize: '0.85rem', marginBottom: '8px', color: 'var(--ea-text-secondary)' }}>By Category</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
+                  {Object.entries(aiFeedback.by_category).map(([cat, stats]) => (
+                    <div key={cat} style={{ padding: '10px', background: 'var(--ea-bg)', borderRadius: 'var(--ea-radius-md)', border: '1px solid var(--ea-border)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--ea-text-secondary)', textTransform: 'capitalize' }}>{cat}</div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{stats.avg_rating}/5</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--ea-text-secondary)' }}>{stats.count} responses</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {aiFeedback.recent_comments?.length > 0 && (
+              <div style={{ marginTop: '16px' }}>
+                <h4 style={{ fontSize: '0.85rem', marginBottom: '8px', color: 'var(--ea-text-secondary)' }}>Recent Feedback</h4>
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  {aiFeedback.recent_comments.slice(0, 5).map((fb, i) => (
+                    <div key={i} style={{ padding: '10px', background: 'var(--ea-bg)', borderRadius: 'var(--ea-radius-md)', borderLeft: `3px solid ${fb.rating >= 4 ? 'var(--ea-success)' : fb.rating <= 2 ? 'var(--ea-danger)' : 'var(--ea-warning)'}` }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--ea-text-secondary)' }}>
+                        {'⭐'.repeat(fb.rating)} {fb.category && `• ${fb.category}`}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', marginTop: '4px' }}>{fb.comment}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

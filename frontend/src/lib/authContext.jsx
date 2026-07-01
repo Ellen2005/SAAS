@@ -42,7 +42,7 @@ export function AuthProvider({ children }) {
         apiJson('/api/users/me/profile', {
           method: 'POST',
           body: JSON.stringify({ email: currentUser.email, display_name: currentUser.email })
-        }).catch(() => {});
+        }).catch((err) => console.warn('Profile sync failed:', err));
       }
       
       try {

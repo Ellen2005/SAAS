@@ -52,8 +52,8 @@ def configure_scheduled_reports(
             "config": config.dict(),
         }
     except Exception as e:
-        logger.error(f"Schedule configuration error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to configure schedule: {str(e)}")
+        logger.error("Schedule configuration error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/config")
@@ -162,8 +162,8 @@ def run_scheduled_report_now(
             "message": "Report generated and queued for email delivery",
         }
     except Exception as e:
-        logger.error(f"Manual report generation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
+        logger.error("Manual report generation error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/history")

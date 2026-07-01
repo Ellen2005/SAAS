@@ -119,20 +119,32 @@ IMPORTANT:
 
 REPORT:"""
 
-    # --- Generate with Groq ---
+    # --- Generate with Groq via orchestrator ---
     if groq_api_key:
         try:
-            from .groq_utils import execute_groq_completion, get_groq_model
-            completion = execute_groq_completion(
+            from .ai_orchestrator import AIOrchestrator
+            orchestrator = AIOrchestrator()
+            result = orchestrator.execute_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
                 max_tokens=1200,
                 model=get_groq_model(),
             )
-            report_text = completion.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Groq error in custom report: {e}")
-            report_text = _fallback_report(kpis, anomalies, instruction, today)
+            report_text = result.choices[0].message.content
+        except Exception as e1:
+            logger.error(f"Orchestrator error in custom report: {e1}")
+            try:
+                from .groq_utils import execute_groq_completion, get_groq_model
+                completion = execute_groq_completion(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                    max_tokens=1200,
+                    model=get_groq_model(),
+                )
+                report_text = completion.choices[0].message.content
+            except Exception as e:
+                logger.error(f"Groq error in custom report: {e}")
+                report_text = _fallback_report(kpis, anomalies, instruction, today)
     else:
         report_text = _fallback_report(kpis, anomalies, instruction, today)
 

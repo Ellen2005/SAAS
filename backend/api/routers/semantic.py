@@ -1,11 +1,14 @@
 from typing import Optional
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ..core.auth import require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
+from ..core.utils import safe_data
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["semantic"])
 
 
@@ -44,15 +47,11 @@ class MappingUpdate(BaseModel):
     transformation_rule: Optional[dict] = None
 
 
-def _safe_data(response) -> list:
-    return response.data if hasattr(response, "data") and response.data else []
-
-
 @router.get("/admin/semantic/templates")
 def list_templates(context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
     try:
-        template_rows = _safe_data(
+        template_rows = safe_data(
             supabase.table("semantic_templates")
             .select("*")
             .order("created_at")
@@ -83,10 +82,8 @@ def list_templates(context: dict = Depends(require_role(["admin"]))):
 
         return {"templates": templates, "requested_by": context["user_id"]}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.post("/admin/semantic/templates")
+        logger.error("List semantic templates failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def create_template(
     template: TemplateCreate,
     context: dict = Depends(require_role(["admin"])),
@@ -98,13 +95,11 @@ def create_template(
         "created_by": context["user_id"],
     }
     try:
-        rows = _safe_data(supabase.table("semantic_templates").insert(payload).execute())
+        rows = safe_data(supabase.table("semantic_templates").insert(payload).execute())
         return {"status": "success", "template": rows[0] if rows else payload}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.put("/admin/semantic/templates/{template_id}")
+        logger.error("Create semantic template failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def update_template(
     template_id: str,
     template: TemplateUpdate,
@@ -119,10 +114,8 @@ def update_template(
         supabase.table("semantic_templates").update(payload).eq("id", template_id).execute()
         return {"status": "success", "updated": payload, "updated_by": context["user_id"]}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.delete("/admin/semantic/templates/{template_id}")
+        logger.error("Update semantic template failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def delete_template(
     template_id: str,
     context: dict = Depends(require_role(["admin"])),
@@ -132,17 +125,15 @@ def delete_template(
         supabase.table("semantic_templates").delete().eq("id", template_id).execute()
         return {"status": "success", "deleted": template_id, "deleted_by": context["user_id"]}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.get("/admin/semantic/templates/{template_id}/fields")
+        logger.error("Delete semantic template failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def list_fields(
     template_id: str,
     context: dict = Depends(require_role(["admin"])),
 ):
     supabase = get_supabase()
     try:
-        rows = _safe_data(
+        rows = safe_data(
             supabase.table("semantic_fields")
             .select("*")
             .eq("template_id", template_id)
@@ -151,10 +142,8 @@ def list_fields(
         )
         return {"fields": rows, "requested_by": context["user_id"]}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.post("/admin/semantic/templates/{template_id}/fields")
+        logger.error("List semantic fields failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def create_field(
     template_id: str,
     field: FieldCreate,
@@ -169,13 +158,11 @@ def create_field(
         "description": field.description,
     }
     try:
-        rows = _safe_data(supabase.table("semantic_fields").insert(payload).execute())
+        rows = safe_data(supabase.table("semantic_fields").insert(payload).execute())
         return {"status": "success", "field": rows[0] if rows else payload}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.put("/admin/semantic/fields/{field_id}")
+        logger.error("Create semantic field failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def update_field(
     field_id: str,
     field: FieldUpdate,
@@ -190,10 +177,8 @@ def update_field(
         supabase.table("semantic_fields").update(payload).eq("id", field_id).execute()
         return {"status": "success", "updated": payload, "updated_by": context["user_id"]}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.delete("/admin/semantic/fields/{field_id}")
+        logger.error("Update semantic field failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def delete_field(
     field_id: str,
     context: dict = Depends(require_role(["admin"])),
@@ -203,14 +188,12 @@ def delete_field(
         supabase.table("semantic_fields").delete().eq("id", field_id).execute()
         return {"status": "success", "deleted": field_id, "deleted_by": context["user_id"]}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.get("/semantic/my-template")
+        logger.error("Delete semantic field failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def get_my_template(user_id: str = Depends(resolve_user_id)):
     supabase = get_supabase()
     try:
-        user_roles = _safe_data(
+        user_roles = safe_data(
             supabase.table("user_roles").select("department_id").eq("user_id", user_id).execute()
         )
     except Exception:
@@ -223,7 +206,7 @@ def get_my_template(user_id: str = Depends(resolve_user_id)):
 
     try:
         if not department_id:
-            general_rows = _safe_data(
+            general_rows = safe_data(
                 supabase.table("departments")
                 .select("id, name, template_id")
                 .eq("name", "General")
@@ -234,7 +217,7 @@ def get_my_template(user_id: str = Depends(resolve_user_id)):
                 return {"department": None, "template": None, "fields": [], "mappings": []}
             department = general_rows[0]
         else:
-            department_rows = _safe_data(
+            department_rows = safe_data(
                 supabase.table("departments")
                 .select("id, name, template_id")
                 .eq("id", department_id)
@@ -249,21 +232,21 @@ def get_my_template(user_id: str = Depends(resolve_user_id)):
         return {"department": department, "template": None, "fields": [], "mappings": []}
 
     try:
-        template_rows = _safe_data(
+        template_rows = safe_data(
             supabase.table("semantic_templates")
             .select("*")
             .eq("id", department["template_id"])
             .limit(1)
             .execute()
         )
-        fields = _safe_data(
+        fields = safe_data(
             supabase.table("semantic_fields")
             .select("*")
             .eq("template_id", department["template_id"])
             .order("global_field_name")
             .execute()
         )
-        mappings = _safe_data(
+        mappings = safe_data(
             supabase.table("field_mappings").select("*").eq("user_id", user_id).execute()
         )
     except Exception:
@@ -280,7 +263,7 @@ def get_my_template(user_id: str = Depends(resolve_user_id)):
 @router.get("/semantic/mappings")
 def list_my_mappings(user_id: str = Depends(resolve_user_id)):
     supabase = get_supabase()
-    rows = _safe_data(
+    rows = safe_data(
         supabase.table("field_mappings")
         .select("*, semantic_fields(global_field_name, data_type, required)")
         .eq("user_id", user_id)
@@ -307,10 +290,8 @@ def create_mapping(
         ).execute()
         return {"status": "success", "mapping": payload}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.put("/semantic/mappings/{mapping_id}")
+        logger.error("Create field mapping failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def update_mapping(
     mapping_id: str,
     mapping: MappingUpdate,
@@ -327,10 +308,8 @@ def update_mapping(
         ).execute()
         return {"status": "success", "updated": payload}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.delete("/semantic/mappings/{mapping_id}")
+        logger.error("Update field mapping failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def delete_mapping(
     mapping_id: str,
     user_id: str = Depends(resolve_user_id),
@@ -342,10 +321,8 @@ def delete_mapping(
         ).execute()
         return {"status": "success", "deleted": mapping_id}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.get("/semantic/mappings/validate")
+        logger.error("Delete field mapping failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def validate_mappings(user_id: str = Depends(resolve_user_id)):
     template_data = get_my_template(user_id)
     fields = template_data.get("fields", [])

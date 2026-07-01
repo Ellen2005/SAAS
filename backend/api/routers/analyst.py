@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from ..core.auth import require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
+from ..core.utils import safe_data
 from ..services.ai_analyst_service import (
     auto_prepare,
     auto_model,
@@ -45,11 +46,6 @@ from ..services.statistical_engine import (
 
 router = APIRouter(prefix="/api/analyst", tags=["ai-analyst"])
 logger = logging.getLogger(__name__)
-
-
-def _safe(resp) -> list:
-    """Safely extract data from Supabase response."""
-    return resp.data if hasattr(resp, "data") and resp.data else []
 
 
 def _to_float(value, default: float = 0.0) -> float:
@@ -90,7 +86,7 @@ def prepare_data(context: dict = Depends(require_role(["manager", "admin"]))):
         supabase = get_supabase()
         user_id = context["user_id"]
 
-        rows = _safe(
+        rows = safe_data(
             supabase.table("kpi_results")
             .select("kpi_name, value, dod_pct, wow_pct, avg_7d, recorded_at")
             .eq("user_id", user_id)
@@ -109,8 +105,8 @@ def prepare_data(context: dict = Depends(require_role(["manager", "admin"]))):
             "message": f"Auto-preparation complete. {len(actions)} action(s) applied.",
         }
     except Exception as e:
-        logger.error(f"Data preparation error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Data preparation failed: {str(e)}")
+        logger.error("Data preparation error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 # ─── Auto Modelling ───────────────────────────────────────────────────────────
@@ -122,7 +118,7 @@ def model_data(context: dict = Depends(require_role(["manager", "admin"]))):
         supabase = get_supabase()
         user_id = context["user_id"]
 
-        rows = _safe(
+        rows = safe_data(
             supabase.table("kpi_results")
             .select("*")
             .eq("user_id", user_id)
@@ -137,8 +133,8 @@ def model_data(context: dict = Depends(require_role(["manager", "admin"]))):
         model = auto_model(df)
         return {"model": model, "rows_analysed": len(df)}
     except Exception as e:
-        logger.error(f"Auto modelling error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Auto modelling failed: {str(e)}")
+        logger.error("Auto modelling error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 # ─── Augmented Analytics ─────────────────────────────────────────────────────
@@ -149,7 +145,7 @@ def get_augmented_insights(user_id: str = Depends(resolve_user_id)):
     try:
         supabase = get_supabase()
 
-        kpi_rows = _safe(
+        kpi_rows = safe_data(
             supabase.table("kpi_results")
             .select("*")
             .eq("user_id", user_id)
@@ -157,7 +153,7 @@ def get_augmented_insights(user_id: str = Depends(resolve_user_id)):
             .limit(300)
             .execute()
         )
-        anomaly_rows = _safe(
+        anomaly_rows = safe_data(
             supabase.table("anomaly_records")
             .select("*")
             .eq("user_id", user_id)
@@ -223,7 +219,7 @@ def analyze_data(
         
         # If no data provided, fetch from KPIs
         if not body.data:
-            rows = _safe(
+            rows = safe_data(
                 supabase.table("kpi_results")
                 .select("*")
                 .eq("user_id", user_id)
@@ -252,8 +248,8 @@ def analyze_data(
         
         return result
     except Exception as e:
-        logger.error(f"Analysis error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        logger.error("Analysis error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 # ─── Statistical Analysis Endpoint ───────────────────────────────────────────
@@ -274,7 +270,7 @@ def compute_statistics(
         if not body.values:
             supabase = get_supabase()
             user_id = context["user_id"]
-            rows = _safe(
+            rows = safe_data(
                 supabase.table("kpi_results")
                 .select("value")
                 .eq("user_id", user_id)
@@ -289,8 +285,8 @@ def compute_statistics(
         
         return run_full_statistical_analysis(body.values, body.dataset_name)
     except Exception as e:
-        logger.error(f"Statistical analysis error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Statistical analysis failed: {str(e)}")
+        logger.error("Statistical analysis error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 # ─── Context Memory Endpoint ─────────────────────────────────────────────────
@@ -319,7 +315,7 @@ def explain_anomaly_endpoint(anomaly_id: str, user_id: str = Depends(resolve_use
     """Return a plain-language explanation for a specific anomaly."""
     try:
         supabase = get_supabase()
-        rows = _safe(
+        rows = safe_data(
             supabase.table("anomaly_records")
             .select("*")
             .eq("id", anomaly_id)
@@ -336,8 +332,8 @@ def explain_anomaly_endpoint(anomaly_id: str, user_id: str = Depends(resolve_use
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Anomaly explanation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to explain anomaly: {str(e)}")
+        logger.error("Anomaly explanation error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/explain/kpi/{kpi_id}")
@@ -345,7 +341,7 @@ def explain_kpi_endpoint(kpi_id: str, user_id: str = Depends(resolve_user_id)):
     """Return a plain-language explanation for a specific KPI result."""
     try:
         supabase = get_supabase()
-        rows = _safe(
+        rows = safe_data(
             supabase.table("kpi_results")
             .select("*")
             .eq("id", kpi_id)
@@ -362,8 +358,8 @@ def explain_kpi_endpoint(kpi_id: str, user_id: str = Depends(resolve_user_id)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"KPI explanation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to explain KPI: {str(e)}")
+        logger.error("KPI explanation error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/explain/all")
@@ -372,7 +368,7 @@ def explain_all(user_id: str = Depends(resolve_user_id)):
     try:
         supabase = get_supabase()
 
-        kpis = _safe(
+        kpis = safe_data(
             supabase.table("kpi_results")
             .select("*")
             .eq("user_id", user_id)
@@ -380,7 +376,7 @@ def explain_all(user_id: str = Depends(resolve_user_id)):
             .limit(10)
             .execute()
         )
-        anomalies = _safe(
+        anomalies = safe_data(
             supabase.table("anomaly_records")
             .select("*")
             .eq("user_id", user_id)
@@ -396,10 +392,10 @@ def explain_all(user_id: str = Depends(resolve_user_id)):
             ],
             "anomaly_explanations": [
                 {"id": a["id"], "kpi_name": a["kpi_name"], "explanation": explain_anomaly(a)}
-                for a in anomalies
+                for a in anomalies 
             ],
         }
-    except Exception as e:
+    except Exception as e:  
         logger.error(f"Explain all error: {e}")
         return {"kpi_explanations": [], "anomaly_explanations": [], "error": "Failed to generate explanations."}
 
@@ -412,7 +408,7 @@ def get_governance_score(user_id: str = Depends(resolve_user_id)):
     try:
         supabase = get_supabase()
 
-        kpi_rows = _safe(
+        kpi_rows = safe_data(
             supabase.table("kpi_results")
             .select("*")
             .eq("user_id", user_id)
@@ -420,7 +416,7 @@ def get_governance_score(user_id: str = Depends(resolve_user_id)):
             .limit(200)
             .execute()
         )
-        validation_rows = _safe(
+        validation_rows = safe_data(
             supabase.table("validation_logs")
             .select("check_type, status, message")
             .eq("user_id", user_id)
@@ -428,7 +424,7 @@ def get_governance_score(user_id: str = Depends(resolve_user_id)):
             .limit(20)
             .execute()
         )
-        mapping_rows = _safe(
+        mapping_rows = safe_data(
             supabase.table("field_mappings")
             .select("id")
             .eq("user_id", user_id)
@@ -494,8 +490,8 @@ def save_snapshot(body: SnapshotCreate, context: dict = Depends(require_role(["m
         )
         return {"status": "saved", "snapshot": snapshot}
     except Exception as e:
-        logger.error(f"Save snapshot error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to save snapshot: {str(e)}")
+        logger.error("Save snapshot error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.delete("/snapshots/{snapshot_id}")
@@ -506,8 +502,8 @@ def delete_snapshot(snapshot_id: str, context: dict = Depends(require_role(["man
         supabase.table("insight_snapshots").delete().eq("id", snapshot_id).eq("user_id", context["user_id"]).execute()
         return {"status": "deleted", "id": snapshot_id}
     except Exception as e:
-        logger.error(f"Delete snapshot error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Delete snapshot error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 # ─── Full Autonomous Analysis Run ────────────────────────────────────────────
@@ -526,7 +522,7 @@ def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"])
         supabase = get_supabase()
         user_id = context["user_id"]
 
-        kpi_rows = _safe(
+        kpi_rows = safe_data(
             supabase.table("kpi_results")
             .select("*")
             .eq("user_id", user_id)
@@ -534,7 +530,7 @@ def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"])
             .limit(300)
             .execute()
         )
-        anomaly_rows = _safe(
+        anomaly_rows = safe_data(
             supabase.table("anomaly_records")
             .select("*")
             .eq("user_id", user_id)
@@ -542,7 +538,7 @@ def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"])
             .limit(50)
             .execute()
         )
-        validation_rows = _safe(
+        validation_rows = safe_data(
             supabase.table("validation_logs")
             .select("check_type, status")
             .eq("user_id", user_id)
@@ -550,7 +546,7 @@ def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"])
             .limit(20)
             .execute()
         )
-        mapping_rows = _safe(
+        mapping_rows = safe_data(
             supabase.table("field_mappings").select("id").eq("user_id", user_id).limit(1).execute()
         )
 
@@ -610,5 +606,5 @@ def run_full_analysis(context: dict = Depends(require_role(["manager", "admin"])
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
-        logger.error(f"Full analysis error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Full analysis failed: {str(e)}")
+        logger.error("Full analysis error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")

@@ -43,7 +43,7 @@ export default defineConfig({
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-summary',
-              expiration: { maxEntries: 10, maxAgeSeconds: 120 },
+              expiration: { maxEntries: 10, maxAgeSeconds: 300 },
             },
           },
           {
@@ -51,7 +51,31 @@ export default defineConfig({
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-data',
-              expiration: { maxEntries: 50, maxAgeSeconds: 60 },
+              expiration: { maxEntries: 50, maxAgeSeconds: 300 },
+            },
+          },
+          {
+            urlPattern: /^\/api\/(narrative|analysis|nlq|assistant)/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-ai-responses',
+              expiration: { maxEntries: 30, maxAgeSeconds: 600 },
+            },
+          },
+          {
+            urlPattern: /^\/api\/(reports|validation|schema|user)/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-misc',
+              expiration: { maxEntries: 30, maxAgeSeconds: 120 },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/.*\.supabase\./,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'supabase-api',
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 },
             },
           },
         ],

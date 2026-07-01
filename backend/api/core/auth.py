@@ -1,12 +1,20 @@
 from fastapi import HTTPException, Header, Query, Depends
 from typing import Optional
+import logging
 from ..core.supabase_client import get_supabase
+
+logger = logging.getLogger(__name__)
 
 
 def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     token = authorization.replace("Bearer ", "")
+
+    from ..services.token_blacklist import is_blacklisted
+    if is_blacklisted(token):
+        raise HTTPException(status_code=401, detail="Token has been revoked")
+
     supabase = get_supabase()
     try:
         user_resp = supabase.auth.get_user(token)
@@ -56,7 +64,7 @@ def get_user_role(user_id: str) -> Optional[str]:
             if "viewer" in roles:
                 return "viewer"
     except Exception:
-        pass
+        logger.warning("role lookup failed for user %s", user_id, exc_info=True)
     return None
 
 
@@ -69,7 +77,7 @@ def get_user_department(user_id: str) -> Optional[str]:
                 if r.get("department_id"):
                     return r["department_id"]
     except Exception:
-        pass
+        logger.warning("department lookup failed for user %s", user_id, exc_info=True)
     return None
 
 
@@ -87,7 +95,7 @@ def get_user_info(user_id: str) -> dict:
             if best.get("departments"):
                 info["department_name"] = best["departments"].get("name")
     except Exception:
-        pass
+        logger.warning("user info lookup failed for user %s", user_id, exc_info=True)
     return info
 
 

@@ -26,8 +26,8 @@ def export_kpis_csv_endpoint(context: dict = Depends(require_role(["manager", "a
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except Exception as e:
-        logger.error(f"CSV export error: {e}")
-        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+        logger.error("CSV export error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/kpis/excel")
@@ -43,8 +43,8 @@ def export_kpis_excel_endpoint(context: dict = Depends(require_role(["manager", 
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except Exception as e:
-        logger.error(f"Excel export error: {e}")
-        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+        logger.error("Excel export error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/reports/{report_id}/excel")
@@ -78,5 +78,5 @@ def export_report_excel(report_id: str, context: dict = Depends(require_role(["m
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Report Excel export error: {e}")
-        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+        logger.error("Report Excel export error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")

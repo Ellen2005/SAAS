@@ -5,13 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..core.auth import require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
+from ..core.utils import safe_data
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["validation"])
-
-
-def _safe_data(response) -> list:
-    return response.data if hasattr(response, "data") and response.data else []
 
 
 @router.get("/validation/logs")
@@ -21,7 +18,7 @@ def get_validation_logs(
 ):
     supabase = get_supabase()
     try:
-        rows = _safe_data(
+        rows = safe_data(
             supabase.table("validation_logs")
             .select("*")
             .eq("user_id", user_id)
@@ -39,11 +36,11 @@ def get_validation_logs(
 def get_validation_scorecard(context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
     try:
-        departments = _safe_data(supabase.table("departments").select("id, name").execute())
+        departments = safe_data(supabase.table("departments").select("id, name").execute())
         scorecard = []
 
         for department in departments:
-            logs = _safe_data(
+            logs = safe_data(
                 supabase.table("validation_logs")
                 .select("check_type, status, message, created_at")
                 .eq("department_id", department["id"])
@@ -101,7 +98,7 @@ def get_all_validation_logs(
         if department_id:
             query = query.eq("department_id", department_id)
 
-        rows = _safe_data(query.execute())
+        rows = safe_data(query.execute())
         logs = []
         for row in rows:
             department_name = None

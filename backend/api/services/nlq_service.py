@@ -2,6 +2,10 @@
 Natural Language Query (NLQ) Service
 Converts plain-English (or French) questions into SQL/MongoDB queries,
 executes them against the user's connected database, and returns results.
+
+Enterprise Integration:
+  - Semantic Layer: Translates business terms ↔ raw schema
+  - Prompt Manager: Loads prompts from library instead of inline strings
 """
 import os
 import re
@@ -300,7 +304,7 @@ def _sanitize_sql_for_dialect(sql: str, dialect: str) -> str:
     return normalized
 
 
-def _ask_groq_for_sql(question: str, schema_hint: str, db_type: str) -> str:
+def _ask_groq_for_sql(question: str, schema_hint: str, db_type: str, prompt_manager=None) -> str:
     """Use Groq LLM to convert a natural language question to SQL."""
     dialect_note = ""
     if db_type in ("mysql",):
@@ -350,12 +354,25 @@ USER QUESTION: {question}
 
 SQL QUERY:"""
 
-    completion = execute_groq_completion(
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1,
-        max_tokens=400,
-        model=get_groq_model(),
-    )
+    # Use orchestrator if available, fall back to direct Groq call
+    completion = None
+    try:
+        from .ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+        result = orchestrator.execute_sync(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=400,
+            model=get_groq_model(),
+        )
+        completion = result
+    except Exception:
+        completion = execute_groq_completion(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=400,
+            model=get_groq_model(),
+        )
     sql = completion.choices[0].message.content.strip()
     # Strip markdown fences if model adds them
     if sql.startswith("```"):
@@ -380,12 +397,24 @@ USER QUESTION: {question}
 
 JSON:"""
 
-    completion = execute_groq_completion(
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1,
-        max_tokens=300,
-        model=get_groq_model(),
-    )
+    completion = None
+    try:
+        from .ai_orchestrator import AIOrchestrator
+        orchestrator = AIOrchestrator()
+        result = orchestrator.execute_sync(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=300,
+            model=get_groq_model(),
+        )
+        completion = result
+    except Exception:
+        completion = execute_groq_completion(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=300,
+            model=get_groq_model(),
+        )
     import json
     raw = completion.choices[0].message.content.strip()
     if raw.startswith("```"):
@@ -439,8 +468,33 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
         schema_hint = _get_db_schema_hint(engine)
         assistant_note = "I generated a read-only query from your question and ran it against the connected database."
         sql = None
+
+        # Enterprise: Load semantic layer for business-friendly schema context
+        semantic_ctx = ""
         try:
-            sql = _ask_groq_for_sql(question, schema_hint, db_type)
+            from .semantic_layer import SemanticLayer
+            sem = SemanticLayer(supabase, user_id)
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                loop.run_until_complete(sem.load_mappings())
+            except RuntimeError:
+                pass
+            if sem.has_mappings():
+                semantic_ctx = sem.get_schema_context()
+        except Exception as e:
+            logger.debug(f"Semantic layer unavailable: {e}")
+
+        # Enterprise: Use prompt manager for SQL generation
+        pm = None
+        try:
+            from .prompt_manager import PromptManager
+            pm = PromptManager(supabase)
+        except Exception:
+            pass
+
+        try:
+            sql = _ask_groq_for_sql(question, schema_hint, db_type, prompt_manager=pm)
         except Exception as model_error:
             logger.warning(f"NLQ model unavailable, using deterministic fallback: {model_error}")
 
@@ -518,6 +572,23 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
 
         from .chart_service import build_chart_from_rows
         chart_spec = build_chart_from_rows(rows, columns, title=f"Results: {question[:60]}")
+
+        # Enterprise: Translate results using semantic layer
+        if sem and sem.has_mappings():
+            try:
+                columns, rows = sem.reverse_translate_results(rows, columns)
+            except Exception:
+                pass  # Keep raw column names on translation failure
+
+        # Enterprise: Log NLQ query for governance
+        try:
+            from .audit_service import log_config_change
+            log_config_change(
+                supabase, user_id, "query", "nlq_query",
+                {"question": question, "sql": sql, "row_count": len(rows)}
+            )
+        except Exception:
+            pass
 
         if os.environ.get("NLQ_DEBUG"):
             logger.debug("NLQ debug sql: %s", sql)

@@ -11,14 +11,8 @@ createRoot(document.getElementById('root')).render(
   </StrictMode>,
 )
 
-// After render: clean up stale service workers asynchronously
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.getRegistrations().then((regs) => {
-      regs.forEach((reg) => reg.unregister())
-    })
-  })
-}
+// PWA: service worker is auto-registered by vite-plugin-pwa (injectRegister: 'auto')
+// No manual registration needed — workbox handles caching & offline fallback
 
 // Keepalive ping — wakes free-tier backend before user needs it
 // Only pings when the page is visible to avoid background battery drain

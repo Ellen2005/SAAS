@@ -18,6 +18,7 @@ from fastapi.responses import Response
 
 from ..core.auth import require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
+from ..core.utils import safe_data
 from ..services.executive_report_service import (
     generate_dg_report,
     generate_board_report,
@@ -31,15 +32,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/executive", tags=["executive-reports"])
 
 
-def _safe(resp):
-    return resp.data if hasattr(resp, "data") and resp.data else []
-
-
 # ─── Helper: Build KPI data from Supabase ────────────────────────────────────
 
 def _build_kpi_data(user_id: str, supabase, limit: int = 20) -> list:
     """Fetch user's KPIs and format them for report generation."""
-    rows = _safe(
+    rows = safe_data(
         supabase.table("kpi_results")
         .select("*")
         .eq("user_id", user_id)
@@ -60,7 +57,7 @@ def _build_kpi_data(user_id: str, supabase, limit: int = 20) -> list:
 
 def _build_anomaly_data(user_id: str, supabase, limit: int = 20) -> list:
     """Fetch user's anomalies for report inclusion."""
-    rows = _safe(
+    rows = safe_data(
         supabase.table("anomaly_records")
         .select("*")
         .eq("user_id", user_id)
@@ -81,7 +78,7 @@ def _build_anomaly_data(user_id: str, supabase, limit: int = 20) -> list:
 
 def _build_regional_data(supabase) -> list:
     """Build regional performance data from departments table + KPI results."""
-    depts = _safe(
+    depts = safe_data(
         supabase.table("departments")
         .select("*")
         .order("created_at")
@@ -90,7 +87,7 @@ def _build_regional_data(supabase) -> list:
     regions = []
     for dept in depts:
         dept_id = dept["id"]
-        kpis = _safe(
+        kpis = safe_data(
             supabase.table("kpi_results")
             .select("kpi_name, value")
             .eq("department_id", dept_id)
@@ -137,7 +134,7 @@ def _build_regional_data(supabase) -> list:
 
 def _build_department_performance(supabase) -> list:
     """Build department performance data with validation scores."""
-    depts = _safe(
+    depts = safe_data(
         supabase.table("departments")
         .select("*")
         .order("created_at")
@@ -148,7 +145,7 @@ def _build_department_performance(supabase) -> list:
         dept_id = dept["id"]
         
         # Get latest validation logs
-        validation_logs = _safe(
+        validation_logs = safe_data(
             supabase.table("validation_logs")
             .select("status")
             .eq("department_id", dept_id)
@@ -160,7 +157,7 @@ def _build_department_performance(supabase) -> list:
         validation_rate = (passes / len(validation_logs) * 100) if validation_logs else 0
         
         # Get latest KPI score
-        kpis = _safe(
+        kpis = safe_data(
             supabase.table("kpi_results")
             .select("value")
             .eq("department_id", dept_id)
@@ -193,7 +190,7 @@ def _build_department_performance(supabase) -> list:
 def _generate_executive_summary(user_id: str, supabase, kpis: list, anomalies: list) -> str:
     """Generate an executive summary using Groq LLM or rule-based fallback."""
     try:
-        from ..services.groq_utils import execute_groq_completion
+        from ..services.ai_orchestrator import AIOrchestrator
         
         kpi_text = "; ".join(f"{k['name']}: {k['value']:,.2f}" for k in kpis[:5])
         anomaly_text = "; ".join(f"{a['kpi_name']} ({a['severity']})" for a in anomalies[:3]) if anomalies else "Aucune anomalie"
@@ -207,11 +204,24 @@ Active alerts: {anomaly_text}
 Format: Professional, formal French. Start with "Au cours de cette période,".
 Include: overall performance assessment, key achievements, areas needing attention, and outlook."""
         
-        completion = execute_groq_completion(prompt=prompt, temperature=0.3, max_tokens=300)
-        if completion and hasattr(completion, "choices") and completion.choices:
-            return completion.choices[0].message.content
-    except Exception as e:
-        logger.warning(f"LLM executive summary failed: {e}")
+        orchestrator = AIOrchestrator()
+        result = orchestrator.execute_sync(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=300,
+        )
+        if result and hasattr(result, "choices") and result.choices:
+            return result.choices[0].message.content
+    except Exception as e1:
+        logger.warning(f"Orchestrator executive summary failed: {e1}")
+        try:
+            from ..services.groq_utils import execute_groq_completion
+            
+            completion = execute_groq_completion(prompt=prompt, temperature=0.3, max_tokens=300)
+            if completion and hasattr(completion, "choices") and completion.choices:
+                return completion.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"LLM executive summary failed: {e}")
     
     # Fallback
     anomaly_count = len(anomalies)
@@ -399,7 +409,7 @@ def get_fraud_detection_report(
     user_id = context["user_id"]
     
     # Fetch KPI data for fraud detection
-    kpi_rows = _safe(
+    kpi_rows = safe_data(
         supabase.table("kpi_results")
         .select("*")
         .eq("user_id", user_id)

@@ -11,6 +11,7 @@ from typing import Optional
 
 from ..core.auth import resolve_user_id, require_role
 from ..core.supabase_client import get_supabase
+from ..core.utils import safe_data
 
 router = APIRouter(prefix="/api/data-quality", tags=["data-quality"])
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ def get_data_quality_score(user_id: str = Depends(resolve_user_id)):
             .limit(500)
             .execute()
         )
-        raw = kpi_rows.data if hasattr(kpi_rows, "data") and kpi_rows.data else []
+        raw = safe_data(kpi_rows)
 
         if not raw:
             return {"score": 0, "grade": "N/A", "checks": [], "recommendations": []}
@@ -136,8 +137,8 @@ def get_data_quality_score(user_id: str = Depends(resolve_user_id)):
             "generated_at": datetime.now(UTC).isoformat(),
         }
     except Exception as e:
-        logger.error(f"Data quality score error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Data quality score error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/issues")
@@ -152,7 +153,7 @@ def get_data_quality_issues(user_id: str = Depends(resolve_user_id)):
             .limit(500)
             .execute()
         )
-        raw = kpi_rows.data if hasattr(kpi_rows, "data") and kpi_rows.data else []
+        raw = safe_data(kpi_rows)
 
         issues = []
 
@@ -212,8 +213,8 @@ def get_data_quality_issues(user_id: str = Depends(resolve_user_id)):
             "generated_at": datetime.now(UTC).isoformat(),
         }
     except Exception as e:
-        logger.error(f"Data quality issues error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Data quality issues error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/report")
@@ -239,5 +240,5 @@ def get_data_quality_report(user_id: str = Depends(resolve_user_id)):
             "recommendations": score["recommendations"],
         }
     except Exception as e:
-        logger.error(f"Data quality report error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Data quality report error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")

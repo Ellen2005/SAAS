@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from ..core.auth import get_current_user, get_user_info, require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
+from ..core.utils import safe_data
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["users"])
@@ -16,10 +17,6 @@ class UserRoleUpdate(BaseModel):
     department_id: Optional[str] = None
 
 
-def _safe_data(response) -> list:
-    return response.data if hasattr(response, "data") and response.data else []
-
-
 @router.get("/users/me")
 def get_current_user_info(user_id: str = Depends(resolve_user_id)):
     info = get_user_info(user_id)
@@ -27,7 +24,7 @@ def get_current_user_info(user_id: str = Depends(resolve_user_id)):
     if info["role"] is None:
         try:
             supabase = get_supabase()
-            general_rows = _safe_data(
+            general_rows = safe_data(
                 supabase.table("departments")
                 .select("id, name")
                 .eq("name", "General")
@@ -64,7 +61,7 @@ def list_all_users(context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
     try:
         # Get all user roles first - group by user_id to get latest role
-        role_rows = _safe_data(
+        role_rows = safe_data(
             supabase.table("user_roles")
             .select("id, user_id, role, department_id, departments(name), created_at")
             .order("user_id")
@@ -249,9 +246,27 @@ def delete_my_account(authorization: Optional[str] = Header(None)):
 def logout(authorization: Optional[str] = Header(None)):
     """Logout user by invalidating their session."""
     try:
+        from ..services.token_blacklist import blacklist_token
+        import time
+
         supabase = get_supabase()
         if authorization and authorization.startswith("Bearer "):
             token = authorization.replace("Bearer ", "")
+
+            # Attempt to decode expiry from JWT; fallback to 1 hour TTL
+            expires_at = time.time() + 3600
+            try:
+                import jwt
+                from ..core.supabase_client import get_supabase
+                # Decode without verification to extract exp claim
+                payload = jwt.decode(token, options={"verify_signature": False})
+                if "exp" in payload:
+                    expires_at = float(payload["exp"])
+            except Exception:
+                pass
+
+            blacklist_token(token, expires_at)
+
             # Try to sign out with the token
             try:
                 supabase.auth.sign_out()
@@ -266,46 +281,26 @@ def logout(authorization: Optional[str] = Header(None)):
 
 @router.get("/admin/debug/auth")
 def debug_auth_users(context: dict = Depends(require_role(["admin"]))):
+    """Admin-only: returns aggregate user stats only (no PII)."""
     supabase = get_supabase()
     try:
-        # Get users from Supabase Auth
-        auth_response = supabase.auth.admin.list_users()
-        auth_users = []
-        
-        if isinstance(auth_response, list):
-            raw_list = auth_response
-        elif hasattr(auth_response, 'users') and auth_response.users:
-            raw_list = auth_response.users
-        elif hasattr(auth_response, 'data') and auth_response.data:
-            raw_list = auth_response.data
-        else:
-            raw_list = []
-
-        for user in raw_list:
-            is_dict = isinstance(user, dict)
-            auth_users.append({
-                'id': str(user.get('id', 'No ID') if is_dict else getattr(user, 'id', 'No ID')),
-                'email': user.get('email', 'No email') if is_dict else getattr(user, 'email', 'No email'),
-                'created_at': str(user.get('created_at', 'Unknown') if is_dict else getattr(user, 'created_at', 'Unknown')),
-                'email_confirmed_at': str(user.get('email_confirmed_at', 'Not confirmed') if is_dict else getattr(user, 'email_confirmed_at', 'Not confirmed')),
-            })
-        
-        # Get role assignments
-        role_assignments = _safe_data(
+        role_assignments = safe_data(
             supabase.table("user_roles")
-            .select("user_id, role, department_id")
+            .select("role, department_id")
             .execute()
         )
-        
+        role_counts = {}
+        for r in (role_assignments or []):
+            role = r.get("role", "unknown")
+            role_counts[role] = role_counts.get(role, 0) + 1
+
         return {
-            "total_auth_users": len(auth_users),
-            "auth_users": auth_users,
-            "role_assignments": role_assignments,
-            "raw_response_type": str(type(auth_response))
+            "total_role_assignments": len(role_assignments or []),
+            "roles": role_counts,
         }
     except Exception:
         logger.error("Debug auth failed", exc_info=True)
-        return {"error": "Failed to list auth users.", "error_type": "unknown"}
+        return {"error": "Failed to fetch role stats."}
 
 
 @router.post("/users/me/profile")
