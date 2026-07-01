@@ -85,8 +85,8 @@ def get_executive_overview(user_id: str = Depends(resolve_user_id)):
             "risk_indicators": _compute_risk_indicators(kpi_summary, anomalies),
         }
     except Exception as e:
-        logger.error(f"Executive overview error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Executive overview error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/insights")
@@ -159,8 +159,8 @@ def get_executive_insights(user_id: str = Depends(resolve_user_id)):
             "insights": insights,
         }
     except Exception as e:
-        logger.error(f"Executive insights error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Executive insights error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/briefing")
@@ -187,8 +187,8 @@ def get_executive_briefing(user_id: str = Depends(resolve_user_id)):
 
         return briefing
     except Exception as e:
-        logger.error(f"Executive briefing error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Executive briefing error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 def _compute_health_score(status_counts: dict, total_kpis: int) -> int:

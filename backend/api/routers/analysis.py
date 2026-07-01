@@ -154,7 +154,8 @@ def create_preset(
     except Exception as e:
         if "duplicate" in str(e).lower() or "unique" in str(e).lower():
             raise HTTPException(status_code=409, detail=f"Preset slug '{slug}' already exists.")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Create preset failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.delete("/admin/presets/{slug}")

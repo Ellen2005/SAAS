@@ -106,8 +106,8 @@ def test_email(
             "result": result,
         }
     except Exception as e:
-        logger.error(f"Test email failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to send test email: {str(e)}")
+        logger.error("Test email failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.post("/add-recipient")
@@ -130,7 +130,8 @@ def add_email_recipient(
         
         return {"status": "added", "email": email}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to add recipient: {str(e)}")
+        logger.error("Add email recipient failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.delete("/remove-recipient")
@@ -146,4 +147,5 @@ def remove_email_recipient(
         supabase.table("notification_recipients").delete().eq("user_id", user_id).eq("email", email).execute()
         return {"status": "removed", "email": email}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to remove recipient: {str(e)}")
+        logger.error("Remove email recipient failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")

@@ -1,11 +1,13 @@
 import logging
+import time
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ..core.auth import require_role
 from ..core.supabase_client import get_supabase
+from ..core.utils import safe_data
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/departments", tags=["departments"])
@@ -37,7 +39,7 @@ class DepartmentUpdate(BaseModel):
 def list_regional_offices(context: dict = Depends(require_role(["admin", "manager"]))):
     supabase = get_supabase()
     try:
-        rows = _safe_data(supabase.table("regional_offices").select("*").order("code").execute())
+        rows = safe_data(supabase.table("regional_offices").select("*").order("code").execute())
         return {"regional_offices": rows}
     except Exception:
         return {"regional_offices": []}
@@ -48,15 +50,11 @@ class AssignUserRequest(BaseModel):
     role: str = "manager"
 
 
-def _safe_data(response) -> list:
-    return response.data if hasattr(response, "data") and response.data else []
-
-
 @router.get("")
 def list_departments(context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
     try:
-        department_rows = _safe_data(
+        department_rows = safe_data(
             supabase.table("departments").select("*").order("created_at").execute()
         )
         if not department_rows:
@@ -65,7 +63,7 @@ def list_departments(context: dict = Depends(require_role(["admin"]))):
         dept_ids = [d["id"] for d in department_rows]
 
         # Batch: user counts per department
-        user_count_rows = _safe_data(
+        user_count_rows = safe_data(
             supabase.table("user_roles")
             .select("department_id")
             .in_("department_id", dept_ids)
@@ -77,7 +75,7 @@ def list_departments(context: dict = Depends(require_role(["admin"]))):
             user_counts[did] = user_counts.get(did, 0) + 1
 
         # Batch: latest report date per department
-        report_rows = _safe_data(
+        report_rows = safe_data(
             supabase.table("daily_reports")
             .select("department_id, report_date")
             .in_("department_id", dept_ids)
@@ -94,7 +92,7 @@ def list_departments(context: dict = Depends(require_role(["admin"]))):
         template_ids = list({d["template_id"] for d in department_rows if d.get("template_id")})
         template_name_map = {}
         if template_ids:
-            tpl_rows = _safe_data(
+            tpl_rows = safe_data(
                 supabase.table("semantic_templates")
                 .select("id, name")
                 .in_("id", template_ids)
@@ -106,7 +104,7 @@ def list_departments(context: dict = Depends(require_role(["admin"]))):
         instance_template_ids = list({d["instance_template_id"] for d in department_rows if d.get("instance_template_id")})
         instance_template_name_map = {}
         if instance_template_ids:
-            inst_rows = _safe_data(
+            inst_rows = safe_data(
                 supabase.table("instance_templates")
                 .select("id, name")
                 .in_("id", instance_template_ids)
@@ -134,6 +132,7 @@ def list_departments(context: dict = Depends(require_role(["admin"]))):
 @router.post("")
 def create_department(
     department: DepartmentCreate,
+    request: Request = None,
     context: dict = Depends(require_role(["admin"])),
 ):
     supabase = get_supabase()
@@ -148,7 +147,20 @@ def create_department(
         "regional_office_id": department.regional_office_id,
     }
     try:
-        rows = _safe_data(supabase.table("departments").insert(payload).execute())
+        start = time.time()
+        rows = safe_data(supabase.table("departments").insert(payload).execute())
+        elapsed_ms = int((time.time() - start) * 1000)
+
+        # Audit log
+        try:
+            from ..services.audit_service import log_config_change
+            log_config_change(
+                supabase, context["user_id"], "create", "department",
+                {"name": department.name, "department_id": rows[0]["id"] if rows else None}
+            )
+        except Exception:
+            pass
+
         return {
             "status": "success",
             "department": rows[0] if rows else payload,
@@ -163,6 +175,7 @@ def create_department(
 def update_department(
     dept_id: str,
     department: DepartmentUpdate,
+    request: Request = None,
     context: dict = Depends(require_role(["admin"])),
 ):
     supabase = get_supabase()
@@ -173,7 +186,24 @@ def update_department(
         raise HTTPException(status_code=400, detail="No fields to update")
 
     try:
+        # Get old values for audit
+        old_resp = safe_data(
+            supabase.table("departments").select("*").eq("id", dept_id).limit(1).execute()
+        )
+        old_value = old_resp[0] if old_resp else None
+
         supabase.table("departments").update(payload).eq("id", dept_id).execute()
+
+        # Audit log
+        try:
+            from ..services.audit_service import log_config_change
+            log_config_change(
+                supabase, context["user_id"], "update", "department",
+                {"department_id": dept_id, "changes": payload}
+            )
+        except Exception:
+            pass
+
         return {
             "status": "success",
             "department_id": dept_id,
@@ -192,10 +222,44 @@ def delete_department(
 ):
     supabase = get_supabase()
     try:
+        # Dependency check
+        from ..services.dependency_analyzer import DependencyAnalyzer
+        analyzer = DependencyAnalyzer(supabase)
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            deps = loop.run_until_complete(analyzer.analyze_department(dept_id))
+        except RuntimeError:
+            deps = {"can_delete": True, "warnings": []}
+
+        if not deps.get("can_delete", True):
+            return {
+                "status": "blocked",
+                "message": "Cannot delete: department has active users",
+                "dependencies": deps,
+            }
+
+        # Get old values for audit
+        old_resp = safe_data(
+            supabase.table("departments").select("name").eq("id", dept_id).limit(1).execute()
+        )
+        old_name = old_resp[0]["name"] if old_resp else "unknown"
+
         supabase.table("user_roles").delete().eq("department_id", dept_id).neq(
             "role", "admin"
         ).execute()
         supabase.table("departments").delete().eq("id", dept_id).execute()
+
+        # Audit log
+        try:
+            from ..services.audit_service import log_config_change
+            log_config_change(
+                supabase, context["user_id"], "delete", "department",
+                {"department_id": dept_id, "name": old_name}
+            )
+        except Exception:
+            pass
+
         return {
             "status": "success",
             "deleted": dept_id,
@@ -225,6 +289,17 @@ def assign_user_to_department(
         supabase.table("user_roles").upsert(
             payload, on_conflict="user_id,department_id"
         ).execute()
+
+        # Audit log
+        try:
+            from ..services.audit_service import log_config_change
+            log_config_change(
+                supabase, context["user_id"], "assign", "user_role",
+                {"target_user": request.user_id, "department_id": dept_id, "role": request.role}
+            )
+        except Exception:
+            pass
+
         return {"status": "success", "assignment": payload, "assigned_by": context["user_id"]}
     except Exception:
         logger.error("Assign user to department failed", exc_info=True)

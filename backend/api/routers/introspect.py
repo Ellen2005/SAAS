@@ -7,6 +7,7 @@ Exposes endpoints that:
   • Suggest analyses based on the discovered schema
   • Run a single suggested analysis on demand
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Any, Optional
@@ -15,6 +16,7 @@ from ..core.auth import require_role
 from ..core.supabase_client import get_supabase
 from ..services import schema_introspector
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/introspect", tags=["introspect"])
 
 
@@ -70,9 +72,9 @@ def discover_schema(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=502, detail=f"Introspection failed: {exc}")
+        import logging
+        logging.getLogger(__name__).error("introspect failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="An internal error occurred. Please try again.")
 
     _SCHEMA_CACHE[user_id] = schema
     return {"cached": False, **schema}
@@ -95,7 +97,8 @@ def auto_map(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
+            logger.error("Auto-map introspection failed", exc_info=True)
+            raise HTTPException(status_code=502, detail="An internal error occurred. Please try again.")
         _SCHEMA_CACHE[user_id] = schema
 
     # Pull the user's semantic fields (via the existing semantic helper).
@@ -156,7 +159,8 @@ def list_suggested_analyses(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
+            logger.error("List suggested analyses introspection failed", exc_info=True)
+            raise HTTPException(status_code=502, detail="An internal error occurred. Please try again.")
         _SCHEMA_CACHE[user_id] = schema
     return {"analyses": schema_introspector.suggest_analyses(schema)}
 
@@ -171,7 +175,8 @@ def run_analysis(
     try:
         result = schema_introspector.run_analysis(user_id, supabase, spec.model_dump())
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        logger.error("Run analysis failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="An internal error occurred. Please try again.")
     return result
 
 

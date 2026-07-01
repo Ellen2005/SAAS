@@ -5,6 +5,7 @@ import { supabase } from './lib/supabaseClient';
 import { AuthProvider, useAuth } from './lib/authContext.jsx';
 import { LangProvider, useLang } from './lib/i18n.jsx';
 import { useInactivityTimeout } from './hooks/useInactivityTimeout';
+import ErrorBoundary from './components/ErrorBoundary';
 
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -183,6 +184,7 @@ function AppShell() {
 
               <main style={{ padding: '32px', maxWidth: '1440px', margin: '0 auto' }}>
                 {isAdmin && <AdminSubNav />}
+                <ErrorBoundary>
                 <Suspense fallback={<PageLoader />}>
                   <Routes>
                     <Route path="/dashboard" element={<Dashboard />} />
@@ -232,6 +234,7 @@ function AppShell() {
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
                   </Routes>
                 </Suspense>
+                </ErrorBoundary>
               </main>
             </div>
           )

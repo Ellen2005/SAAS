@@ -153,8 +153,8 @@ def create_webhook(
             return response.data[0]
         raise HTTPException(status_code=500, detail="Failed to create webhook")
     except Exception as e:
-        logger.error(f"Failed to create webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to create webhook", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.patch("/{webhook_id}")
@@ -206,8 +206,8 @@ def update_webhook(
             return response.data[0]
         raise HTTPException(status_code=500, detail="Failed to update webhook")
     except Exception as e:
-        logger.error(f"Failed to update webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to update webhook", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.delete("/{webhook_id}")
@@ -237,8 +237,8 @@ def delete_webhook(
         
         return {"status": "deleted", "webhook_id": webhook_id}
     except Exception as e:
-        logger.error(f"Failed to delete webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to delete webhook", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/{webhook_id}/logs")
@@ -315,11 +315,45 @@ def test_webhook(
 
 # ── Helper Functions ─────────────────────────────────────────────────────────
 
+def _is_private_ip(hostname: str) -> bool:
+    """Check if hostname resolves to a private/reserved IP (SSRF protection)."""
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(hostname)
+        return ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local
+    except ValueError:
+        # hostname is a domain — resolve it
+        import socket
+        try:
+            resolved = socket.getaddrinfo(hostname, None)
+            for _, _, _, _, sockaddr in resolved:
+                if ipaddress.ip_address(sockaddr[0]).is_private:
+                    return True
+        except (socket.gaierror, OSError):
+            pass
+    return False
+
+
 def _send_webhook(webhook: dict, event_type: EventType, payload: dict):
-    """Send webhook with retry logic."""
+    """Send webhook with retry logic and SSRF protection."""
     import requests
-    
+    from urllib.parse import urlparse
+
     url = webhook["url"]
+    # SSRF protection: block private/internal IPs
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ""
+        if _is_private_ip(hostname):
+            logger.warning("Webhook blocked: URL targets private/internal IP: %s", url)
+            return None
+        if parsed.scheme not in ("http", "https"):
+            logger.warning("Webhook blocked: invalid scheme %s", parsed.scheme)
+            return None
+    except Exception:
+        logger.warning("Webhook URL parse failed: %s", url)
+        return None
+
     headers = webhook.get("headers", {})
     headers["Content-Type"] = "application/json"
     

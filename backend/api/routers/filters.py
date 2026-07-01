@@ -90,8 +90,8 @@ def apply_filters(
             "data": data,
         }
     except Exception as e:
-        logger.error(f"Apply filters error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Apply filters error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/state")
@@ -127,5 +127,5 @@ def save_filter_state(
         }, on_conflict="user_id").execute()
         return {"status": "saved"}
     except Exception as e:
-        logger.error(f"Save filter state error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Save filter state error", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")

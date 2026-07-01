@@ -2,8 +2,14 @@ import os
 import hmac
 import hashlib
 from datetime import datetime, date
-import sib_api_v3_sdk
-from sib_api_v3_sdk.rest import ApiException
+try:
+    import sib_api_v3_sdk
+    from sib_api_v3_sdk.rest import ApiException
+    BREVO_AVAILABLE = True
+except ImportError:
+    sib_api_v3_sdk = None
+    ApiException = Exception
+    BREVO_AVAILABLE = False
 from .chart_service import generate_trend_chart_url
 
 UNSUBSCRIBE_SECRET = os.getenv("UNSUBSCRIBE_SECRET")

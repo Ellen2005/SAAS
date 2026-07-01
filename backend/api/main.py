@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Header
+from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -10,7 +10,6 @@ import os
 import re
 import logging
 from contextlib import asynccontextmanager
-from sqlalchemy import create_engine
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -29,24 +28,20 @@ logger.info(f"Environment loaded from: {env_path}")
 from .core.env_config import validate_environment, configure_cors_origins
 from .core.supabase_client import get_supabase
 from .core.auth import require_role, resolve_user_id
-from .services.email_service import send_automated_briefing, verify_unsubscribe_token
+from .services.email_service import send_automated_briefing
 from .core.scheduler import start_scheduler, shutdown_scheduler
-from .services.etl_service import run_user_etl_pipeline, _get_free_local_port, _replace_db_url_host_port, _start_ssh_tunnel, update_sync_status
-from .services.cache_service import get_cached, set_cached, invalidate_user_cache
-from .services.connection_utils import (
-    detect_db_type,
-    enrich_connection_payload,
-    normalize_credentials,
-    sqlalchemy_engine_kwargs,
-)
+from .services.cache_service import get_cached, set_cached
 from .services.audit_service import log_config_change
+from .core.utils import safe_data
 
 from .routers import departments, users, semantic, validation, admin, heartbeat, templates, introspect, analyst, assistant, analysis, executive_reports, export, dashboards, webhooks, filters, executive_analytics, data_quality, scheduled_reports, email_test  # noqa: F401
+from .routers import admin_ai  # noqa: F401
+from .routers import dashboard as dashboard_router
+from .routers import reports as reports_router
+from .routers import settings as settings_router
+from .routers import etl_routes as etl_router
 from .services.nlq_service import run_nlq
-from .services.custom_report_service import generate_custom_report
 from .services.analysis_engine import run_analysis as run_goal_analysis
-from .services.export_service import export_kpis_csv
-from .services.professional_report_service import generate_goal_analysis_report, ProfessionalReportGenerator
 
 # ── SQL Injection Prevention ──────────────────────────────────────────────────
 _SQL_FORBIDDEN_KEYWORDS = re.compile(
@@ -78,22 +73,7 @@ def validate_sql_read_only(sql: str) -> tuple[bool, str]:
     return True, ""
 
 
-LEGACY_DEMO_KPI_NAMES = frozenset({
-    "net_revenue", "inventory_value", "support_tickets",
-    "Total Revenue", "Inventory Value", "Support Tickets",
-})
-
-
-def _is_legacy_demo_kpi(row: dict) -> bool:
-    """Hide leftover seed/demo KPI rows completely."""
-    name = row.get("kpi_name")
-    return name in LEGACY_DEMO_KPI_NAMES or (name and name.replace("_", " ").title() in LEGACY_DEMO_KPI_NAMES)
-
-
-def _is_legacy_demo_report(row: dict) -> bool:
-    narrative = row.get("narrative") or ""
-    demo_markers = ("Net Revenue is 190,000", "Inventory Value is", "Support Tickets is 150")
-    return all(marker in narrative for marker in demo_markers)
+from .core.constants import LEGACY_DEMO_KPI_NAMES, is_legacy_demo_kpi as _is_legacy_demo_kpi, is_legacy_demo_report as _is_legacy_demo_report
 
 
 @asynccontextmanager
@@ -160,8 +140,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
 
 @app.middleware("http")
@@ -239,6 +219,11 @@ app.include_router(executive_analytics.router)
 app.include_router(data_quality.router)
 app.include_router(scheduled_reports.router)
 app.include_router(email_test.router)
+app.include_router(admin_ai.router)
+app.include_router(dashboard_router.router)
+app.include_router(reports_router.router)
+app.include_router(settings_router.router)
+app.include_router(etl_router.router)
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -300,13 +285,13 @@ def _verify_supabase_token(token: str) -> dict:
 # ── Real-time SSE Stream ──────────────────────────────────────────────────────
 
 @app.get("/api/realtime/stream")
-async def realtime_stream(token: Optional[str] = None, authorization: Optional[str] = Header(None)):
-    """Server-Sent Events stream (heartbeat only). Auth via ?token= or Authorization header."""
+async def realtime_stream(authorization: Optional[str] = Header(None)):
+    """Server-Sent Events stream (heartbeat only). Auth via Authorization header only."""
     from fastapi.responses import StreamingResponse
     import asyncio
     import json
 
-    auth_token = token or (authorization or "").replace("Bearer ", "")
+    auth_token = (authorization or "").replace("Bearer ", "")
     if not auth_token:
         raise HTTPException(status_code=401, detail="Missing authentication")
     
@@ -347,669 +332,7 @@ def read_root():
     return {"message": "Welcome to Enterprise Analytics Platform"}
 
 
-@app.get("/api/summary", response_model=DashboardSummary)
-def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
-    # Try cache first
-    cache_key_str = f"v1:summary:{user_id}"
-    cached = get_cached(cache_key_str)
-    if cached:
-        return cached
-    
-    supabase = get_supabase()
-    try:
-        kpi_resp = supabase.table("kpi_results").select("*").eq("user_id", user_id).order("recorded_at", desc=True).limit(25).execute()
-        anomaly_resp = supabase.table("anomaly_records").select("*").eq("user_id", user_id).order("detected_at", desc=True).limit(25).execute()
-        report_resp = supabase.table("daily_reports").select("*").eq("user_id", user_id).order("report_date", desc=True).limit(10).execute()
-        validation_resp = supabase.table("validation_logs").select("check_type, status, message, details").eq("user_id", user_id).order("created_at", desc=True).limit(20).execute()
-
-        kpis = []
-        if hasattr(kpi_resp, "data") and kpi_resp.data:
-            seen_kpis = set()
-            for item in kpi_resp.data:
-                kpi_name = str(item.get("kpi_name", "unknown"))
-                if _is_legacy_demo_kpi(item) or kpi_name in seen_kpis:
-                    continue
-                seen_kpis.add(kpi_name)
-                try:
-                    kpis.append(KPIResult(
-                        id=str(item.get("id", "")),
-                        kpi_name=kpi_name,
-                        value=float(item.get("value") or 0),
-                        dod_pct=float(item["dod_pct"]) if item.get("dod_pct") is not None else None,
-                        wow_pct=float(item["wow_pct"]) if item.get("wow_pct") is not None else None,
-                        avg_7d=float(item["avg_7d"]) if item.get("avg_7d") is not None else None,
-                        status=str(item.get("status") or "NORMAL"),
-                        recorded_at=str(item.get("recorded_at", "")),
-                    ))
-                except (ValueError, TypeError) as parse_err:
-                    logger.warning(f"KPI parse error: {parse_err} — row: {item}")
-
-        anomalies = []
-        if hasattr(anomaly_resp, "data") and anomaly_resp.data:
-            for item in [row for row in anomaly_resp.data if not _is_legacy_demo_kpi(row)]:
-                try:
-                    anomalies.append(AnomalyRecord(
-                        id=str(item.get("id", "")),
-                        kpi_name=str(item.get("kpi_name", "unknown")),
-                        severity=str(item.get("severity") or "WARNING"),
-                        deviation=float(item.get("deviation") or 0),
-                        context=item.get("context") or {},
-                        detected_at=str(item.get("detected_at", "")),
-                    ))
-                except (ValueError, TypeError) as parse_err:
-                    logger.warning(f"Anomaly parse error: {parse_err} — row: {item}")
-
-        analysis_resp = supabase.table("analysis_runs").select("*").eq("user_id", user_id).eq("status", "completed").order("completed_at", desc=True).limit(1).execute()
-        
-        narrative = "No analytics report generated yet. Go to Dashboard and click Sync Now to generate your first report."
-        last_refreshed = "Never"
-        
-        # Priority 1: Use daily_reports narrative (autonomous narrative from ETL sync)
-        if hasattr(report_resp, "data") and report_resp.data:
-            reports = [row for row in report_resp.data if not _is_legacy_demo_report(row)]
-            if reports:
-                narrative = reports[0].get("narrative") or narrative
-                last_refreshed = str(reports[0]["report_date"])
-        
-        # Priority 2: If no daily report but analysis exists, show analysis summary
-        if narrative.startswith("No analytics") and hasattr(analysis_resp, "data") and analysis_resp.data:
-            analysis = analysis_resp.data[0]
-            analysis_date = analysis.get("completed_at", "")
-            explanation = analysis.get("metrics_json", {}).get("explanation", {})
-            overview = explanation.get("overview") or explanation.get("what_this_means") or ""
-            narrative = f"Latest Analysis: {analysis.get('goal_text', 'Analysis completed')}\n\n{overview or analysis.get('result_summary', 'Analysis completed successfully.')}"
-            last_refreshed = analysis_date[:10] if analysis_date else "Recent"
-
-        summary = DashboardSummary(kpis=kpis, anomalies=anomalies, narrative=narrative, last_refreshed=last_refreshed)
-        summary_dict = summary.model_dump()
-        validation_rows = validation_resp.data if hasattr(validation_resp, "data") and validation_resp.data else []
-        filtered_validation_rows = []
-        for row in validation_rows:
-            msg = row.get("message") or ""
-            if any(legacy.lower() in msg.lower() or legacy.replace("_", " ").lower() in msg.lower() for legacy in LEGACY_DEMO_KPI_NAMES):
-                continue
-            filtered_validation_rows.append(row)
-
-        latest_by_type = {}
-        for row in filtered_validation_rows:
-            latest_by_type.setdefault(row.get("check_type"), row)
-        summary_dict["validation"] = list(latest_by_type.values())
-        try:
-            from .services.kpi_config import resolve_kpi_mode
-            from .services.chart_service import build_kpi_snapshot_chart
-            summary_dict["kpi_mode"] = resolve_kpi_mode(supabase, user_id)
-            summary_dict["snapshot_chart"] = build_kpi_snapshot_chart(kpis)
-        except Exception:
-            summary_dict["kpi_mode"] = {"mode": "auto"}
-            summary_dict["snapshot_chart"] = None
-        # Cache result for 2 minutes
-        set_cached(cache_key_str, summary_dict, ttl=120)
-        return summary_dict
-    except Exception as e:
-        logger.error(f"Summary Fetch Error: {e}", exc_info=True)
-        fallback = DashboardSummary(kpis=[], anomalies=[], narrative="Unable to fetch dashboard summary.", last_refreshed="ERROR")
-        return fallback.model_dump()
-
-
-@app.get("/api/kpis/series")
-def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120, days: int = None):
-    # Try cache first
-    cache_key_str = f"v1:kpi_series:{user_id}:{limit}:{days}"
-    cached = get_cached(cache_key_str)
-    if cached:
-        return cached
-    
-    supabase = get_supabase()
-    try:
-        # Pagination: fetch in chunks if needed
-        fetch_limit = min(800, max(50, limit * 10))
-        query = (
-            supabase.table("kpi_results")
-            .select("kpi_name, value, recorded_at, source")
-            .eq("user_id", user_id)
-            .order("recorded_at", desc=True)
-            .limit(fetch_limit)
-        )
-        
-        # Apply date range filter if days parameter is provided
-        if days and days > 0:
-            from datetime import datetime, timedelta
-            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
-            query = query.gte("recorded_at", cutoff_date)
-        
-        rows = query.execute()
-        raw = rows.data if hasattr(rows, "data") and rows.data else []
-        series: dict[str, list[dict]] = {}
-        for row in raw:
-            if _is_legacy_demo_kpi(row):
-                continue
-            name = str(row.get("kpi_name") or "unknown")
-            series.setdefault(name, [])
-            if len(series[name]) >= limit:
-                continue
-            series[name].append(
-                {
-                    "t": str(row.get("recorded_at") or ""),
-                    "value": float(row.get("value") or 0),
-                    "source": row.get("source") or "etl",
-                }
-            )
-        for key in list(series.keys()):
-            series[key] = list(reversed(series[key]))
-        
-        # Cache for 1 minute
-        set_cached(cache_key_str, {"series": series}, ttl=60)
-        return {"series": series}
-    except Exception:
-        logger.error("KPI series error", exc_info=True)
-        return {"series": {}, "error": "Failed to fetch KPI series."}
-
-
-def _safe_data(response) -> list:
-    return response.data if hasattr(response, "data") and response.data else []
-
-
-@app.get("/api/reports/history")
-def get_reports_history(limit: int = 50, user_id: str = Depends(resolve_user_id)):
-    supabase = get_supabase()
-    try:
-        rows = _safe_data(
-            supabase.table("daily_reports")
-            .select("*")
-            .eq("user_id", user_id)
-            .order("report_date", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        return {"reports": rows}
-    except Exception:
-        logger.error("Reports history error", exc_info=True)
-        return {"reports": [], "error": "Failed to fetch reports history."}
-
-
-@app.get("/api/reports/{report_id}/download")
-def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
-    from fastapi.responses import Response
-    from .services.executive_report_service import render_html_to_pdf
-    from .services.email_service import generate_professional_html_email
-    supabase = get_supabase()
-
-    rows = (
-        supabase.table("daily_reports").select("*")
-        .eq("id", report_id).eq("user_id", user_id).limit(1).execute()
-    )
-    if not rows.data:
-        raise HTTPException(status_code=404, detail="Report not found.")
-    report = rows.data[0]
-
-    kpi_rows = (
-        supabase.table("kpi_results").select("*")
-        .eq("user_id", user_id)
-        .eq("recorded_at", str(report["report_date"]))
-        .execute()
-    )
-    kpis = kpi_rows.data if hasattr(kpi_rows, "data") and kpi_rows.data else []
-    if not kpis:
-        recent = (
-            supabase.table("kpi_results").select("*")
-            .eq("user_id", user_id).order("recorded_at", desc=True).limit(20).execute()
-        )
-        kpis = recent.data if hasattr(recent, "data") and recent.data else []
-
-    anomaly_rows = (
-        supabase.table("anomaly_records").select("*")
-        .eq("user_id", user_id).order("detected_at", desc=True).limit(10).execute()
-    )
-    anomalies = anomaly_rows.data if hasattr(anomaly_rows, "data") and anomaly_rows.data else []
-
-    html = generate_professional_html_email(
-        kpis=kpis,
-        narrative_text=report.get("narrative", ""),
-        chart_url="",
-        anomalies=anomalies,
-        department_name=None,
-        recipient_email="",
-        report_type="Saved",
-        report_period=str(report["report_date"]),
-    )
-
-    # Try to render as PDF, fall back to HTML with print helper
-    try:
-        pdf_bytes = render_html_to_pdf(html)
-        # Check if we got actual PDF bytes (not HTML fallback)
-        if pdf_bytes[:4] == b'%PDF':
-            filename = f"report-{report['report_date']}.pdf"
-            return Response(
-                content=pdf_bytes,
-                media_type="application/pdf",
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-            )
-    except Exception:
-        pass
-
-    # Fallback to HTML with print-to-PDF helper
-    print_helper = (
-        "<script>window.addEventListener('load',()=>{setTimeout(()=>window.print(),300)});</script>"
-        "<style>@media print{.no-print{display:none!important}}</style>"
-    )
-    html = html.replace("</head>", f"{print_helper}</head>", 1)
-
-    filename = f"report-{report['report_date']}.html"
-    return Response(
-        content=html,
-        media_type="text/html",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@app.post("/api/reports/generate")
-def generate_report(background_tasks: BackgroundTasks, context: dict = Depends(require_role(["manager", "admin"]))):
-    """Generate a new AI narrative report based on current KPI data."""
-    supabase = get_supabase()
-    user_id = context["user_id"]
-    try:
-        from .services.etl_service import run_user_etl_pipeline
-        from .services.narrative_service import generate_live_narrative
-        from datetime import date
-        
-        # Run ETL first to get fresh data
-        run_user_etl_pipeline(user_id)
-        
-        # Fetch latest KPIs
-        kpi_rows = supabase.table("kpi_results").select("*").eq("user_id", user_id).order("recorded_at", desc=True).limit(20).execute()
-        kpis = kpi_rows.data if hasattr(kpi_rows, "data") and kpi_rows.data else []
-        
-        # Fetch anomalies
-        anomaly_rows = supabase.table("anomaly_records").select("*").eq("user_id", user_id).order("detected_at", desc=True).limit(10).execute()
-        anomalies = anomaly_rows.data if hasattr(anomaly_rows, "data") and anomaly_rows.data else []
-        
-        report_date = date.today().isoformat()
-        
-        # Generate narrative
-        narrative = generate_live_narrative(
-            kpi_data=kpis,
-            anomaly_data=anomalies,
-            tone="insight-driven",
-            company_name=os.getenv("INSTITUTION_NAME", "CNPS"),
-            report_period=report_date,
-            report_type="Daily",
-        )
-        
-        # Save as daily report
-        supabase.table("daily_reports").insert({
-            "user_id": user_id,
-            "narrative": narrative,
-            "report_date": report_date,
-        }).execute()
-        
-        # Invalidate cache
-        invalidate_user_cache(user_id)
-        
-        return {"status": "generated", "report_date": report_date}
-    except Exception as e:
-        logger.error(f"Report generation error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
-
-
-@app.patch("/api/reports/{report_id}")
-def edit_report_narrative(
-    report_id: str,
-    body: dict,
-    context: dict = Depends(require_role(["manager", "admin"])),
-):
-    narrative = body.get("narrative", "").strip()
-    if not narrative:
-        raise HTTPException(status_code=400, detail="Narrative cannot be empty.")
-    supabase = get_supabase()
-    try:
-        supabase.table("daily_reports").update({"narrative": narrative}).eq("id", report_id).eq("user_id", context["user_id"]).execute()
-        log_config_change(supabase, context["user_id"], "update", "report_narrative", {"report_id": report_id})
-        return {"status": "updated", "report_id": report_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/reports/{report_id}/send")
-def resend_report(
-    report_id: str,
-    background_tasks: BackgroundTasks,
-    context: dict = Depends(require_role(["manager", "admin"])),
-):
-    supabase = get_supabase()
-    try:
-        rows = supabase.table("daily_reports").select("*").eq("id", report_id).eq("user_id", context["user_id"]).limit(1).execute()
-        if not rows.data:
-            raise HTTPException(status_code=404, detail="Report not found.")
-        report = rows.data[0]
-
-        kpi_rows = supabase.table("kpi_results").select("*").eq("user_id", context["user_id"]).order("recorded_at", desc=True).limit(5).execute()
-        anomaly_rows = supabase.table("anomaly_records").select("*").eq("user_id", context["user_id"]).order("detected_at", desc=True).limit(10).execute()
-        kpis = kpi_rows.data if hasattr(kpi_rows, "data") and kpi_rows.data else []
-        anomalies = anomaly_rows.data if hasattr(anomaly_rows, "data") and anomaly_rows.data else []
-
-        import pandas as pd
-        from .services.email_service import send_automated_briefing
-        background_tasks.add_task(
-            send_automated_briefing,
-            context["user_id"], kpis, anomalies,
-            report["narrative"],
-            pd.DataFrame(),
-            "Daily",
-            str(report["report_date"]),
-        )
-        return {"status": "queued", "report_id": report_id}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-class EtlTriggerRequest(BaseModel):
-    analysis_goal: Optional[str] = None
-    preset_slug: Optional[str] = None
-
-
-def _run_etl_with_optional_goal(user_id: str, analysis_goal: str | None, preset_slug: str | None):
-    run_user_etl_pipeline(user_id)
-    if analysis_goal or preset_slug:
-        try:
-            supabase = get_supabase()
-            run_goal_analysis(
-                user_id=user_id,
-                goal_text=analysis_goal or "",
-                preset_slug=preset_slug,
-                supabase=supabase,
-            )
-        except Exception as e:
-            logger.error(f"Goal analysis failed for user {user_id}: {e}", exc_info=True)
-
-
-@app.post("/api/etl/trigger")
-def trigger_etl(
-    background_tasks: BackgroundTasks,
-    context: dict = Depends(require_role(["manager", "admin"])),
-    body: Optional[EtlTriggerRequest] = None,
-):
-    update_sync_status(context["user_id"], "FETCHING_DATA")
-    goal = body.analysis_goal if body else None
-    preset = body.preset_slug if body else None
-    background_tasks.add_task(_run_etl_with_optional_goal, context["user_id"], goal, preset)
-    return {
-        "status": "Data refresh started in the background",
-        "user_id": context["user_id"],
-        "analysis_goal_queued": bool(goal or preset),
-    }
-
-
-@app.get("/api/kpis/export")
-def export_kpis(context: dict = Depends(require_role(["manager", "admin"]))):
-    from fastapi.responses import Response
-    supabase = get_supabase()
-    return Response(
-        content=export_kpis_csv(context["user_id"], supabase),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=cnps_kpis.csv"},
-    )
-
-
-@app.get("/api/dashboard/widgets")
-def get_dashboard_widgets(user_id: str = Depends(resolve_user_id)):
-    supabase = get_supabase()
-    try:
-        defs = supabase.table("kpi_definitions").select("*").order("sort_order").execute()
-        widgets = defs.data if hasattr(defs, "data") and defs.data else []
-    except Exception:
-        widgets = []
-    if not widgets:
-        widgets = [
-            {"name": "total_contributions", "display_name_en": "Total Contributions", "widget_type": "area"},
-            {"name": "pension_disbursement", "display_name_en": "Pension Disbursement", "widget_type": "area"},
-            {"name": "workplace_accident_frequency", "display_name_en": "AT/MP Frequency", "widget_type": "line"},
-            {"name": "regional_contribution_share", "display_name_en": "Contributions by Region", "widget_type": "bar"},
-        ]
-    return {"widgets": widgets, "institution": INSTITUTION_NAME}
-
-
-@app.get("/api/etl/status")
-def get_etl_status(user_id: str = Depends(resolve_user_id)):
-    try:
-        supabase = get_supabase()
-        response = supabase.table("user_preferences").select("last_sync_status").eq("user_id", user_id).execute()
-        if hasattr(response, "data") and response.data:
-            return {"status": response.data[0].get("last_sync_status", "IDLE")}
-        return {"status": "IDLE"}
-    except Exception as e:
-        logger.warning(f"ETL status fetch failed: {e}")
-        return {"status": "IDLE"}
-
-
-@app.get("/api/forecasts")
-def get_forecasts(user_id: str = Depends(resolve_user_id), days: int = None):
-    supabase = get_supabase()
-    try:
-        query = (
-            supabase.table("kpi_forecasts")
-            .select("*")
-            .eq("user_id", user_id)
-            .order("forecast_date")
-        )
-        
-        # Apply date range filter if days parameter is provided
-        if days and days > 0:
-            from datetime import datetime, timedelta
-            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
-            query = query.gte("forecast_date", cutoff_date)
-        
-        rows = query.execute()
-        raw = rows.data if hasattr(rows, "data") and rows.data else []
-        filtered = [
-            r
-            for r in raw
-            if r.get("kpi_name") not in LEGACY_DEMO_KPI_NAMES
-            and r.get("kpi_name", "").replace("_", " ").title() not in LEGACY_DEMO_KPI_NAMES
-        ]
-
-        forecasts = []
-        for f in filtered:
-            forecasts.append(
-                {
-                    **f,
-                    "kpi_name": f.get("kpi_name"),
-                    "forecast_date": f.get("forecast_date"),
-                    "predicted_value": f.get("predicted_value"),
-                    "lower_bound": f.get("lower_bound"),
-                    "upper_bound": f.get("upper_bound"),
-                }
-            )
-
-        return {"forecasts": forecasts}
-    except Exception:
-        logger.error("Forecasts error", exc_info=True)
-        return {"forecasts": [], "error": "Failed to fetch forecasts."}
-
-
-@app.get("/api/settings/preferences")
-def get_user_preferences(user_id: str = Depends(resolve_user_id)):
-    supabase = get_supabase()
-    defaults = {"ai_tone": "insight-driven", "sync_time": "02:00", "last_sync_status": "IDLE"}
-    try:
-        response = supabase.table("user_preferences").select("*").eq("user_id", user_id).execute()
-        if hasattr(response, "data") and response.data:
-            return response.data[0]
-        return defaults
-    except Exception as e:
-        err = str(e).lower()
-        if any(k in err for k in ("getaddrinfo", "connect", "network", "timeout", "disconnected", "eof")):
-            return {**defaults, "warning": "Cannot reach Supabase — using defaults."}
-        return {**defaults, "warning": f"Preferences unavailable: {str(e)[:120]}"}
-
-
-@app.post("/api/settings/preferences")
-def update_user_preferences(prefs: dict, context: dict = Depends(require_role(["manager", "admin"]))):
-    user_id = prefs.get("user_id") or context["user_id"]
-    if not user_id:
-        raise HTTPException(status_code=400, detail="Missing user_id")
-
-    supabase = get_supabase()
-    data = {
-        "user_id": user_id,
-        "ai_tone": prefs.get("ai_tone", "insight-driven"),
-        "sync_time": prefs.get("sync_time", "02:00"),
-        "sync_frequency": prefs.get("sync_frequency", "daily"),
-        "yearly_date": prefs.get("yearly_date", "01-01"),
-        "analysis_instruction": prefs.get("analysis_instruction"),
-    }
-    try:
-        supabase.table("user_preferences").upsert(data, on_conflict="user_id").execute()
-    except Exception as e:
-        if any(k in str(e) for k in ("sync_frequency", "yearly_date", "analysis_instruction")):
-            legacy = {k: v for k, v in data.items() if k not in {"sync_frequency", "yearly_date", "analysis_instruction"}}
-            supabase.table("user_preferences").upsert(legacy, on_conflict="user_id").execute()
-        else:
-            raise
-
-    log_config_change(supabase, user_id, "update", "preferences", {k: v for k, v in data.items() if k != "user_id"})
-    return {"status": "success", "preferences": data}
-
-
-@app.post("/api/test-connection")
-def test_db_connection(connection_data: dict):
-    enriched = enrich_connection_payload(connection_data)
-    db_url = enriched.get("credentials")
-    connection_method = enriched.get("connection_method") or "direct"
-    connection_options = enriched.get("connection_options") or connection_data.get("connection_options") or {}
-    db_type = enriched.get("db_type") or detect_db_type(db_url or "", connection_data.get("db_type"))
-    if not db_url:
-        raise HTTPException(status_code=400, detail="Missing connection string (credentials)")
-
-    if db_type == "mongodb":
-        try:
-            import pymongo
-            client = pymongo.MongoClient(db_url, serverSelectionTimeoutMS=8000)
-            client.admin.command("ping")
-            return {"status": "success", "message": "MongoDB connection verified!"}
-        except ImportError:
-            return {"status": "error", "message": "pymongo not installed. Run: pip install pymongo"}
-        except Exception as e:
-            return {"status": "error", "message": f"MongoDB Error: {str(e)}"}
-
-    engine = None
-    tunnel_proc = None
-    try:
-        db_url_for_test = db_url
-        if connection_method == "ssh_tunnel":
-            ssh_host = connection_options.get("ssh_host") or connection_data.get("host")
-            ssh_user = connection_options.get("ssh_user")
-            remote_host = connection_options.get("remote_db_host") or connection_data.get("host")
-            remote_port = connection_data.get("port")
-            if not all([ssh_host, ssh_user, remote_host, remote_port]):
-                raise HTTPException(status_code=400, detail="SSH tunnel test requires SSH host, user, remote DB host, and port.")
-            local_port = _get_free_local_port()
-            tunnel_proc = _start_ssh_tunnel(ssh_host=str(ssh_host), ssh_user=str(ssh_user), remote_host=str(remote_host), remote_port=int(remote_port), local_port=int(local_port))
-            db_url_for_test = _replace_db_url_host_port(db_url, "127.0.0.1", int(local_port))
-
-        engine = create_engine(
-            normalize_credentials(db_url_for_test, db_type),
-            **sqlalchemy_engine_kwargs(db_url_for_test, db_type),
-        )
-        with engine.connect() as conn:
-            from sqlalchemy import text
-            if db_type == "oracle":
-                conn.execute(text("SELECT 1 FROM DUAL"))
-            else:
-                conn.execute(text("SELECT 1"))
-        return {"status": "success", "message": "Connection verified!"}
-    except Exception as e:
-        import traceback
-        err_msg = str(e)
-        if "ORA-01109" in err_msg:
-            err_msg += "\n\nYour Oracle PDB is not OPEN. Run this in SQL*Plus as sysdba:\n  ALTER PLUGGABLE DATABASE ORCLPDB OPEN;\n  ALTER PLUGGABLE DATABASE ORCLPDB SAVE STATE;"
-        traceback.print_exc()
-        return {"status": "error", "message": f"Database Error: {err_msg}"}
-    finally:
-        if engine is not None:
-            try:
-                engine.dispose()
-            except Exception as e:
-                logger.debug(f"Engine dispose failed (non-critical): {e}")
-        if tunnel_proc is not None:
-            try:
-                tunnel_proc.terminate()
-                tunnel_proc.wait(timeout=5)
-            except Exception:
-                try:
-                    tunnel_proc.kill()
-                except Exception:
-                    pass
-
-
-@app.post("/api/settings/connection")
-def save_db_connection(conn_data: dict, context: dict = Depends(require_role(["manager", "admin"]))):
-    user_id = conn_data.get("user_id") or context["user_id"]
-    if not user_id:
-        raise HTTPException(status_code=400, detail="Missing user_id")
-
-    enriched = enrich_connection_payload(conn_data)
-    if not enriched.get("credentials"):
-        raise HTTPException(status_code=400, detail="Missing connection string (credentials)")
-
-    from .services.connection_crypto import encrypt_credentials
-    stored_credentials = encrypt_credentials(enriched.get("credentials"))
-
-    supabase = get_supabase()
-    data = {
-        "user_id": user_id,
-        "db_type": enriched.get("db_type", "postgresql"),
-        "host": enriched.get("host") or "direct",
-        "port": enriched.get("port") if enriched.get("port") is not None else 0,
-        "db_name": enriched.get("db_name") or "default",
-        "credentials": stored_credentials,
-        "read_only": True,
-        "connection_method": enriched.get("connection_method", "direct"),
-        "connection_options": enriched.get("connection_options"),
-    }
-    try:
-        existing = supabase.table("database_connections").select("id").eq("user_id", user_id).limit(1).execute()
-        has_existing = bool(getattr(existing, "data", None))
-        if has_existing:
-            supabase.table("database_connections").update(data).eq("user_id", user_id).execute()
-        else:
-            supabase.table("database_connections").insert(data).execute()
-    except Exception as e:
-        err = str(e)
-        if "connection_method" in err or "connection_options" in err:
-            legacy = {k: v for k, v in data.items() if k not in {"connection_method", "connection_options"}}
-            existing = supabase.table("database_connections").select("id").eq("user_id", user_id).limit(1).execute()
-            if bool(getattr(existing, "data", None)):
-                supabase.table("database_connections").update(legacy).eq("user_id", user_id).execute()
-            else:
-                supabase.table("database_connections").insert(legacy).execute()
-        elif "value too long" in err.lower() or "character varying" in err.lower():
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "Connection string is too long for the current database schema. "
-                    "Run backend/migrations/006_fix_database_connections.sql in Supabase SQL Editor, then retry."
-                ),
-            ) from e
-        else:
-            raise HTTPException(status_code=500, detail=f"Failed to save connection: {err}") from e
-
-    log_config_change(supabase, user_id, "update", "connection", {"db_type": data["db_type"], "host": data["host"], "connection_method": data["connection_method"]})
-    return {"status": "success", "message": "Connection details saved successfully."}
-
-
-@app.get("/api/unsubscribe")
-def unsubscribe(email: str, token: str):
-    if not verify_unsubscribe_token(email, token):
-        raise HTTPException(status_code=400, detail="Invalid or expired unsubscribe link.")
-    supabase = get_supabase()
-    try:
-        supabase.table("notification_recipients").delete().eq("email", email).execute()
-        return {"status": "unsubscribed", "email": email}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to unsubscribe: {str(e)}")
-
+# ── Models ────────────────────────────────────────────────────────────────────
 
 class NLQRequest(BaseModel):
     question: str
@@ -1029,6 +352,7 @@ def build_custom_chart(
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
     from .services.chart_service import build_custom_chart_spec
+    from sqlalchemy import create_engine
     from sqlalchemy import text as sql_text
 
     supabase = get_supabase()
@@ -1110,68 +434,6 @@ def natural_language_query(
     return result
 
 
-class CustomReportRequest(BaseModel):
-    instruction: str
-    report_scope: str = "my_department"
-    format_type: str = "narrative"
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    department_ids: Optional[List[str]] = None
-    kpi_names: Optional[List[str]] = None
-
-
-@app.post("/api/reports/custom")
-def create_custom_report(
-    body: CustomReportRequest,
-    context: dict = Depends(require_role(["manager", "admin"])),
-):
-    if not body.instruction.strip():
-        raise HTTPException(status_code=400, detail="Instruction cannot be empty.")
-    supabase = get_supabase()
-    try:
-        run_goal_analysis(
-            user_id=context["user_id"],
-            goal_text=body.instruction.strip(),
-            supabase=supabase,
-        )
-    except Exception:
-        pass
-    result = generate_custom_report(
-        user_id=context["user_id"],
-        instruction=body.instruction.strip(),
-        report_scope=body.report_scope,
-        format_type=body.format_type,
-        date_from=body.date_from,
-        date_to=body.date_to,
-        department_ids=body.department_ids,
-        kpi_names=body.kpi_names,
-        supabase=supabase,
-        role=context.get("role", "manager"),
-    )
-    return result
-
-
-@app.post("/api/reports/custom/save")
-def save_custom_report(
-    body: dict,
-    context: dict = Depends(require_role(["manager", "admin"])),
-):
-    narrative = body.get("narrative", "").strip()
-    instruction = body.get("instruction", "Custom report")
-    if not narrative:
-        raise HTTPException(status_code=400, detail="Narrative cannot be empty.")
-    supabase = get_supabase()
-    try:
-        supabase.table("daily_reports").insert({
-            "user_id": context["user_id"],
-            "narrative": f"[Custom: {instruction[:80]}]\n\n{narrative}",
-            "report_date": datetime.now(UTC).date().isoformat(),
-        }).execute()
-        return {"status": "saved"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/api/admin/test-email")
 def send_test_email(
     body: dict,
@@ -1205,9 +467,11 @@ def send_test_email(
         ))
         return {"status": "sent", "message_id": resp.message_id, "to": to_email}
     except ApiException as e:
-        raise HTTPException(status_code=502, detail=f"Brevo error: {getattr(e, 'body', str(e))}")
+        logger.error(f"Brevo API error: {getattr(e, 'body', str(e))}", exc_info=True)
+        raise HTTPException(status_code=502, detail="Email service error. Please try again later.")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Email send error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to send email.")
 
 
 @app.get("/api/audit-log")
@@ -1219,220 +483,3 @@ def get_audit_log(limit: int = 50, context: dict = Depends(require_role(["manage
     except Exception:
         logger.error("Audit log error", exc_info=True)
         return {"logs": [], "error": "Failed to fetch audit logs."}
-
-
-# ========== PROFESSIONAL REPORT GENERATION ==========
-
-class GoalAnalysisReportRequest(BaseModel):
-    analysis_id: Optional[str] = None
-    goal_text: Optional[str] = None
-    format: str = "pdf"  # "pdf" or "excel"
-
-
-@app.post("/api/reports/generate-professional")
-def generate_professional_report(
-    request: GoalAnalysisReportRequest,
-    context: dict = Depends(require_role(["manager", "admin"]))
-):
-    """Generate a professional A4 PDF/Excel report from goal analysis"""
-    from fastapi.responses import FileResponse
-    import tempfile
-    from pathlib import Path
-    
-    supabase = get_supabase()
-    user_id = context["user_id"]
-    
-    try:
-        # Get analysis result if ID provided
-        analysis_result = {}
-        if request.analysis_id:
-            analysis_resp = supabase.table("analysis_runs").select("*").eq("id", request.analysis_id).eq("user_id", user_id).limit(1).execute()
-            if hasattr(analysis_resp, "data") and analysis_resp.data:
-                analysis_result = analysis_resp.data[0]
-        
-        # Override with provided goal text
-        if request.goal_text:
-            analysis_result["goal_text"] = request.goal_text
-        if not analysis_result.get("goal_text"):
-            analysis_result["goal_text"] = "Data Analysis Report"
-        
-        # Generate report in user-specific directory to avoid collisions
-        user_report_dir = os.path.join(tempfile.gettempdir(), f"reports_{user_id}")
-        os.makedirs(user_report_dir, exist_ok=True)
-        
-        result = generate_goal_analysis_report(
-            user_id=user_id,
-            analysis_result=analysis_result,
-            supabase=supabase,
-            institution_name=os.getenv("INSTITUTION_NAME", "CNPS"),
-            output_dir=user_report_dir
-        )
-        
-        # Save report record to database
-        report_record = {
-            "user_id": user_id,
-            "report_type": "goal_analysis",
-            "file_path": result["pdf"],
-            "excel_path": result.get("excel"),
-            "report_id": result["report_id"],
-            "title": analysis_result.get("goal_text", "Goal Analysis Report")[:80],
-            "status": "generated"
-        }
-        supabase.table("reports").insert(report_record).execute()
-        
-        return {
-            "status": "success",
-            "report_id": result["report_id"],
-            "pdf_path": result["pdf"],
-            "excel_path": result.get("excel"),
-            "download_url": f"/api/reports/download/{result['report_id']}?format=pdf",
-            "excel_url": f"/api/reports/download/{result['report_id']}?format=excel"
-        }
-    
-    except Exception as e:
-        logger.error(f"Professional report generation error: {e}", exc_info=True)
-        # Don't leak internal details to client
-        raise HTTPException(status_code=500, detail="Report generation failed. Please try again or contact support.")
-
-
-@app.get("/api/reports/download/{report_id}")
-def download_professional_report(
-    report_id: str,
-    format: str = "pdf",
-    context: dict = Depends(require_role(["manager", "admin"]))
-):
-    """Download generated report in PDF or Excel format"""
-    from fastapi.responses import FileResponse
-    import os
-    from pathlib import Path
-    
-    supabase = get_supabase()
-    user_id = context["user_id"]
-    
-    # Fetch report record
-    report_resp = supabase.table("reports").select("*").eq("report_id", report_id).eq("user_id", user_id).limit(1).execute()
-    if not hasattr(report_resp, "data") or not report_resp.data:
-        raise HTTPException(status_code=404, detail="Report not found")
-    
-    report = report_resp.data[0]
-    
-    # Determine file path - SECURITY: Validate and sanitize path
-    if format == "excel":
-        file_path = report.get("excel_path") or report.get("file_path", "").replace(".pdf", ".xlsx")
-        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        filename = f"report_{report_id}.xlsx"
-    else:
-        file_path = report.get("file_path")
-        media_type = "application/pdf"
-        filename = f"report_{report_id}.pdf"
-    
-    # SECURITY: Validate file path to prevent directory traversal
-    if not file_path:
-        raise HTTPException(status_code=404, detail="Report file path not found")
-    
-    # Normalize and validate path
-    try:
-        file_path = os.path.normpath(file_path)
-        # Ensure path is within allowed directory
-        allowed_dir = os.path.normpath(tempfile.gettempdir())
-        if not file_path.startswith(allowed_dir):
-            logger.warning(f"Attempted path traversal attack: {file_path} from user {user_id}")
-            raise HTTPException(status_code=403, detail="Access denied")
-    except Exception as e:
-        logger.error(f"Path validation error: {e}")
-        raise HTTPException(status_code=400, detail="Invalid file path")
-    
-    if not os.path.exists(file_path) or not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="Report file not found")
-    
-    return FileResponse(
-        path=file_path,
-        media_type=media_type,
-        filename=filename
-    )
-
-
-@app.get("/api/reports/professional/list")
-def list_professional_reports(
-    limit: int = 50,
-    context: dict = Depends(require_role(["manager", "admin"]))
-):
-    """List all generated professional reports"""
-    supabase = get_supabase()
-    user_id = context["user_id"]
-    
-    try:
-        rows = supabase.table("reports").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
-        reports = rows.data if hasattr(rows, "data") and rows.data else []
-        
-        return {"reports": reports}
-    except Exception as e:
-        logger.error(f"List reports error: {e}", exc_info=True)
-        return {"reports": [], "error": "Failed to fetch reports"}
-
-
-@app.delete("/api/reports/professional/{report_id}")
-def delete_professional_report(
-    report_id: str,
-    context: dict = Depends(require_role(["manager", "admin"]))
-):
-    """Delete a generated report"""
-    import os
-    from pathlib import Path
-    
-    supabase = get_supabase()
-    user_id = context["user_id"]
-    
-    # Fetch report
-    report_resp = supabase.table("reports").select("*").eq("report_id", report_id).eq("user_id", user_id).limit(1).execute()
-    if not hasattr(report_resp, "data") or not report_resp.data:
-        raise HTTPException(status_code=404, detail="Report not found")
-    
-    report = report_resp.data[0]
-    
-    # Delete files with logging
-    for path_key in ["file_path", "excel_path"]:
-        file_path = report.get(path_key)
-        if file_path:
-            try:
-                file_path = os.path.normpath(file_path)
-                if os.path.exists(file_path) and os.path.isfile(file_path):
-                    os.remove(file_path)
-                    logger.info(f"Deleted report file: {file_path}")
-            except Exception as e:
-                logger.warning(f"Could not delete file {file_path}: {e}")
-    
-    # Delete database record
-    supabase.table("reports").delete().eq("report_id", report_id).eq("user_id", user_id).execute()
-    
-    return {"status": "deleted", "report_id": report_id}
-
-
-class NarrativeUpdateRequest(BaseModel):
-    narrative: str
-
-
-@app.patch("/api/reports/professional/{report_id}/narrative")
-def update_report_narrative(
-    report_id: str,
-    body: NarrativeUpdateRequest,
-    context: dict = Depends(require_role(["manager", "admin"]))
-):
-    """Update report narrative (for editing)"""
-    supabase = get_supabase()
-    user_id = context["user_id"]
-    
-    narrative = body.narrative.strip()
-    if not narrative:
-        raise HTTPException(status_code=400, detail="Narrative cannot be empty")
-    
-    if len(narrative) > 100000:  # 100KB limit
-        raise HTTPException(status_code=400, detail="Narrative too long (max 100KB)")
-    
-    # Update report
-    supabase.table("reports").update({
-        "narrative": narrative,
-        "updated_at": datetime.now(UTC).isoformat()
-    }).eq("report_id", report_id).eq("user_id", user_id).execute()
-    
-    return {"status": "updated", "report_id": report_id}

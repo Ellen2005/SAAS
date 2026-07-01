@@ -73,12 +73,23 @@ Schema:
 {schema_hint}
 """
     try:
-        completion = execute_groq_completion(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=500,
-            model=get_groq_model(),
-        )
+        try:
+            from .ai_orchestrator import AIOrchestrator
+            orchestrator = AIOrchestrator()
+            result = orchestrator.execute_sync(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=500,
+                model=get_groq_model(),
+            )
+            completion = result
+        except Exception:
+            completion = execute_groq_completion(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=500,
+                model=get_groq_model(),
+            )
         raw = completion.choices[0].message.content.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -279,12 +290,23 @@ IMPORTANT:
 - Recommendations should be actionable and specific to CNPS context
 """
     try:
-        completion = execute_groq_completion(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=1500,
-            model=get_groq_model(),
-        )
+        try:
+            from .ai_orchestrator import AIOrchestrator
+            orchestrator = AIOrchestrator()
+            result = orchestrator.execute_sync(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=1500,
+                model=get_groq_model(),
+            )
+            completion = result
+        except Exception:
+            completion = execute_groq_completion(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=1500,
+                model=get_groq_model(),
+            )
         raw = completion.choices[0].message.content.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]

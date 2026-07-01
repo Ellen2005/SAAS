@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from ..core.auth import require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
+from ..core.utils import safe_data
 from ..services.etl_service import run_user_etl_pipeline
 
 logger = logging.getLogger(__name__)
@@ -24,10 +25,6 @@ class IngestPayload(BaseModel):
     department_breakdown: Optional[dict] = None
 
 
-def _safe_data(response) -> list:
-    return response.data if hasattr(response, "data") and response.data else []
-
-
 @router.get("/heartbeat/status")
 def heartbeat_status(user_id: str = Depends(resolve_user_id)):
     """
@@ -36,7 +33,7 @@ def heartbeat_status(user_id: str = Depends(resolve_user_id)):
     supabase = get_supabase()
 
     try:
-        user_roles = _safe_data(
+        user_roles = safe_data(
             supabase.table("user_roles")
             .select("department_id, role")
             .eq("user_id", user_id)
@@ -48,7 +45,7 @@ def heartbeat_status(user_id: str = Depends(resolve_user_id)):
         )
         department_name = None
         if department_id:
-            dept_rows = _safe_data(
+            dept_rows = safe_data(
                 supabase.table("departments")
                 .select("name")
                 .eq("id", department_id)
@@ -58,7 +55,7 @@ def heartbeat_status(user_id: str = Depends(resolve_user_id)):
             if dept_rows:
                 department_name = dept_rows[0].get("name")
 
-        kpi_rows = _safe_data(
+        kpi_rows = safe_data(
             supabase.table("kpi_results")
             .select("recorded_at")
             .eq("user_id", user_id)
@@ -66,7 +63,7 @@ def heartbeat_status(user_id: str = Depends(resolve_user_id)):
             .limit(1)
             .execute()
         )
-        pref_rows = _safe_data(
+        pref_rows = safe_data(
             supabase.table("user_preferences")
             .select("last_sync_status")
             .eq("user_id", user_id)
@@ -79,7 +76,7 @@ def heartbeat_status(user_id: str = Depends(resolve_user_id)):
             .eq("user_id", user_id)
             .execute()
         )
-        validation_rows = _safe_data(
+        validation_rows = safe_data(
             supabase.table("validation_logs")
             .select("status")
             .eq("user_id", user_id)

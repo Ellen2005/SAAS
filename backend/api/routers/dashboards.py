@@ -182,8 +182,8 @@ def create_dashboard(
             return response.data[0]
         raise HTTPException(status_code=500, detail="Failed to create dashboard")
     except Exception as e:
-        logger.error(f"Failed to create dashboard: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to create dashboard", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.patch("/{dashboard_id}")
@@ -235,8 +235,8 @@ def update_dashboard(
             return response.data[0]
         raise HTTPException(status_code=500, detail="Failed to update dashboard")
     except Exception as e:
-        logger.error(f"Failed to update dashboard: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to update dashboard", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.delete("/{dashboard_id}")
@@ -268,8 +268,8 @@ def delete_dashboard(
         
         return {"status": "deleted", "dashboard_id": dashboard_id}
     except Exception as e:
-        logger.error(f"Failed to delete dashboard: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to delete dashboard", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.post("/{dashboard_id}/share")
@@ -306,8 +306,8 @@ def share_dashboard(
         
         return {"status": "shared", "dashboard_id": dashboard_id, "shared_with": updated_shared}
     except Exception as e:
-        logger.error(f"Failed to share dashboard: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to share dashboard", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.post("/{dashboard_id}/unshare")
@@ -344,8 +344,8 @@ def unshare_dashboard(
         
         return {"status": "unshared", "dashboard_id": dashboard_id, "shared_with": updated_shared}
     except Exception as e:
-        logger.error(f"Failed to unshare dashboard: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to unshare dashboard", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/templates/list")
@@ -404,5 +404,5 @@ def duplicate_dashboard(
             return response.data[0]
         raise HTTPException(status_code=500, detail="Failed to duplicate dashboard")
     except Exception as e:
-        logger.error(f"Failed to duplicate dashboard: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to duplicate dashboard", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")

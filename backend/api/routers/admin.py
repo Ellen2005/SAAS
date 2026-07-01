@@ -6,13 +6,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from ..core.auth import require_role
 from ..core.supabase_client import get_supabase
+from ..core.utils import safe_data
 from ..services.etl_service import run_user_etl_pipeline
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
-
-def _safe_data(response) -> list:
-    return response.data if hasattr(response, "data") and response.data else []
 
 
 @router.get("/summary")
@@ -23,24 +21,24 @@ def get_admin_summary(context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
 
     try:
-        departments = _safe_data(
+        departments = safe_data(
             supabase.table("departments").select("*").order("created_at").execute()
         )
-        kpi_rows = _safe_data(
+        kpi_rows = safe_data(
             supabase.table("kpi_results")
             .select("*, departments(name)")
             .order("recorded_at", desc=True)
             .limit(500)
             .execute()
         )
-        anomaly_rows = _safe_data(
+        anomaly_rows = safe_data(
             supabase.table("anomaly_records")
             .select("*")
             .order("detected_at", desc=True)
             .limit(200)
             .execute()
         )
-        report_rows = _safe_data(
+        report_rows = safe_data(
             supabase.table("daily_reports")
             .select("*")
             .order("report_date", desc=True)
@@ -158,7 +156,7 @@ def get_combined_report(
         if report_date:
             query = query.eq("report_date", report_date)
 
-        rows = _safe_data(query.limit(1).execute())
+        rows = safe_data(query.limit(1).execute())
         if rows:
             return {"report": rows[0], "requested_by": context["user_id"]}
         return {"report": None, "message": "No combined report found."}
@@ -171,7 +169,7 @@ def get_combined_report(
 def get_kpi_lineage(kpi_id: str, context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
     try:
-        kpi_rows = _safe_data(
+        kpi_rows = safe_data(
             supabase.table("kpi_results")
             .select("*, departments(name)")
             .eq("id", kpi_id)
@@ -186,7 +184,7 @@ def get_kpi_lineage(kpi_id: str, context: dict = Depends(require_role(["admin"])
         if kpi.get("departments"):
             department_name = kpi["departments"].get("name")
 
-        lineage_records = _safe_data(
+        lineage_records = safe_data(
             supabase.table("source_lineage_records")
             .select("*")
             .eq("batch_source_id", kpi.get("source_id"))
@@ -195,7 +193,7 @@ def get_kpi_lineage(kpi_id: str, context: dict = Depends(require_role(["admin"])
             .execute()
         )
 
-        related_kpis = _safe_data(
+        related_kpis = safe_data(
             supabase.table("kpi_results")
             .select("id, kpi_name, value, recorded_at")
             .eq("department_id", kpi.get("department_id"))
@@ -223,7 +221,7 @@ def get_kpi_lineage(kpi_id: str, context: dict = Depends(require_role(["admin"])
 def get_admin_heartbeat_status(context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
     try:
-        departments = _safe_data(
+        departments = safe_data(
             supabase.table("departments")
             .select("id, name, heartbeat_schedule, heartbeat_time")
             .order("created_at")
@@ -232,7 +230,7 @@ def get_admin_heartbeat_status(context: dict = Depends(require_role(["admin"])))
 
         statuses = []
         for department in departments:
-            kpi_rows = _safe_data(
+            kpi_rows = safe_data(
                 supabase.table("kpi_results")
                 .select("recorded_at")
                 .eq("department_id", department["id"])
@@ -240,7 +238,7 @@ def get_admin_heartbeat_status(context: dict = Depends(require_role(["admin"])))
                 .limit(1)
                 .execute()
             )
-            validation_rows = _safe_data(
+            validation_rows = safe_data(
                 supabase.table("validation_logs")
                 .select("status")
                 .eq("department_id", department["id"])
@@ -285,7 +283,7 @@ def trigger_department_etl(
 ):
     supabase = get_supabase()
     try:
-        users = _safe_data(
+        users = safe_data(
             supabase.table("user_roles").select("user_id").eq("department_id", dept_id).execute()
         )
         if not users:

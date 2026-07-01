@@ -931,7 +931,7 @@ def suggest_field_mappings(
     groq_key = os.getenv("GROQ_API_KEY")
     if groq_key:
         try:
-            from .groq_utils import execute_groq_completion, get_groq_model
+            from .ai_orchestrator import AIOrchestrator
             prompt = (
                 "You are a data-mapping assistant. Given a list of SEMANTIC FIELDS "
                 "and a list of CANDIDATE COLUMNS from a customer database, return a "
@@ -942,12 +942,14 @@ def suggest_field_mappings(
                 f"CANDIDATE COLUMNS:\n{json.dumps(columns[:300], indent=2)}\n\n"
                 "Return JSON only."
             )
-            completion = execute_groq_completion(
+            orchestrator = AIOrchestrator()
+            result = orchestrator.execute_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=1500,
                 model=get_groq_model(),
             )
+            completion = result
             raw = completion.choices[0].message.content.strip()
             if raw.startswith("```"):
                 raw = raw.split("```")[1]

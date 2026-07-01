@@ -1,5 +1,10 @@
 import os
-import httpx
+try:
+    import httpx
+    HTTPX_AVAILABLE = True
+except ImportError:
+    httpx = None
+    HTTPX_AVAILABLE = False
 import logging
 import json
 from datetime import datetime, date
@@ -197,30 +202,43 @@ def generate_live_narrative(
             custom_format=custom_format,
         )
 
-    # 1. Groq (primary)
+    # 1. Groq (primary) via orchestrator
     if groq_api_key:
         try:
-            completion = execute_groq_completion(
+            from .ai_orchestrator import AIOrchestrator
+            orchestrator = AIOrchestrator()
+            result = orchestrator.execute_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.6,
                 max_tokens=900,
                 model=get_groq_model(),
             )
-            return completion.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Groq API Error: {e}")
+            return result.choices[0].message.content
+        except Exception as e1:
+            logger.error(f"Orchestrator Error: {e1}")
+            try:
+                completion = execute_groq_completion(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.6,
+                    max_tokens=900,
+                    model=get_groq_model(),
+                )
+                return completion.choices[0].message.content
+            except Exception as e:
+                logger.error(f"Groq API Error: {e}")
 
     # 2. Ollama (fallback)
-    try:
-        response = httpx.post(
-            "http://localhost:11434/api/generate",
-            json={"model": "llama3", "prompt": prompt, "stream": False},
-            timeout=15.0,
-        )
-        if response.status_code == 200:
-            return response.json().get("response")
-    except Exception as e:
-        logger.warning(f"Ollama Fallback Failed: {e}")
+    if HTTPX_AVAILABLE:
+        try:
+            response = httpx.post(
+                "http://localhost:11434/api/generate",
+                json={"model": "llama3", "prompt": prompt, "stream": False},
+                timeout=15.0,
+            )
+            if response.status_code == 200:
+                return response.json().get("response")
+        except Exception as e:
+            logger.warning(f"Ollama Fallback Failed: {e}")
 
     # 3. Template fallback
     return _build_fallback_report(kpi_data, anomaly_data, company_name, report_period, report_type)
@@ -305,31 +323,44 @@ CRITICAL RULES:
 5. Keep it straight, forward, simple, and professional. Write the complete narrative. No placeholders. Max 350 words.
 """
 
-    # 1. Groq (primary)
+    # 1. Groq (primary) via orchestrator
     groq_api_key = os.getenv("GROQ_API_KEY")
     if groq_api_key:
         try:
-            completion = execute_groq_completion(
+            from .ai_orchestrator import AIOrchestrator
+            orchestrator = AIOrchestrator()
+            result = orchestrator.execute_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
                 max_tokens=600,
                 model=get_groq_model(),
             )
-            return completion.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Groq API Error in overview narrative: {e}")
+            return result.choices[0].message.content
+        except Exception as e1:
+            logger.error(f"Orchestrator Error in overview narrative: {e1}")
+            try:
+                completion = execute_groq_completion(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                    max_tokens=600,
+                    model=get_groq_model(),
+                )
+                return completion.choices[0].message.content
+            except Exception as e:
+                logger.error(f"Groq API Error in overview narrative: {e}")
 
     # 2. Ollama (fallback)
-    try:
-        response = httpx.post(
-            "http://localhost:11434/api/generate",
-            json={"model": "llama3", "prompt": prompt, "stream": False},
-            timeout=15.0,
-        )
-        if response.status_code == 200:
-            return response.json().get("response")
-    except Exception as e:
-        logger.warning(f"Ollama Overview Fallback Failed: {e}")
+    if HTTPX_AVAILABLE:
+        try:
+            response = httpx.post(
+                "http://localhost:11434/api/generate",
+                json={"model": "llama3", "prompt": prompt, "stream": False},
+                timeout=15.0,
+            )
+            if response.status_code == 200:
+                return response.json().get("response")
+        except Exception as e:
+            logger.warning(f"Ollama Overview Fallback Failed: {e}")
 
     # 3. Fallback narrative template (if LLMs fail or are offline)
     table_names = [t.get("name", "").lower() for t in tables]
@@ -369,6 +400,13 @@ def _query_source_database(user_id: str, supabase, analysis_focus: str = None) -
     from .connection_pool import get_engine
     from sqlalchemy import text as sql_text
     import pandas as pd
+
+    def _qident(name, dialect):
+        """Quote a SQL identifier to prevent injection."""
+        if dialect == "oracle":
+            return name.upper()
+        q = '"' if dialect != "mysql" else "`"
+        return f"{q}{name}{q}"
 
     context = {
         "tables_discovered": [],
@@ -415,9 +453,10 @@ def _query_source_database(user_id: str, supabase, analysis_focus: str = None) -
             for tbl in all_tables[:30]:  # Limit to 30 tables
                 try:
                     # Get columns
+                    qtbl = _qident(tbl, db_type)
                     if db_type == "oracle":
                         cols_sql = sql_text(
-                            f"SELECT column_name, data_type FROM user_tab_columns WHERE table_name = '{tbl}' ORDER BY column_id"
+                            f"SELECT column_name, data_type FROM user_tab_columns WHERE table_name = '{tbl.upper()}' ORDER BY column_id"
                         )
                     elif db_type == "postgresql":
                         cols_sql = sql_text(
@@ -447,7 +486,7 @@ def _query_source_database(user_id: str, supabase, analysis_focus: str = None) -
 
                     # Get row count
                     try:
-                        count_sql = sql_text(f"SELECT COUNT(*) FROM {tbl}")
+                        count_sql = sql_text(f"SELECT COUNT(*) FROM {_qident(tbl, db_type)}")
                         count_result = conn.execute(count_sql)
                         context["table_samples"][tbl]["row_count"] = count_result.scalar()
                     except Exception:
@@ -456,16 +495,16 @@ def _query_source_database(user_id: str, supabase, analysis_focus: str = None) -
                     # Get recent data (last 10 rows) — order by date column if available
                     try:
                         if date_cols:
-                            order_col = date_cols[0]
+                            order_col = _qident(date_cols[0], db_type)
                             if db_type == "oracle":
-                                sample_sql = sql_text(f"SELECT * FROM {tbl} ORDER BY {order_col} DESC FETCH FIRST 10 ROWS ONLY")
+                                sample_sql = sql_text(f"SELECT * FROM {_qident(tbl, db_type)} ORDER BY {order_col} DESC FETCH FIRST 10 ROWS ONLY")
                             else:
-                                sample_sql = sql_text(f"SELECT * FROM {tbl} ORDER BY {order_col} DESC LIMIT 10")
+                                sample_sql = sql_text(f"SELECT * FROM {_qident(tbl, db_type)} ORDER BY {order_col} DESC LIMIT 10")
                         else:
                             if db_type == "oracle":
-                                sample_sql = sql_text(f"SELECT * FROM {tbl} FETCH FIRST 10 ROWS ONLY")
+                                sample_sql = sql_text(f"SELECT * FROM {_qident(tbl, db_type)} FETCH FIRST 10 ROWS ONLY")
                             else:
-                                sample_sql = sql_text(f"SELECT * FROM {tbl} LIMIT 10")
+                                sample_sql = sql_text(f"SELECT * FROM {_qident(tbl, db_type)} LIMIT 10")
                         sample_result = conn.execute(sample_sql)
                         rows = [dict(row._mapping) for row in sample_result]
                         context["table_samples"][tbl]["recent_data"] = rows
@@ -474,29 +513,30 @@ def _query_source_database(user_id: str, supabase, analysis_focus: str = None) -
 
                     # 3. Period comparison for tables with date columns
                     if date_cols:
-                        order_col = date_cols[0]
+                        order_col = _qident(date_cols[0], db_type)
+                        qtbl = _qident(tbl, db_type)
                         try:
                             # Current period (last 7 days)
                             if db_type == "oracle":
                                 curr_sql = sql_text(
-                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= SYSDATE - 7"
+                                    f"SELECT COUNT(*) as cnt FROM {qtbl} WHERE {order_col} >= SYSDATE - 7"
                                 )
                                 prev_sql = sql_text(
-                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= SYSDATE - 14 AND {order_col} < SYSDATE - 7"
+                                    f"SELECT COUNT(*) as cnt FROM {qtbl} WHERE {order_col} >= SYSDATE - 14 AND {order_col} < SYSDATE - 7"
                                 )
                             elif db_type == "postgresql":
                                 curr_sql = sql_text(
-                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= NOW() - INTERVAL '7 days'"
+                                    f"SELECT COUNT(*) as cnt FROM {qtbl} WHERE {order_col} >= NOW() - INTERVAL '7 days'"
                                 )
                                 prev_sql = sql_text(
-                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= NOW() - INTERVAL '14 days' AND {order_col} < NOW() - INTERVAL '7 days'"
+                                    f"SELECT COUNT(*) as cnt FROM {qtbl} WHERE {order_col} >= NOW() - INTERVAL '14 days' AND {order_col} < NOW() - INTERVAL '7 days'"
                                 )
                             else:
                                 curr_sql = sql_text(
-                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= date('now', '-7 days')"
+                                    f"SELECT COUNT(*) as cnt FROM {qtbl} WHERE {order_col} >= date('now', '-7 days')"
                                 )
                                 prev_sql = sql_text(
-                                    f"SELECT COUNT(*) as cnt FROM {tbl} WHERE {order_col} >= date('now', '-14 days') AND {order_col} < date('now', '-7 days')"
+                                    f"SELECT COUNT(*) as cnt FROM {qtbl} WHERE {order_col} >= date('now', '-14 days') AND {order_col} < date('now', '-7 days')"
                                 )
                             curr_count = conn.execute(curr_sql).scalar() or 0
                             prev_count = conn.execute(prev_sql).scalar() or 0
@@ -515,7 +555,7 @@ def _query_source_database(user_id: str, supabase, analysis_focus: str = None) -
                     for col in columns[:10]:  # Check first 10 columns
                         try:
                             null_sql = sql_text(
-                                f"SELECT COUNT(*) FROM {tbl} WHERE {col['name']} IS NULL"
+                                f"SELECT COUNT(*) FROM {_qident(tbl, db_type)} WHERE {_qident(col['name'], db_type)} IS NULL"
                             )
                             null_count = conn.execute(null_sql).scalar() or 0
                             if null_count > 0:
@@ -685,31 +725,44 @@ CRITICAL RULES:
 - Maximum 800 words — be concise but thorough
 """
 
-    # 1. Groq (primary)
+    # 1. Groq (primary) via orchestrator
     groq_api_key = os.getenv("GROQ_API_KEY")
     if groq_api_key:
         try:
-            completion = execute_groq_completion(
+            from .ai_orchestrator import AIOrchestrator
+            orchestrator = AIOrchestrator()
+            result = orchestrator.execute_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4,
                 max_tokens=1200,
                 model=get_groq_model(),
             )
-            return completion.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Groq API Error in autonomous narrative: {e}")
+            return result.choices[0].message.content
+        except Exception as e1:
+            logger.error(f"Orchestrator Error in autonomous narrative: {e1}")
+            try:
+                completion = execute_groq_completion(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.4,
+                    max_tokens=1200,
+                    model=get_groq_model(),
+                )
+                return completion.choices[0].message.content
+            except Exception as e:
+                logger.error(f"Groq API Error in autonomous narrative: {e}")
 
     # 2. Ollama (fallback)
-    try:
-        response = httpx.post(
-            "http://localhost:11434/api/generate",
-            json={"model": "llama3", "prompt": prompt, "stream": False},
-            timeout=20.0,
-        )
-        if response.status_code == 200:
-            return response.json().get("response")
-    except Exception as e:
-        logger.warning(f"Ollama Autonomous Narrative Fallback Failed: {e}")
+    if HTTPX_AVAILABLE:
+        try:
+            response = httpx.post(
+                "http://localhost:11434/api/generate",
+                json={"model": "llama3", "prompt": prompt, "stream": False},
+                timeout=20.0,
+            )
+            if response.status_code == 200:
+                return response.json().get("response")
+        except Exception as e:
+            logger.warning(f"Ollama Autonomous Narrative Fallback Failed: {e}")
 
     # 3. Rich template fallback
     return _build_autonomous_fallback(

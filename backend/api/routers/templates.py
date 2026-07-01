@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from ..core.auth import require_role
 from ..core.supabase_client import get_supabase
+from ..core.utils import safe_data
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/templates", tags=["instance-templates"])
@@ -26,15 +27,11 @@ class DeployTemplateRequest(BaseModel):
     department_id: str
 
 
-def _safe_data(response) -> list:
-    return response.data if hasattr(response, "data") and response.data else []
-
-
 @router.get("/instances")
 def list_instance_templates(context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
     try:
-        rows = _safe_data(supabase.table("instance_templates").select("*").order("created_at").execute())
+        rows = safe_data(supabase.table("instance_templates").select("*").order("created_at").execute())
         return {"templates": rows, "requested_by": context["user_id"]}
     except Exception:
         logger.error("List instance templates failed", exc_info=True)
@@ -46,7 +43,7 @@ def create_instance_template(template: InstanceTemplateCreate, context: dict = D
     supabase = get_supabase()
     payload = {"name": template.name, "config": template.config, "created_by": context["user_id"]}
     try:
-        rows = _safe_data(supabase.table("instance_templates").insert(payload).execute())
+        rows = safe_data(supabase.table("instance_templates").insert(payload).execute())
         return {"status": "success", "template": rows[0] if rows else payload}
     except Exception:
         logger.error("Create instance template failed", exc_info=True)
@@ -63,7 +60,8 @@ def update_instance_template(template_id: str, template: InstanceTemplateUpdate,
         supabase.table("instance_templates").update(payload).eq("id", template_id).execute()
         return {"status": "success", "updated": payload, "updated_by": context["user_id"]}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+        logger.error("Update instance template failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.delete("/instances/{template_id}")
@@ -73,16 +71,14 @@ def delete_instance_template(template_id: str, context: dict = Depends(require_r
         supabase.table("instance_templates").delete().eq("id", template_id).execute()
         return {"status": "success", "deleted": template_id, "deleted_by": context["user_id"]}
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
-
-
-@router.post("/deploy")
+        logger.error("Delete instance template failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 def deploy_instance_template(request: DeployTemplateRequest, context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
     errors = []
 
     try:
-        template_rows = _safe_data(
+        template_rows = safe_data(
             supabase.table("instance_templates").select("*").eq("id", request.template_id).limit(1).execute()
         )
         if not template_rows:
@@ -103,7 +99,7 @@ def deploy_instance_template(request: DeployTemplateRequest, context: dict = Dep
         supabase.table("departments").update(dept_update).eq("id", request.department_id).execute()
 
         # Get all users in this department
-        dept_users = _safe_data(
+        dept_users = safe_data(
             supabase.table("user_roles").select("user_id").eq("department_id", request.department_id).execute()
         )
 
@@ -154,4 +150,5 @@ def deploy_instance_template(request: DeployTemplateRequest, context: dict = Dep
     except HTTPException:
         raise
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+        logger.error("Deploy instance template failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")

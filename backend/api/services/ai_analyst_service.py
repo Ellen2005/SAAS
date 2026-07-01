@@ -357,7 +357,27 @@ def explain_anomaly(anomaly: dict) -> str:
     sev_labels = {"CRITICAL": "critical", "WARNING": "notable"}
     sev_label = sev_labels.get(severity, "notable")
     
-    # Try Groq LLM first
+    # Try orchestrator first, then direct Groq
+    try:
+        from .ai_orchestrator import AIOrchestrator
+        prompt = f"""Explain this CNPS data anomaly in simple English (max 3 sentences):
+KPI: {kpi_name}
+Severity: {sev_label}
+Deviation: {deviation:.1f}%
+Context: {reason}
+
+Format: Plain explanation, no technical jargon."""
+        orchestrator = AIOrchestrator()
+        result = orchestrator.execute_sync(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=150,
+        )
+        if result and "error" not in str(result).lower():
+            return result
+    except Exception:
+        pass
+    
     try:
         from .groq_utils import execute_groq_completion
         prompt = f"""Explain this CNPS data anomaly in simple English (max 3 sentences):

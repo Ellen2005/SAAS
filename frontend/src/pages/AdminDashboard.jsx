@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, ChevronDown, ChevronRight, Database, RefreshCcw, Users } from 'lucide-react';
+import { AlertTriangle, BarChart3, ChevronDown, ChevronRight, Database, RefreshCcw, Users, Activity, Brain, Shield } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { apiFetch, apiJson } from '../lib/api';
 
@@ -12,6 +12,10 @@ const AdminDashboard = () => {
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   const [lineageData, setLineageData] = useState(null);
   const [institutionalReport, setInstitutionalReport] = useState(null);
+  const [aiGovernance, setAiGovernance] = useState(null);
+  const [aiMonitoring, setAiMonitoring] = useState(null);
+  const [systemHealth, setSystemHealth] = useState(null);
+  const [showAiPanel, setShowAiPanel] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -28,6 +32,17 @@ const AdminDashboard = () => {
         if (summary.timeline?.length) {
           setSelectedPeriod(summary.timeline[summary.timeline.length - 1]);
         }
+
+        // Load AI governance + monitoring (non-blocking)
+        Promise.all([
+          apiJson('/api/admin/ai/governance?days=7').catch(() => null),
+          apiJson('/api/admin/ai/monitoring?days=7').catch(() => null),
+          apiJson('/api/admin/ai/health').catch(() => null),
+        ]).then(([gov, mon, health]) => {
+          if (gov) setAiGovernance(gov);
+          if (mon) setAiMonitoring(mon);
+          if (health) setSystemHealth(health);
+        }).catch(() => {});
       } catch (error) {
         console.error('Failed to load admin dashboard', error);
       } finally {
@@ -273,6 +288,113 @@ const AdminDashboard = () => {
           ))}
         </div>
       </section>
+
+      {/* AI Governance & System Health Panel */}
+      {(aiGovernance || aiMonitoring || systemHealth) && (
+        <section className="glass-panel">
+          <div
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', marginBottom: showAiPanel ? '16px' : 0 }}
+            onClick={() => setShowAiPanel(!showAiPanel)}
+          >
+            <h2 style={{ fontSize: '1.1rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Brain size={18} /> AI Operations & System Health
+            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {systemHealth && (
+                <span style={{
+                  padding: '2px 10px', borderRadius: '999px', fontSize: '0.75rem',
+                  background: systemHealth.overall === 'healthy' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
+                  color: systemHealth.overall === 'healthy' ? 'var(--status-normal)' : 'var(--status-warning)',
+                }}>
+                  {systemHealth.overall === 'healthy' ? 'All Systems Operational' : 'Issues Detected'}
+                </span>
+              )}
+              {showAiPanel ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </div>
+          </div>
+
+          {showAiPanel && (
+            <div style={{ display: 'grid', gap: '16px', marginTop: '12px' }}>
+              {/* Quick Stats Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+                {aiGovernance && (
+                  <div style={{ padding: '14px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>AI Requests (7d)</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{aiGovernance.total_requests || 0}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--status-normal)' }}>
+                      {aiGovernance.success_rate || 0}% success
+                    </div>
+                  </div>
+                )}
+                {aiMonitoring && (
+                  <>
+                    <div style={{ padding: '14px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Avg Latency</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{aiMonitoring.avg_latency_ms || 0}ms</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        P95: {aiMonitoring.p95_latency_ms || 0}ms
+                      </div>
+                    </div>
+                    <div style={{ padding: '14px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Tokens Used (7d)</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{(aiMonitoring.total_tokens || 0).toLocaleString()}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        ~${aiMonitoring.estimated_cost_usd || 0}
+                      </div>
+                    </div>
+                    <div style={{ padding: '14px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Confidence</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{aiMonitoring.avg_confidence || 0}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>avg score</div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* System Health */}
+              {systemHealth && (
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Activity size={14} /> Subsystem Health
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
+                    {Object.entries(systemHealth.checks || {}).map(([name, check]) => (
+                      <div key={name} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                        <span style={{
+                          width: '8px', height: '8px', borderRadius: '50%',
+                          background: check.status === 'healthy' ? 'var(--status-normal)' : check.status === 'warning' ? 'var(--status-warning)' : 'var(--status-critical)',
+                        }} />
+                        <div>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'capitalize' }}>{name.replace('_', ' ')}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{check.message}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI Category Breakdown */}
+              {aiGovernance?.by_category && Object.keys(aiGovernance.by_category).length > 0 && (
+                <div>
+                  <h3 style={{ fontSize: '0.9rem', marginBottom: '8px' }}>AI Usage by Category</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '8px' }}>
+                    {Object.entries(aiGovernance.by_category).map(([cat, stats]) => (
+                      <div key={cat} style={{ padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{cat}</div>
+                        <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>{stats.count}</div>
+                        {stats.errors > 0 && (
+                          <div style={{ fontSize: '0.7rem', color: 'var(--status-critical)' }}>{stats.errors} errors</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {lineageData && (
         <div

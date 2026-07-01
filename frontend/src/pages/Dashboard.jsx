@@ -174,7 +174,7 @@ const Dashboard = () => {
       }
     },
     onError: (err) => {
-      console.log('Real-time connection lost, falling back to polling');
+      console.error('Real-time connection lost, falling back to polling');
     },
   });
 
@@ -739,8 +739,8 @@ const Dashboard = () => {
         
         {/* Onboarding Tour */}
         <OnboardingTour
-          onComplete={() => console.log('Onboarding completed')}
-          onSkip={() => console.log('Onboarding skipped')}
+          onComplete={() => {}}
+          onSkip={() => {}}
         />
 
         {/* Dashboard Customizer */}
