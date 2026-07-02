@@ -137,8 +137,8 @@ def cache_set(key: str, value: dict, ttl: int = 300):
     """Set cached data."""
     try:
         cache.set(key, json.dumps(value), ttl=ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"cache_set failed: {e}")
 
 
 def cache_invalidate(pattern: str):
@@ -152,5 +152,5 @@ def cache_invalidate(pattern: str):
                     cache.redis_client.delete(*keys)
                 if cursor == 0:
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"cache_invalidate failed: {e}")

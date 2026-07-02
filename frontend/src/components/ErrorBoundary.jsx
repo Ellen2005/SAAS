@@ -109,7 +109,7 @@ export default class ErrorBoundary extends React.Component {
                 Refresh Page
               </button>
             </div>
-            {process.env.NODE_ENV === 'development' && (
+            {import.meta.env.MODE === 'development' && (
               <details style={{ marginTop: '24px', textAlign: 'left', fontSize: '0.8rem' }}>
                 <summary style={{ cursor: 'pointer', color: 'var(--ea-text-secondary)' }}>Error Details (Dev Only)</summary>
                 <pre style={{

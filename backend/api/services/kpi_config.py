@@ -1,6 +1,10 @@
 """Admin-defined KPIs vs auto-discovery mode helpers."""
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def get_department_template_id(supabase, user_id: str) -> str | None:
     try:
@@ -54,7 +58,8 @@ def get_admin_kpi_fields(supabase, user_id: str) -> list[dict]:
             .execute()
         )
         return resp.data if hasattr(resp, "data") and resp.data else []
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to fetch template fields: {e}")
         return []
 
 
@@ -67,7 +72,8 @@ def get_user_field_mappings(supabase, user_id: str) -> list[dict]:
             .execute()
         )
         return resp.data if hasattr(resp, "data") and resp.data else []
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to fetch field mappings: {e}")
         return []
 
 

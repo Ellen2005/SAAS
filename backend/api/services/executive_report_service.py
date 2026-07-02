@@ -210,6 +210,17 @@ def _table_html(headers: list, rows: list) -> str:
     """
 
 
+def _table_html_raw(headers: list, raw_row_html: str) -> str:
+    """Build a table from pre-formatted HTML <tr> strings."""
+    header_row = "".join(f"<th>{h}</th>" for h in headers)
+    return f"""
+    <table class="data">
+        <thead><tr>{header_row}</tr></thead>
+        <tbody>{raw_row_html}</tbody>
+    </table>
+    """
+
+
 # ─── Report Generators ───────────────────────────────────────────────────────
 
 def generate_dg_report(
@@ -479,9 +490,9 @@ def generate_board_report(
 
 <div class="section">
     <h3>📊 Progression des Objectifs Stratégiques</h3>
-    {_table_html(
+    {_table_html_raw(
         ["Objectif", "Cible", "Progrès", "Réalisé", "Statut"],
-        [row for row in [obj_rows] if row]
+        obj_rows
     ) if obj_rows else "<p>Aucun objectif stratégique défini.</p>"}
 </div>
 
@@ -552,15 +563,15 @@ def generate_regional_performance_report(
 
 <div class="section">
     <h3>🏆 Classement des Régions</h3>
-    {_table_html(["Région", "Taux de Recouvrement", "Cotisations"], 
-                 [row for row in [leaderboard] if row]) if leaderboard else "<p>Aucune donnée régionale.</p>"}
+    {_table_html_raw(["Région", "Taux de Recouvrement", "Cotisations"], 
+                 leaderboard) if leaderboard else "<p>Aucune donnée régionale.</p>"}
 </div>
 
 <div class="section">
     <h3>📊 Comparatif Régional Détaillé</h3>
-    {_table_html(
+    {_table_html_raw(
         ["Région", "Cotisations", "Pensions", "AT/MP", "Taux Recouvrement", "Taux Conformité", "Statut"],
-        [row for row in [regional_rows] if row]
+        regional_rows
     ) if regional_rows else "<p>Aucune donnée régionale disponible.</p>"}
 </div>
 

@@ -44,7 +44,7 @@ const SYNC_STATUS_LABELS = {
 };
 
 // ─── Reusable Enterprise KPI Card ──────────────────────────────────────────
-const MetricCard = ({ label, value, delta, status, icon, color, sparklineData, format, onClick }) => {
+const MetricCard = ({ label, value, delta, status, sparklineData, format, onClick }) => {
   const fmt = format || ((v) => {
     if (v == null) return '—';
     const num = Number(v);
@@ -134,7 +134,7 @@ const DashboardSkeleton = () => (
 // ─── Main Dashboard Component ──────────────────────────────────────────────
 const Dashboard = () => {
   const { user, isManager } = useAuth();
-  const { t } = useLang();
+  const { t: _t } = useLang();
   const navigate = useNavigate();
 
   const [data, setData] = useState(() => readCache(DASHBOARD_CACHE_KEY) || EMPTY_DATA);
@@ -173,7 +173,7 @@ const Dashboard = () => {
         fetchDataRef.current?.();
       }
     },
-    onError: (err) => {
+    onError: () => {
       console.error('Real-time connection lost, falling back to polling');
     },
   });

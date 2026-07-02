@@ -132,11 +132,11 @@ if SOCKETIO_AVAILABLE:
 else:
     class StubSio:
         def emit(self, *args, **kwargs):
-            pass
+            logger.debug("Socket.io not available — emit suppressed")
         def enter_room(self, *args, **kwargs):
-            pass
+            logger.debug("Socket.io not available — enter_room suppressed")
         def leave_room(self, *args, **kwargs):
-            pass
+            logger.debug("Socket.io not available — leave_room suppressed")
     
     sio = StubSio()
     app = None

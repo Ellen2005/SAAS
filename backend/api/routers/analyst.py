@@ -1,22 +1,3 @@
-"""
-AI Analyst Router — Enterprise autonomous analytics endpoints.
-
-Endpoints:
-  POST /api/analyst/prepare        — auto data preparation
-  POST /api/analyst/model          — auto modelling
-  GET  /api/analyst/insights       — augmented analytics (proactive insights)
-  POST /api/analyst/analyze        — rich 11-point analysis with statistics
-  POST /api/analyst/stats          — statistical analysis of a dataset
-  GET  /api/analyst/context        — get analysis context memory
-  GET  /api/analyst/explain/anomaly/{id} — explainable AI for anomaly
-  GET  /api/analyst/explain/kpi/{id}     — explainable AI for KPI
-  GET  /api/analyst/explain/all     — explain all KPIs and anomalies
-  GET  /api/analyst/governance     — governance health score
-  GET  /api/analyst/snapshots      — collaboration insight snapshots
-  POST /api/analyst/snapshots      — save an insight snapshot
-  DELETE /api/analyst/snapshots/{id} — delete snapshot
-  POST /api/analyst/run-full       — full autonomous analysis pipeline
-"""
 import logging
 from datetime import datetime, timezone, date as _date
 from typing import Optional

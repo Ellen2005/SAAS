@@ -466,8 +466,8 @@ def _execute_sql(user_id: str, sql: str, supabase) -> tuple[list[str], list[dict
         if tunnel_proc is not None:
             try:
                 tunnel_proc.terminate()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Tunnel terminate failed (non-critical): {e}")
 
 
 def validate_formula(expression: str) -> dict:

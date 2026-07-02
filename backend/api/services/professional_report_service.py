@@ -4,10 +4,13 @@ Creates A4-sized PDF reports with full CNPS-style formatting
 """
 
 import os
+import logging
 from datetime import datetime, date
 from typing import Dict, List, Any, Optional
 import json
 import tempfile
+
+logger = logging.getLogger(__name__)
 
 # PDF generation
 try:
@@ -47,6 +50,8 @@ class ProfessionalReportGenerator:
     
     def __init__(self, institution_name: str = "CNPS"):
         self.institution_name = institution_name
+        if not REPORTLAB_AVAILABLE:
+            raise RuntimeError("reportlab is not installed — PDF reports are unavailable")
         self.styles = getSampleStyleSheet()
         self._setup_custom_styles()
         

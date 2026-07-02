@@ -16,10 +16,11 @@ const DEFAULT_LAYOUT = {
 export default function DashboardCustomizer({ isOpen, onClose, onSave, currentLayout }) {
   const [layout, setLayout] = useState(currentLayout || DEFAULT_LAYOUT);
   const [selectedWidget, setSelectedWidget] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [_isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     if (currentLayout) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLayout(currentLayout);
     }
   }, [currentLayout]);
@@ -158,7 +159,7 @@ export default function DashboardCustomizer({ isOpen, onClose, onSave, currentLa
           gap: '12px',
           marginBottom: '24px',
         }}>
-          {layout.widgets.map((widget, index) => (
+          {layout.widgets.map((widget) => (
             <div
               key={widget.id}
               style={{

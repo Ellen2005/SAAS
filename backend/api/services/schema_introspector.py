@@ -186,8 +186,8 @@ def _close(engine, tunnel_proc) -> None:
         except Exception:
             try:
                 tunnel_proc.kill()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Tunnel kill also failed (non-critical): {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

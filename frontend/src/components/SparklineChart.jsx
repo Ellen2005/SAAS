@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useId } from 'react';
 
 /**
  * Lightweight SVG sparkline chart alternative to recharts AreaChart.
@@ -37,7 +37,7 @@ const SparklineChart = ({ data, width = 200, height = 32, color = '#10b981', str
     return parts.join(' ');
   }, [data, width, height]);
 
-  const gradientId = useMemo(() => `sparkle-${Math.random().toString(36).substr(2, 9)}`, []);
+  const gradientId = useId();
 
   if (!path) return null;
 

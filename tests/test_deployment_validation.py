@@ -89,7 +89,9 @@ def test_application_startup_with_mocked_services(valid_env):
                         client = TestClient(app)
                         response = client.get("/api/ping")
                         assert response.status_code == 200
-                        assert response.json() == {"ok": True}
+                        data = response.json()
+                        assert data["ok"] is True
+                        assert "timestamp" in data
                     except Exception as e:
                         pytest.fail(f"Application failed to start: {str(e)}")
 

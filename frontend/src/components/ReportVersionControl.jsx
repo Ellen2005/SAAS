@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { History, GitCompare, RotateCcw, Eye, Download, FileText, Clock, User, Tag, ChevronRight, ChevronDown } from 'lucide-react';
 
 // Version Control Component for Reports
-export default function ReportVersionControl({ reportId, versions = [], onRestore, onCompare, onView, height = 600 }) {
+export default function ReportVersionControl({ versions = [], onRestore, onCompare, onView, height = 600 }) {
   const [selectedVersions, setSelectedVersions] = useState([]);
   const [expandedVersion, setExpandedVersion] = useState(null);
   const [showCompare, setShowCompare] = useState(false);
@@ -38,9 +38,6 @@ export default function ReportVersionControl({ reportId, versions = [], onRestor
 
   const renderVersionDiff = (version1, version2) => {
     // Simplified diff view - in production, use a proper diff library
-    const lines1 = (version1.narrative || '').split('\n');
-    const lines2 = (version2.narrative || '').split('\n');
-    
     return (
       <div style={{
         display: 'grid',

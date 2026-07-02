@@ -2,7 +2,7 @@ import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Sankey, Treemap } from 'recharts';
 
 // Box Plot Data Generator
-export function generateBoxPlotData(data) {
+function generateBoxPlotData(data) {
   if (!data || data.length === 0) return [];
   
   const values = data.map(d => d.value || d).filter(v => v != null);
@@ -77,7 +77,7 @@ export function SankeyDiagram({ data = {}, title = 'Sankey Diagram', height = 40
   }
   
   const sankeyData = {
-    nodes: nodes.map((node, i) => ({ name: node.name || node })),
+    nodes: nodes.map((node) => ({ name: node.name || node })),
     links: links.map(link => ({
       source: nodes.findIndex(n => (n.name || n) === link.source),
       target: nodes.findIndex(n => (n.name || n) === link.target),
@@ -137,7 +137,7 @@ export function TreemapChart({ data = [], title = 'Treemap', height = 300 }) {
     return <div style={{ textAlign: 'center', padding: '40px', color: 'var(--ea-text-secondary)' }}>No data available for treemap</div>;
   }
   
-  const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
+  const _colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
   
   return (
     <div style={{ width: '100%' }}>

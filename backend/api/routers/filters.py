@@ -109,7 +109,8 @@ def get_filter_state(user_id: str = Depends(resolve_user_id)):
         if hasattr(resp, "data") and resp.data and resp.data[0].get("filter_state"):
             return resp.data[0]["filter_state"]
         return {}
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to load filter state: {e}")
         return {}
 
 

@@ -21,16 +21,20 @@ export function useRealTimeData(userId, options = {}) {
   const onErrorRef = useRef(onError);
   const onConnectRef = useRef(onConnect);
   const onDisconnectRef = useRef(onDisconnect);
-  onDataRef.current = onData;
-  onErrorRef.current = onError;
-  onConnectRef.current = onConnect;
-  onDisconnectRef.current = onDisconnect;
+
+  useEffect(() => {
+    onDataRef.current = onData;
+    onErrorRef.current = onError;
+    onConnectRef.current = onConnect;
+    onDisconnectRef.current = onDisconnect;
+  });
 
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
   const eventSourceRef = useRef(null);
   const reconnectCountRef = useRef(0);
   const reconnectTimeoutRef = useRef(null);
+  const connectWithTokenRef = useRef(null);
 
   const getToken = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -79,13 +83,17 @@ export function useRealTimeData(userId, options = {}) {
         const delay = reconnectInterval * Math.pow(1.5, reconnectCountRef.current);
         reconnectTimeoutRef.current = setTimeout(() => {
           reconnectCountRef.current++;
-          connectWithToken();
+          connectWithTokenRef.current?.();
         }, delay);
       } else {
         onDisconnectRef.current?.();
       }
     };
   }, [userId, endpoint, reconnectInterval, maxReconnectAttempts, getToken]);
+
+  useEffect(() => {
+    connectWithTokenRef.current = connectWithToken;
+  });
 
   useEffect(() => {
     if (userId) {
@@ -141,16 +149,20 @@ export function useWebSocket(url, options = {}) {
   const onErrorRef = useRef(onError);
   const onConnectRef = useRef(onConnect);
   const onDisconnectRef = useRef(onDisconnect);
-  onMessageRef.current = onMessage;
-  onErrorRef.current = onError;
-  onConnectRef.current = onConnect;
-  onDisconnectRef.current = onDisconnect;
+
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+    onErrorRef.current = onError;
+    onConnectRef.current = onConnect;
+    onDisconnectRef.current = onDisconnect;
+  });
 
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState(null);
   const wsRef = useRef(null);
   const reconnectCountRef = useRef(0);
   const reconnectTimeoutRef = useRef(null);
+  const connectRef = useRef(null);
 
   const connect = useCallback(() => {
     try {
@@ -191,7 +203,7 @@ export function useWebSocket(url, options = {}) {
           const delay = reconnectInterval * Math.pow(1.5, reconnectCountRef.current);
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectCountRef.current++;
-            connect();
+            connectRef.current?.();
           }, delay);
         }
       };
@@ -200,6 +212,10 @@ export function useWebSocket(url, options = {}) {
       onErrorRef.current?.(err);
     }
   }, [url, reconnectInterval, maxReconnectAttempts]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  });
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

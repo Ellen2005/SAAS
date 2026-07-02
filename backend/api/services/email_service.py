@@ -1,6 +1,7 @@
 import os
 import hmac
 import hashlib
+import logging
 from datetime import datetime, date
 try:
     import sib_api_v3_sdk
@@ -12,6 +13,8 @@ except ImportError:
     BREVO_AVAILABLE = False
 from .chart_service import generate_trend_chart_url
 
+logger = logging.getLogger(__name__)
+
 UNSUBSCRIBE_SECRET = os.getenv("UNSUBSCRIBE_SECRET")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 # Use a real verified sender — set these in your .env
@@ -22,7 +25,10 @@ SENDER_EMAIL = os.getenv("EMAIL_SENDER_ADDRESS", "analytics@company.com")
 
 def _make_unsubscribe_token(email: str) -> str:
     if not UNSUBSCRIBE_SECRET:
-        return ""
+        # Generate a random token when secret is not configured
+        # This prevents the bypass where empty token == empty token
+        import secrets
+        return secrets.token_hex(32)
     return hmac.HMAC(
         UNSUBSCRIBE_SECRET.encode(),
         email.encode(),
@@ -234,8 +240,8 @@ def send_automated_briefing(
         dept_resp = supabase.table("user_roles").select("departments(name)").eq("user_id", user_id).limit(1).execute()
         if hasattr(dept_resp, "data") and dept_resp.data and dept_resp.data[0].get("departments"):
             department_name = dept_resp.data[0]["departments"].get("name")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to fetch department name for email: {e}")
 
     if not report_period:
         report_period = date.today().strftime("%B %d, %Y")

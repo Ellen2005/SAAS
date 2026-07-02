@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional
 from datetime import datetime, timezone
 UTC = timezone.utc
@@ -148,7 +148,7 @@ app.add_middleware(
 async def add_security_headers(request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
@@ -336,6 +336,13 @@ def read_root():
 
 class NLQRequest(BaseModel):
     question: str
+
+    @field_validator('question')
+    @classmethod
+    def validate_question_length(cls, v):
+        if len(v) > 5000:
+            raise ValueError('Question must be 5000 characters or fewer.')
+        return v
 
 
 class CustomChartRequest(BaseModel):

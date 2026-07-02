@@ -7,7 +7,7 @@ import { apiJson } from '../lib/api';
 export default function ExecutiveAnalyticsPage() {
   const [overview, setOverview] = useState(null);
   const [insights, setInsights] = useState(null);
-  const [briefing, setBriefing] = useState(null);
+  const [_briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 

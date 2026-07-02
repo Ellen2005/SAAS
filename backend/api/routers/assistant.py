@@ -80,7 +80,8 @@ def _build_data_context(supabase, user_id: str) -> str:
             lines.append(f"Active anomalies: {anom_summary}")
 
         return "\n".join(lines) if lines else ""
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to build assistant context: {e}")
         return ""
 
 
