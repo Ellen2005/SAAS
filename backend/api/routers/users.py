@@ -90,9 +90,9 @@ def list_all_users(context: dict = Depends(require_role(["admin"]))):
                     display_name = profile.get('display_name')
                     if user_id:
                         email_by_user[user_id] = email or display_name
-        except Exception:
-            pass
-            
+        except Exception as e:
+            logger.debug(f"Failed to list auth users for email mapping: {e}")
+
         try:
             recipients_resp = supabase.table('notification_recipients').select('user_id, email').execute()
             if hasattr(recipients_resp, 'data') and recipients_resp.data:
@@ -188,8 +188,8 @@ def set_user_role(
     
     try:
         supabase.table("user_roles").delete().eq("user_id", target_user_id).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to delete old role (may not exist): {e}")
     
     payload = {
         "user_id": target_user_id,
@@ -262,16 +262,16 @@ def logout(authorization: Optional[str] = Header(None)):
                 payload = jwt.decode(token, options={"verify_signature": False})
                 if "exp" in payload:
                     expires_at = float(payload["exp"])
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to decode JWT for logout: {e}")
 
             blacklist_token(token, expires_at)
 
             # Try to sign out with the token
             try:
                 supabase.auth.sign_out()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Sign out failed (non-critical): {e}")
         return {"status": "success", "message": "Logged out successfully"}
     except Exception as e:
         logger.error(f"Logout error: {e}")
@@ -320,15 +320,17 @@ def update_my_profile(
         # Try user_profiles table first, fallback to user_roles
         try:
             supabase.table("user_profiles").upsert(profile_update, on_conflict="id").execute()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"user_profiles upsert failed, trying user_roles: {e}")
             try:
                 supabase.table("user_roles").update({
                     "department_id": profile_update.get("department_id")
                 }).eq("user_id", user_id).execute()
-            except Exception:
-                pass  # Silently ignore - profile is optional
+            except Exception as e2:
+                logger.debug(f"Profile update fallback also failed (non-critical): {e2}")
         
         return {"status": "success", "profile": profile_update}
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Profile update failed: {e}")
         # Return success anyway to not block login flow
         return {"status": "success", "profile": {"id": user_id}}

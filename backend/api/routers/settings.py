@@ -132,11 +132,12 @@ def test_db_connection(connection_data: dict, context: dict = Depends(require_ro
             try:
                 tunnel_proc.terminate()
                 tunnel_proc.wait(timeout=5)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Tunnel terminate failed, trying kill: {e}")
                 try:
                     tunnel_proc.kill()
-                except Exception as e:
-                    logger.debug(f"Tunnel kill also failed (non-critical): {e}")
+                except Exception as e2:
+                    logger.debug(f"Tunnel kill also failed (non-critical): {e2}")
 
 
 @router.post("/settings/connection")

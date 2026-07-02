@@ -177,13 +177,14 @@ def _close(engine, tunnel_proc) -> None:
     if engine is not None:
         try:
             engine.dispose()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Tunnel cleanup failed (non-critical): {e}")
     if tunnel_proc is not None:
         try:
             tunnel_proc.terminate()
             tunnel_proc.wait(timeout=5)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Tunnel cleanup failed (non-critical): {e}")
             try:
                 tunnel_proc.kill()
             except Exception as e:
@@ -218,7 +219,8 @@ def introspect_sql(
         # Discover all schemas (Postgres) — fallback to default.
         try:
             schemas = [s for s in inspector.get_schema_names() if s not in _SKIP_SCHEMAS]
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Schema discovery failed, using default: {e}")
             schemas = [None]
         if not schemas:
             schemas = [None]
@@ -262,7 +264,8 @@ def introspect_sql(
                     try:
                         pk_info = inspector.get_pk_constraint(name, schema=schema) or {}
                         primary_keys = list(pk_info.get("constrained_columns") or [])
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"PK introspection failed for {name}: {e}")
                         primary_keys = []
 
                     try:
@@ -276,7 +279,8 @@ def introspect_sql(
                             }
                             for fk in fk_info
                         ]
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"FK introspection failed for {name}: {e}")
                         foreign_keys = []
 
                     # Row count — bounded so we never lock the customer DB.
@@ -436,8 +440,8 @@ def introspect_mongo(
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"MongoDB client close failed (non-critical): {e}")
 
     return {
         "kind": "mongodb",
@@ -824,7 +828,8 @@ def run_analysis(
                                     "column": cname,
                                     "rows": [{"bucket": _jsonable(r[0]), "total": _jsonable(r[1])} for r in res],
                                 })
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(f"Liability forecast query failed: {e}")
                             continue
                     if len(groups) >= 4:
                         break
@@ -998,12 +1003,13 @@ def _jsonable(v: Any) -> Any:
         from datetime import date, datetime as dt, time
         if isinstance(v, (dt, date, time)):
             return v.isoformat()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Date serialization failed: {e}")
     if isinstance(v, (bytes, bytearray, memoryview)):
         try:
             return bytes(v).hex()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Bytes serialization failed: {e}")
             return str(v)
     if isinstance(v, (str, int, float, bool)):
         return v
@@ -1015,6 +1021,6 @@ def _jsonable(v: Any) -> Any:
         from decimal import Decimal
         if isinstance(v, Decimal):
             return float(v)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Decimal serialization failed: {e}")
     return str(v)

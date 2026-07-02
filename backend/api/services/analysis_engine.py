@@ -83,7 +83,8 @@ Schema:
                 model=get_groq_model(),
             )
             completion = result
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Primary completion failed, using fallback: {e}")
             completion = execute_groq_completion(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
@@ -300,7 +301,8 @@ IMPORTANT:
                 model=get_groq_model(),
             )
             completion = result
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Primary completion failed, using fallback: {e}")
             completion = execute_groq_completion(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
@@ -319,7 +321,8 @@ IMPORTANT:
             if key not in result:
                 result[key] = [] if key in ("observations", "insights", "risk_analysis", "recommendations", "assumptions", "limitations") else ""
         return result
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Rich analysis failed, using fallback: {e}")
         # Rich fallback based on actual data
         null_notes = []
         for col, count in null_counts.items():
@@ -400,7 +403,8 @@ def _extra_details_for_preset(*, user_id: str, preset_slug: str, supabase) -> di
         try:
             _, rows = _execute_sql(user_id, sql, supabase)
             return {"top_delinquent_employers": rows, "details_sql": {"top_delinquent_employers": sql}}
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Delinquent query failed: {e}")
             return {}
     return {}
 
