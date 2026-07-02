@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { AlertTriangle, TrendingDown, TrendingUp, Activity, DollarSign, Users, FileText, ArrowRight, Info, Lightbulb } from 'lucide-react';
 
 const IMPACT_CATEGORIES = [

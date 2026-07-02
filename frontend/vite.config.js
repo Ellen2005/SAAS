@@ -101,7 +101,7 @@ export default defineConfig({
   ],
   build: {
     // Enable source maps only in non-production
-    sourcemap: process.env.NODE_ENV !== 'production',
+    sourcemap: process.env.NODE_ENV !== 'production', // eslint-disable-line no-undef
     // Chunk size warnings
     chunkSizeWarningLimit: 250,
     // Aggressive code splitting

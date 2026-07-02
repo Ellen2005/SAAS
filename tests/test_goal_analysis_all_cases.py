@@ -92,7 +92,7 @@ def run_analysis(token, goal_text, test_id, description):
         return None
 
 
-def test_nlq_direct(token, question, test_id):
+def nlq_direct(token, question, test_id):
     """Test via the NLQ endpoint directly."""
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     print(f"\n{'='*70}")

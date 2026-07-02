@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState, useEffect, useMemo } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut, Shield, Moon, Sun } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
@@ -78,7 +78,7 @@ function AdminSubNav() {
 
 
 function AppShell() {
-  const { user, departmentName, loading, role, isAdmin, isManager } = useAuth();
+  const { user, departmentName, loading, isAdmin, isManager } = useAuth();
   const { t } = useLang();
   const navigate = useNavigate();
   useInactivityTimeout(!!user);

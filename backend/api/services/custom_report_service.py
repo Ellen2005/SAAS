@@ -122,6 +122,7 @@ REPORT:"""
     # --- Generate with Groq via orchestrator ---
     if groq_api_key:
         try:
+            from .groq_utils import get_groq_model
             from .ai_orchestrator import AIOrchestrator
             orchestrator = AIOrchestrator()
             result = orchestrator.execute_sync(

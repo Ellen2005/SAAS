@@ -50,10 +50,6 @@ services:
     networks:
       - saas-network
 
-networks:
-  saas-network:
-    driver: bridge
-
   redis:
     image: redis:7-alpine
     container_name: saas-redis
@@ -65,5 +61,9 @@ networks:
     volumes:
       - redis-data:/data
 
+networks:
+  saas-network:
+    driver: bridge
+
 volumes:
-  redis-data:    
+  redis-data:

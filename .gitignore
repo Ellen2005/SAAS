@@ -62,3 +62,10 @@ attached_assets/
 
 # ── Archive ───────────────────────────────────────────────────────────────
 _archive/
+
+# ── QA / Debug Scripts ───────────────────────────────────────────────────
+scripts/phase16_api_results.json
+scripts/phase16_api_smoke.py
+scripts/phase16_auth_test.py
+scripts/reproduce_500.py
+tests/qa_auth_api_runner.py

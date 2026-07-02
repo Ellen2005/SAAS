@@ -52,7 +52,7 @@ export function AuthProvider({ children }) {
           department_name: data.department_name,
         }));
       } catch { /* ignore */ }
-    } catch (err) {
+    } catch {
       // If the API call fails (e.g. 401, network error), use cached role
       // but NEVER let this throw — it would trigger redirectToLogin
       try {
@@ -63,12 +63,11 @@ export function AuthProvider({ children }) {
           setRole(resolvedRole);
           setDepartmentId(parsed.department_id ?? null);
           setDepartmentName(parsed.department_name ?? null);
-          return resolvedRole;
         }
       } catch { /* ignore */ }
       // If API failed and no cache, still set a role so the user isn't stuck
-      // Use 'manager' as default if there's a session (prevents lockdown)
-      setRole('manager');
+      // Use 'viewer' as default — fail closed, not open
+      setRole('viewer');
     }
     return resolvedRole;
   }, []);
@@ -90,6 +89,7 @@ export function AuthProvider({ children }) {
       if (cached) {
         const parsed = JSON.parse(cached);
         roleFromCache = parsed.role || 'viewer';
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setRole(roleFromCache);
         setDepartmentId(parsed.department_id ?? null);
         setDepartmentName(parsed.department_name ?? null);

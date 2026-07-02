@@ -80,7 +80,7 @@ export default function DragDropReportBuilder({ onClose, onSave }) {
   const generateReport = async () => {
     setGenerating(true);
     try {
-      const reportData = {
+      const _reportData = {
         name: reportName,
         widgets: widgets.map(w => ({
           chartType: w.chartType,
@@ -275,7 +275,7 @@ export default function DragDropReportBuilder({ onClose, onSave }) {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                {widgets.map((widget, idx) => (
+                {widgets.map((widget) => (
                   <div
                     key={widget.id}
                     style={{

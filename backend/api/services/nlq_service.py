@@ -524,9 +524,17 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
             allowed_starts = ("SELECT", "WITH", "PRAGMA")
             if not sql_upper.startswith(allowed_starts):
                 raise ValueError("Only read-only SELECT or PRAGMA queries are permitted.")
+            # Strip SQL comments and string literals before checking for forbidden keywords
+            # to prevent bypass via /*INSERT*/ or 'DELETE'
+            import re as _re
+            stripped = _re.sub(r'--.*$', '', sql_upper, flags=_re.MULTILINE)
+            stripped = _re.sub(r'/\*.*?\*/', '', stripped, flags=_re.DOTALL)
+            stripped = _re.sub(r"'[^']*'", '', stripped)
             forbidden = ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE", "GRANT", "REVOKE")
-            if any(tok in sql_upper for tok in forbidden):
-                raise ValueError("Query contains forbidden keywords.")
+            # Use word boundary matching to prevent false positives on column aliases like "status"
+            for tok in forbidden:
+                if _re.search(rf'\b{tok}\b', stripped):
+                    raise ValueError(f"Query contains forbidden keyword: {tok}")
             with engine.connect() as conn:
                 result = conn.execute(text(query))
                 cols = list(result.keys())
@@ -622,8 +630,8 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
             try:
                 tunnel_proc.terminate()
                 tunnel_proc.wait(timeout=5)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Tunnel terminate failed (non-critical): {e}")
 
 
 def _run_mongo_nlq(question: str, connection_string: str) -> dict:

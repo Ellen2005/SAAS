@@ -48,10 +48,10 @@ def get_current_user_info(user_id: str = Depends(resolve_user_id)):
                 try:
                     from ..services.email_service import send_admin_onboarding_notification
                     send_admin_onboarding_notification(user_id)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as e:
+                    logger.warning(f"Failed to send onboarding notification: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch user department info: {e}")
 
     return info
 
@@ -101,8 +101,8 @@ def list_all_users(context: dict = Depends(require_role(["admin"]))):
                     email = recipient.get('email')
                     if user_id and email and user_id not in email_by_user:
                         email_by_user[user_id] = email
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to fetch notification recipients: {e}")
 
         # Get ALL users from Supabase Auth
         # supabase-py v2: admin.list_users() returns a list directly

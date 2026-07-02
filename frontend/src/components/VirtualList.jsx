@@ -80,6 +80,7 @@ export default function VirtualList({
 /**
  * Hook for lazy loading images/components
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useLazyLoad(threshold = 0.1) {
   const [isVisible, setIsVisible] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -109,6 +110,7 @@ export function useLazyLoad(threshold = 0.1) {
 /**
  * Hook for debouncing values (useful for search inputs)
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useDebounce(value, delay = 300) {
   const [debouncedValue, setDebouncedValue] = useState(value);
 
@@ -126,6 +128,7 @@ export function useDebounce(value, delay = 300) {
 /**
  * Hook for throttling function calls
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useThrottle(callback, delay = 1000) {
   const lastCallRef = useRef(0);
   const timeoutRef = useRef(null);
@@ -152,7 +155,9 @@ export function useThrottle(callback, delay = 1000) {
 /**
  * Hook for memoizing expensive calculations
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useMemoized(callback, dependencies) {
+  // eslint-disable-next-line react-hooks/use-memo, react-hooks/exhaustive-deps
   const memoizedValue = React.useMemo(callback, dependencies);
   return memoizedValue;
 }
@@ -160,8 +165,9 @@ export function useMemoized(callback, dependencies) {
 /**
  * Hook for lazy loading components
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useLazyComponent(importFn, options = {}) {
-  const { suspense = true } = options;
+  const { suspense: _suspense = true } = options;
   const [component, setComponent] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);

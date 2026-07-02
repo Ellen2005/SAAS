@@ -40,7 +40,6 @@ def _start_ssh_tunnel(*, ssh_host, ssh_user, remote_host, remote_port, local_por
         f"{ssh_user}@{ssh_host}",
         "-o", "ExitOnForwardFailure=yes",
         "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=no",
         "-o", "ServerAliveInterval=30",
         "-o", "ServerAliveCountMax=3",
     ]

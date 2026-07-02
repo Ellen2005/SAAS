@@ -175,5 +175,5 @@ class AIFeedbackLoop:
                     "updated_at": datetime.now(UTC).isoformat(),
                 }
                 self.db.table("ai_feedback_summary").upsert(summary, on_conflict="category,prompt_name").execute()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to update feedback summary: {e}")

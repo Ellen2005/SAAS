@@ -91,8 +91,8 @@ def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
                 media_type="application/pdf",
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"PDF generation failed, falling back to HTML: {e}")
 
     print_helper = (
         "<script>window.addEventListener('load',()=>{setTimeout(()=>window.print(),300)});</script>"
@@ -220,8 +220,8 @@ def create_custom_report(
             goal_text=instruction,
             supabase=supabase,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Goal analysis failed (non-blocking): {e}")
     result = generate_custom_report(
         user_id=context["user_id"],
         instruction=instruction,

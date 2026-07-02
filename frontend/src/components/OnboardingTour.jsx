@@ -59,6 +59,7 @@ export default function OnboardingTour({ onComplete, onSkip }) {
     // Check if user has completed onboarding
     const hasCompleted = localStorage.getItem('onboarding_completed');
     if (!hasCompleted) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsVisible(true);
     }
   }, []);

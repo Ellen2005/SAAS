@@ -111,10 +111,17 @@ def test_db_connection(connection_data: dict, context: dict = Depends(require_ro
     except Exception as e:
         import traceback
         err_msg = str(e)
-        if "ORA-01109" in err_msg:
-            err_msg += "\n\nYour Oracle PDB is not OPEN. Run this in SQL*Plus as sysdba:\n  ALTER PLUGGABLE DATABASE ORCLPDB OPEN;\n  ALTER PLUGGABLE DATABASE ORCLPDB SAVE STATE;"
         logger.error("test-connection failed", exc_info=True)
-        return {"status": "error", "message": f"Database Error: {err_msg}"}
+        # Sanitize error message to prevent leaking sensitive details
+        safe_err = "Database connection failed. Please check your connection details."
+        if "ORA-01109" in err_msg:
+            safe_err = (
+                "Connection failed: Oracle PDB is not OPEN. "
+                "Run this in SQL*Plus as sysdba:\n"
+                "  ALTER PLUGGABLE DATABASE ORCLPDB OPEN;\n"
+                "  ALTER PLUGGABLE DATABASE ORCLPDB SAVE STATE;"
+            )
+        return {"status": "error", "message": safe_err}
     finally:
         if engine is not None:
             try:
@@ -128,8 +135,8 @@ def test_db_connection(connection_data: dict, context: dict = Depends(require_ro
             except Exception:
                 try:
                     tunnel_proc.kill()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Tunnel kill also failed (non-critical): {e}")
 
 
 @router.post("/settings/connection")

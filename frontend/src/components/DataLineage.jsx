@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { GitBranch, Database, Table, ArrowRight, ChevronDown, ChevronRight, Info, ZoomIn, ZoomOut, Maximize, Activity, FileText, Layout } from 'lucide-react';
 
 // Sample data lineage structure
@@ -79,7 +79,7 @@ export default function DataLineage({ data = SAMPLE_LINEAGE, onNodeClick, height
 
   const renderNode = (node) => {
     const isExpanded = expandedNodes.has(node.id);
-    const { incoming, outgoing } = getConnectedNodes(node.id);
+    const { incoming: _incoming, outgoing } = getConnectedNodes(node.id);
     const hasChildren = outgoing.length > 0;
     const color = NODE_COLORS[node.type] || '#6b7280';
 

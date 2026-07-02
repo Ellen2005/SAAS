@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _fernet():
@@ -20,6 +23,10 @@ def encrypt_credentials(plain: str) -> str:
         return plain
     f = _fernet()
     if not f:
+        logger.warning(
+            "FERNET_KEY not configured — database credentials stored in plaintext. "
+            "Set FERNET_KEY in your environment to enable encryption."
+        )
         return plain
     return "enc:" + f.encrypt(plain.encode()).decode()
 

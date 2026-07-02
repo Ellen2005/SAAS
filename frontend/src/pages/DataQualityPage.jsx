@@ -6,7 +6,7 @@ import KpiCard from '../components/KpiCard';
 export default function DataQualityPage() {
   const [score, setScore] = useState(null);
   const [issues, setIssues] = useState(null);
-  const [report, setReport] = useState(null);
+  const [_report, setReport] = useState(null);
   const [aiFeedback, setAiFeedback] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

@@ -124,7 +124,7 @@ def export_kpis_excel(user_id: str, supabase) -> bytes:
                 try:
                     if cell.value:
                         max_length = max(max_length, len(str(cell.value)))
-                except:
+                except Exception:
                     pass
             adjusted_width = min(max_length + 2, 50)
             ws.column_dimensions[column_letter].width = adjusted_width
@@ -245,7 +245,7 @@ def export_report_as_excel(report: dict, supabase) -> bytes:
                         try:
                             if cell.value:
                                 max_length = max(max_length, len(str(cell.value)))
-                        except:
+                        except Exception:
                             pass
                     ws_kpis.column_dimensions[column_letter].width = min(max_length + 2, 50)
         

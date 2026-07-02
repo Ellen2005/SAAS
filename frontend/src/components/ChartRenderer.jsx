@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -299,7 +299,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
         );
 
       // ── SCATTER ─────────────────────────────────────────────
-      case 'scatter':
+      case 'scatter': {
         const scatterData = data.map((d) => ({ x: d.value, y: d.value2 || d.value, label: d.label }));
         return (
           <ScatterChart margin={{ top: 8, right: 20, left: 0, bottom: 8 }}>
@@ -312,9 +312,10 @@ export default function ChartRenderer({ spec, height = 280 }) {
             <Scatter data={scatterData} fill={colors[0]} />
           </ScatterChart>
         );
+      }
 
       // ── BUBBLE ─────────────────────────────────────────────
-      case 'bubble':
+      case 'bubble': {
         const bubbleData = data.map((d) => ({
           x: d.value,
           y: d.value2 || d.value,
@@ -333,6 +334,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
             <Scatter data={bubbleData} fill={colors[0]} fillOpacity={0.6} />
           </ScatterChart>
         );
+      }
 
       // ── RADAR ──────────────────────────────────────────────
       case 'radar':
@@ -352,7 +354,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
         );
 
       // ── GAUGE (simulated with horizontal bars) ────────────────
-      case 'gauge':
+      case 'gauge': {
         const gaugeMax = Math.max(...data.map((d) => d.value), 1);
         return (
           <div style={{ display: 'grid', gap: 12, padding: '8px 0' }}>
@@ -373,9 +375,10 @@ export default function ChartRenderer({ spec, height = 280 }) {
             })}
           </div>
         );
+      }
 
       // ── HISTOGRAM ─────────────────────────────────────────────
-      case 'histogram':
+      case 'histogram': {
         const bins = 10;
         const values = data.map((d) => d.value).filter((v) => v != null);
         if (!values.length) return null;
@@ -401,9 +404,10 @@ export default function ChartRenderer({ spec, height = 280 }) {
             <Bar dataKey="value" fill={colors[0]} radius={[2, 2, 0, 0]} />
           </BarChart>
         );
+      }
 
       // ── TREEMAP ─────────────────────────────────────────────
-      case 'treemap':
+      case 'treemap': {
         const treemapData = data.map((d, i) => ({
           name: d.label,
           size: Math.max(1, Math.abs(d.value)),
@@ -415,6 +419,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
               formatter={(v, name) => [Number(v).toLocaleString(), name]} />
           </Treemap>
         );
+      }
 
       // ── FUNNEL ───────────────────────────────────────────────
       case 'funnel':
@@ -432,7 +437,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
         );
 
       // ── WATERFALL (simulated with stacked bar) ──────────────
-      case 'waterfall':
+      case 'waterfall': {
         let cumulative = 0;
         const waterfallData = data.map((d) => {
           cumulative += d.value;
@@ -448,6 +453,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
             <Bar dataKey="cumulative" fill={colors[0]} radius={[4, 4, 0, 0]} />
           </BarChart>
         );
+      }
 
       // ── COMPOSED (line + bar) ──────────────────────────────
       case 'composed':
@@ -478,7 +484,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
         );
 
       // ── HEATMAP (simulated with colored bars) ──────────────
-      case 'heatmap':
+      case 'heatmap': {
         const heatmapMax = Math.max(...data.map(d => Math.abs(d.value)), 1);
         return (
           <div style={{ display: 'grid', gap: 4, padding: '8px 0' }}>
@@ -496,6 +502,7 @@ export default function ChartRenderer({ spec, height = 280 }) {
             })}
           </div>
         );
+      }
 
       // ── GROUPED BAR ────────────────────────────────────────
       case 'groupedBar':

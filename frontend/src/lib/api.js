@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient'
 export const API_URL =
   import.meta.env.VITE_API_URL === ''
     ? ''
-    : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
+    : (import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://localhost:8000' : 'http://localhost:8000'))
 
 let _isRedirectingToLogin = false
 
