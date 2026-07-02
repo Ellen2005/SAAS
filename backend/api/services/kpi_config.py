@@ -41,8 +41,8 @@ def get_department_template_id(supabase, user_id: str) -> str | None:
         )
         if hasattr(dept, "data") and dept.data:
             return dept.data[0].get("template_id")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Non-critical error: {e}")
     return None
 
 

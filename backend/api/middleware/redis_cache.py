@@ -50,8 +50,8 @@ class CacheManager:
         if self.redis_client:
             try:
                 return self.redis_client.get(key)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Redis get failed, using memory cache: {e}")
         return self.memory_cache.get(key)
     
     def set(self, key: str, value: str, ttl: int = 300):
@@ -59,16 +59,16 @@ class CacheManager:
             try:
                 self.redis_client.setex(key, ttl, value)
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Redis set failed, using memory cache: {e}")
         self.memory_cache[key] = value
     
     def delete(self, key: str):
         if self.redis_client:
             try:
                 self.redis_client.delete(key)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Redis delete failed: {e}")
         self.memory_cache.pop(key, None)
     
     def clear(self):
@@ -82,8 +82,8 @@ class CacheManager:
                         self.redis_client.delete(*keys)
                     if cursor == 0:
                         break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Redis clear failed: {e}")
         self.memory_cache.clear()
 
 
@@ -118,8 +118,8 @@ def cache_response(ttl: int = 300, key_prefix: str = ""):
             # Cache result
             try:
                 cache.set(cache_key, json.dumps(result), ttl=ttl)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Cache set failed for response: {e}")
             
             return result
         return wrapper

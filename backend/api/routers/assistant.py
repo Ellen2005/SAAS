@@ -100,8 +100,8 @@ def assistant_chat(
             body.message = sanitizer.clean_nlq_input(body.message)
             if len(body.message) > 5000:
                 body.message = body.message[:5000]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Input sanitization failed (non-critical): {e}")
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -131,7 +131,8 @@ def assistant_chat(
                 model=get_groq_model(),
             )
             reply = result.choices[0].message.content
-        except Exception:
+        except Exception as e:
+            logger.debug(f"AIOrchestrator failed, falling back to direct Groq: {e}")
             completion = execute_groq_completion(
                 messages=messages,
                 temperature=0.4,

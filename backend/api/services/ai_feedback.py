@@ -100,7 +100,8 @@ class AIFeedbackLoop:
                 .execute()
             )
             logs = result.data if hasattr(result, "data") else []
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to fetch feedback logs: {e}")
             logs = []
 
         total = len(logs)
@@ -154,7 +155,8 @@ class AIFeedbackLoop:
                 .execute()
             )
             return result.data if hasattr(result, "data") else []
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to fetch recent feedback logs: {e}")
             return []
 
     async def _refresh_summary(self, category: Optional[str], prompt_name: Optional[str]) -> None:

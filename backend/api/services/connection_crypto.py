@@ -14,7 +14,8 @@ def _fernet():
     try:
         from cryptography.fernet import Fernet
         return Fernet(key.encode() if isinstance(key, str) else key)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to initialize Fernet encryption: {e}")
         return None
 
 

@@ -27,10 +27,12 @@ def _get_db_schema_hint(engine) -> str:
             try:
                 cols = [c["name"] for c in inspector.get_columns(table)]
                 schema_lines.append(f"  {table}({', '.join(cols[:15])})")
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to get columns for {table}: {e}")
                 schema_lines.append(f"  {table}(...)")
         return "\n".join(schema_lines)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Schema introspection failed: {e}")
         return "(schema unavailable)"
 
 
@@ -366,7 +368,8 @@ SQL QUERY:"""
             model=get_groq_model(),
         )
         completion = result
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Primary completion failed, using fallback: {e}")
         completion = execute_groq_completion(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
@@ -408,7 +411,8 @@ JSON:"""
             model=get_groq_model(),
         )
         completion = result
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Primary completion failed, using fallback: {e}")
         completion = execute_groq_completion(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
@@ -490,8 +494,8 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
         try:
             from .prompt_manager import PromptManager
             pm = PromptManager(supabase)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Import failed (optional dependency): {e}")
 
         try:
             sql = _ask_groq_for_sql(question, schema_hint, db_type, prompt_manager=pm)
@@ -585,8 +589,8 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
         if sem and sem.has_mappings():
             try:
                 columns, rows = sem.reverse_translate_results(rows, columns)
-            except Exception:
-                pass  # Keep raw column names on translation failure
+            except Exception as e:
+                logger.debug(f"Reverse translation failed (non-critical): {e}")  # Keep raw column names on translation failure
 
         # Enterprise: Log NLQ query for governance
         try:
@@ -595,8 +599,8 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
                 supabase, user_id, "query", "nlq_query",
                 {"question": question, "sql": sql, "row_count": len(rows)}
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Audit logging failed (non-critical): {e}")
 
         if os.environ.get("NLQ_DEBUG"):
             logger.debug("NLQ debug sql: %s", sql)
@@ -673,5 +677,6 @@ def _run_mongo_nlq(question: str, connection_string: str) -> dict:
         }
     except ImportError:
         return {"error": "pymongo not installed. Run: pip install pymongo", "rows": [], "sql": None}
-    except Exception:
+    except Exception as e:
+        logger.debug(f"MongoDB query failed: {e}")
         return {"error": "MongoDB query failed.", "rows": [], "sql": None}
