@@ -13,6 +13,7 @@ services:
     environment:
       - ENVIRONMENT=docker
       - LOG_LEVEL=INFO
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
     command: >

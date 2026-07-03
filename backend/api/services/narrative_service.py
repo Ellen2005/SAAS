@@ -153,8 +153,9 @@ CRITICAL RULES:
 - Do NOT suggest SQL queries or describe database schemas.
 - Do NOT invent KPI names, values, or metrics not present in the data above.
 - If the data is empty or minimal, say so clearly and recommend running a sync.
-- Do NOT use any markdown formatting like asterisks, bold, italics, or bullet points. Write in plain professional paragraphs only.
-- Use clean, well-structured paragraphs with clear section headings in plain text (e.g., "Executive Summary" not "**Executive Summary**").
+- Do NOT use any markdown formatting or special characters like asterisks (*), bold, italics, bullet points, or numbered lists. Write in plain professional paragraphs only.
+- Use clean, well-structured paragraphs with clear section headings in plain text (e.g., "Executive Summary" not "**Executive Summary**" and NOT "* Executive Summary").
+- NEVER use asterisk characters or similar markdown symbols. Write headings and bullets as plain text only.
 IMPORTANT: Write the complete report. Use the actual numbers from the data. Do not use placeholders. Keep it under 600 words total."""
 
 
@@ -202,6 +203,17 @@ def generate_live_narrative(
             custom_format=custom_format,
         )
 
+    def _clean_narrative(text: str) -> str:
+        """Strip markdown formatting (asterisks, bold, etc.) from AI-generated text."""
+        import re
+        # Remove bold/italic markers: **text** or *text*
+        text = re.sub(r'\*{1,3}([^*]+)\*{1,3}', r'\1', text)
+        # Remove leading asterisks used as bullet points
+        text = re.sub(r'^\s*\*\s+', '', text, flags=re.MULTILINE)
+        # Clean up any remaining stray asterisks
+        text = text.replace('*', '')
+        return text
+
     # 1. Groq (primary) via orchestrator
     if groq_api_key:
         try:
@@ -213,7 +225,7 @@ def generate_live_narrative(
                 max_tokens=900,
                 model=get_groq_model(),
             )
-            return result.choices[0].message.content
+            return _clean_narrative(result.choices[0].message.content)
         except Exception as e1:
             logger.error(f"Orchestrator Error: {e1}")
             try:
