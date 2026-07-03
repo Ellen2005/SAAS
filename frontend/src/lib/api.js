@@ -6,6 +6,7 @@ export const API_URL =
     : (import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://localhost:8000' : 'http://localhost:8000'))
 
 let _isRedirectingToLogin = false
+let _tokenRefreshPromise = null
 
 function redirectToLogin() {
   if (_isRedirectingToLogin) return
@@ -22,12 +23,43 @@ export async function getSessionSafe() {
 }
 
 async function getAccessToken() {
+  // Deduplicate concurrent token refresh attempts to avoid race conditions
+  // when multiple API calls fire in parallel on page load
   let session = await getSessionSafe()
-  if (!session) {
-    const { data: { session: refreshed } } = await supabase.auth.refreshSession()
-    session = refreshed
+  if (session?.access_token) {
+    _tokenRefreshPromise = null
+    return session.access_token
   }
-  return session?.access_token
+
+  // If a refresh is already in progress, wait for it instead of starting another
+  if (_tokenRefreshPromise) {
+    try {
+      const refreshed = await _tokenRefreshPromise
+      return refreshed?.access_token
+    } catch {
+      return null
+    }
+  }
+
+  _tokenRefreshPromise = (async () => {
+    try {
+      const { data: { session: refreshed }, error } = await supabase.auth.refreshSession()
+      if (error) throw error
+      return refreshed
+    } catch (err) {
+      console.error('Session refresh failed:', err.message)
+      await supabase.auth.signOut()
+      redirectToLogin()
+      return null
+    }
+  })()
+
+  try {
+    const result = await _tokenRefreshPromise
+    return result?.access_token
+  } finally {
+    _tokenRefreshPromise = null
+  }
 }
 
 function buildHeaders(existingHeaders = {}, includeJson = false) {
@@ -59,7 +91,18 @@ export async function apiFetch(path, options = {}) {
     }
 
     if (response.status === 401) {
-      const { data: { session } } = await supabase.auth.refreshSession()
+      let session
+      try {
+        const { data, error } = await supabase.auth.refreshSession()
+        if (error) throw error
+        session = data.session
+      } catch (err) {
+        // Invalid/expired refresh token — force re-login
+        console.error('Session refresh failed on 401:', err.message)
+        await supabase.auth.signOut()
+        redirectToLogin()
+        throw new Error('Session expired. Redirecting to login.')
+      }
       if (!session?.access_token) {
         redirectToLogin()
         throw new Error('Session expired. Redirecting to login.')

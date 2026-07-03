@@ -3,9 +3,26 @@ import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X,
 import { apiJson, apiFetch, API_URL } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 
+const REPORTS_CACHE_KEY = 'saas.reports.cache.v1';
+
+const readReportsCache = () => {
+  try {
+    const raw = localStorage.getItem(REPORTS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+
+const writeReportsCache = (payload) => {
+  try { localStorage.setItem(REPORTS_CACHE_KEY, JSON.stringify(payload)); } catch { /* noop */ }
+};
+
 const ReportsHistory = () => {
   const { user, isManager } = useAuth();
-  const [reports, setReports] = useState([]);
+  const [reports, setReports] = useState(() => {
+    // Restore from cache immediately to avoid flash of empty state
+    const cached = readReportsCache();
+    return cached || [];
+  });
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -19,8 +36,11 @@ const ReportsHistory = () => {
     try {
       const data = await apiJson('/api/reports/history');
       setReports(data.reports || []);
+      writeReportsCache(data.reports || []);
     } catch {
-      setReports([]);
+      // On failure, keep the cached data (already set from useState init)
+      const cached = readReportsCache();
+      if (cached) setReports(cached);
     } finally {
       setLoading(false);
     }

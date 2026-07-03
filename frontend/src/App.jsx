@@ -155,8 +155,8 @@ function AppShell() {
                   )}
                   <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_dashboard')}</NavLink>
                   <NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_reports')}</NavLink>
-                  {/* Show manager features only when role is confirmed as manager or admin */}
-                  {(isManager || isAdmin) && (
+                  {/* Manager-only features (not shown to admins who have their own admin nav) */}
+                  {isManager && (
                     <>
                       <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''}>
                         Analyst

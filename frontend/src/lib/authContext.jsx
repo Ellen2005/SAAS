@@ -97,9 +97,23 @@ export function AuthProvider({ children }) {
     } catch { /* ignore */ }
 
     supabase.auth.getSession()
-      .then(({ data: { session } }) => {
+      .then(async ({ data: { session } }) => {
         if (session?.user) {
-          setUser(session.user);
+          // Validate the session by trying to get the user — if refresh token is dead,
+          // this will throw and we can clear state immediately instead of retrying forever
+          try {
+            const { data: { user }, error } = await supabase.auth.getUser(session.access_token)
+            if (error || !user) throw error || new Error('No user')
+            setUser(user)
+          } catch {
+            // Session is stale/invalid (e.g. refresh token revoked) — clear it
+            console.warn('Stale session detected, clearing auth state')
+            await supabase.auth.signOut()
+            resetAuthState()
+            clearTimeout(forceUnblock)
+            setLoading(false)
+            return
+          }
           // Fetch fresh role in background - don't block UI
           fetchUserRole(session.user).catch(() => {});
         } else {
@@ -115,11 +129,27 @@ export function AuthProvider({ children }) {
       });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
+        if (event === 'SIGNED_OUT') {
+          resetAuthState();
+          return;
+        }
         if (session?.user) {
-          setUser(session.user);
-          // Fire and forget — never block the auth state change callback
-          fetchUserRole(session.user).catch(() => {});
+          // Validate session in auth state change too
+          supabase.auth.getUser(session.access_token)
+            .then(({ data: { user }, error }) => {
+              if (error || !user) {
+                supabase.auth.signOut().catch(() => {})
+                resetAuthState()
+                return
+              }
+              setUser(user)
+              // Fire and forget — never block the auth state change callback
+              fetchUserRole(user).catch(() => {});
+            })
+            .catch(() => {
+              resetAuthState()
+            })
         } else {
           resetAuthState();
         }

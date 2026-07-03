@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Header
+from fastapi import FastAPI, Depends, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -285,13 +285,16 @@ def _verify_supabase_token(token: str) -> dict:
 # ── Real-time SSE Stream ──────────────────────────────────────────────────────
 
 @app.get("/api/realtime/stream")
-async def realtime_stream(authorization: Optional[str] = Header(None)):
-    """Server-Sent Events stream (heartbeat only). Auth via Authorization header only."""
+async def realtime_stream(
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = Query(None),
+):
+    """Server-Sent Events stream (heartbeat only). Auth via Authorization header or ?token= query param."""
     from fastapi.responses import StreamingResponse
     import asyncio
     import json
 
-    auth_token = (authorization or "").replace("Bearer ", "")
+    auth_token = (authorization or "").replace("Bearer ", "") or token
     if not auth_token:
         raise HTTPException(status_code=401, detail="Missing authentication")
     
