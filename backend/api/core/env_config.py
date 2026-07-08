@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 REQUIRED_ENV_VARS = [
     "SUPABASE_URL",
     "SUPABASE_SERVICE_KEY",
-    "DATABASE_URL",
     "GROQ_API_KEY",
 ]
 
@@ -54,10 +53,6 @@ def validate_environment() -> dict:
             results["warnings"].append(f"Missing recommended environment variable: {var_name}")
     
     # Validate specific formats
-    db_url = os.getenv("DATABASE_URL")
-    if db_url and not db_url.startswith(("postgresql://", "postgresql+psycopg2://", "mysql://", "sqlite://", "oracle://")):
-        results["warnings"].append("DATABASE_URL has unexpected format")
-    
     supabase_url = os.getenv("SUPABASE_URL")
     if supabase_url and "supabase.co" not in supabase_url:
         results["warnings"].append("SUPABASE_URL does not appear to be a valid Supabase URL")

@@ -5,8 +5,6 @@ Enterprise-grade reports for CNPS leadership:
   - DG Monthly Report (Rapport au Directeur Général)
   - Board Report (Rapport du Conseil d'Administration)
   - Regional Performance Report (Rapport de Performance Régionale)
-
-These generate PDF-ready HTML with CNPS branding and professional formatting.
 """
 
 import logging
@@ -32,10 +30,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/executive", tags=["executive-reports"])
 
 
-# ─── Helper: Build KPI data from Supabase ────────────────────────────────────
+# ─── Data builders ────────────────────────────────────────────────────────────
 
 def _build_kpi_data(user_id: str, supabase, limit: int = 20) -> list:
-    """Fetch user's KPIs and format them for report generation."""
     rows = safe_data(
         supabase.table("kpi_results")
         .select("*")
@@ -44,19 +41,18 @@ def _build_kpi_data(user_id: str, supabase, limit: int = 20) -> list:
         .limit(limit)
         .execute()
     )
-    kpis = []
-    for r in rows:
-        kpis.append({
+    return [
+        {
             "name": r.get("kpi_name", "KPI"),
             "value": float(r.get("value", 0)),
             "change_pct": float(r.get("dod_pct", 0)) if r.get("dod_pct") else None,
             "status": r.get("status", "NORMAL"),
-        })
-    return kpis
+        }
+        for r in rows
+    ]
 
 
 def _build_anomaly_data(user_id: str, supabase, limit: int = 20) -> list:
-    """Fetch user's anomalies for report inclusion."""
     rows = safe_data(
         supabase.table("anomaly_records")
         .select("*")
@@ -65,39 +61,37 @@ def _build_anomaly_data(user_id: str, supabase, limit: int = 20) -> list:
         .limit(limit)
         .execute()
     )
-    anomalies = []
-    for r in rows:
-        anomalies.append({
+    return [
+        {
             "kpi_name": r.get("kpi_name", "N/A"),
             "severity": r.get("severity", "WARNING"),
             "deviation": float(r.get("deviation", 0)),
             "context": r.get("context", {}),
-        })
-    return anomalies
+        }
+        for r in rows
+    ]
 
 
 def _build_regional_data(supabase) -> list:
-    """Build regional performance data from departments table + KPI results."""
+    """Build regional performance data using real validation pass rates."""
     depts = safe_data(
-        supabase.table("departments")
-        .select("*")
-        .order("created_at")
-        .execute()
+        supabase.table("departments").select("*").order("created_at").execute()
     )
     regions = []
     for dept in depts:
         dept_id = dept["id"]
+
         kpis = safe_data(
             supabase.table("kpi_results")
             .select("kpi_name, value")
             .eq("department_id", dept_id)
             .order("recorded_at", desc=True)
-            .limit(10)
+            .limit(20)
             .execute()
         )
-        
-        contributions = 0
-        pensions = 0
+
+        contributions = 0.0
+        pensions = 0.0
         claims = 0
         for k in kpis:
             name = str(k.get("kpi_name", "")).lower()
@@ -106,46 +100,51 @@ def _build_regional_data(supabase) -> list:
                 contributions += val
             elif "pension" in name or "prestation" in name:
                 pensions += val
-            elif "claim" in name or "accident" in name or "at/mp" in name:
-                claims += val
-        
-        # Determine status
-        collection_rate = min(100, (contributions / (contributions + 1)) * 95 + 5) if contributions > 0 else 0
-        compliance_rate = min(100, (pensions / (pensions + 1)) * 90 + 5) if pensions > 0 else 0
-        
+            elif "claim" in name or "accident" in name or "at/mp" in name or "sinistre" in name:
+                claims += int(val)
+
+        # Collection rate = validation pass rate for this department (real data)
+        val_logs = safe_data(
+            supabase.table("validation_logs")
+            .select("status")
+            .eq("department_id", dept_id)
+            .order("created_at", desc=True)
+            .limit(30)
+            .execute()
+        )
+        total_checks = len(val_logs)
+        passed_checks = sum(1 for v in val_logs if v.get("status") == "pass")
+        collection_rate = round(passed_checks / total_checks * 100, 1) if total_checks > 0 else 0.0
+        compliance_rate = collection_rate
+
         status = "green"
         if collection_rate < 50:
             status = "red"
         elif collection_rate < 75:
             status = "amber"
-        
+
         regions.append({
             "name": dept.get("name", "Unknown"),
             "contributions": contributions,
             "pensions": pensions,
-            "claims": int(claims),
+            "claims": claims,
             "collection_rate": collection_rate,
             "compliance_rate": compliance_rate,
             "status": status,
         })
-    
     return regions
 
 
 def _build_department_performance(supabase) -> list:
-    """Build department performance data with validation scores."""
+    """KPI score = % of KPIs with NORMAL status. Validation rate = pass rate from logs."""
     depts = safe_data(
-        supabase.table("departments")
-        .select("*")
-        .order("created_at")
-        .execute()
+        supabase.table("departments").select("*").order("created_at").execute()
     )
     performance = []
     for dept in depts:
         dept_id = dept["id"]
-        
-        # Get latest validation logs
-        validation_logs = safe_data(
+
+        val_logs = safe_data(
             supabase.table("validation_logs")
             .select("status")
             .eq("department_id", dept_id)
@@ -153,57 +152,118 @@ def _build_department_performance(supabase) -> list:
             .limit(20)
             .execute()
         )
-        passes = sum(1 for v in validation_logs if v.get("status") == "pass")
-        validation_rate = (passes / len(validation_logs) * 100) if validation_logs else 0
-        
-        # Get latest KPI score
+        total_val = len(val_logs)
+        passes = sum(1 for v in val_logs if v.get("status") == "pass")
+        validation_rate = round(passes / total_val * 100, 1) if total_val > 0 else 0.0
+
         kpis = safe_data(
             supabase.table("kpi_results")
-            .select("value")
+            .select("status, recorded_at")
             .eq("department_id", dept_id)
             .order("recorded_at", desc=True)
-            .limit(5)
+            .limit(20)
             .execute()
         )
-        avg_score = sum(float(k.get("value", 0)) for k in kpis) / len(kpis) if kpis else 0
-        
-        # Get last sync
-        last_sync = None
-        if kpis:
-            last_sync = str(kpis[0].get("recorded_at", ""))[:10]
-        
-        status = "Active"
-        if not kpis:
-            status = "Pending"
-        
+        total_kpis = len(kpis)
+        normal_kpis = sum(1 for k in kpis if k.get("status") == "NORMAL")
+        kpi_score = round(normal_kpis / total_kpis * 100, 1) if total_kpis > 0 else 0.0
+
+        last_sync = str(kpis[0].get("recorded_at", ""))[:10] if kpis else None
+
         performance.append({
             "name": dept.get("name", "Unknown"),
-            "score": min(100, avg_score / 1000) if avg_score > 0 else 0,
+            "score": kpi_score,
             "validation_rate": validation_rate,
             "last_sync": last_sync or "Never",
-            "status": status,
+            "status": "Active" if kpis else "Pending",
         })
-    
     return performance
 
 
+def _build_recommendations(kpis: list, anomalies: list) -> list:
+    """Generate data-driven recommendations from actual KPI and anomaly results."""
+    recs = []
+    critical = [a for a in anomalies if a.get("severity") == "CRITICAL"]
+    warnings = [a for a in anomalies if a.get("severity") == "WARNING"]
+
+    for a in critical[:2]:
+        name = a.get("kpi_name", "").replace("_", " ").title()
+        recs.append({
+            "title": f"Investigate critical anomaly: {name}",
+            "body": a.get("context", {}).get("reason", f"{name} has exceeded the critical z-score threshold. Immediate investigation required."),
+        })
+    for a in warnings[:2]:
+        name = a.get("kpi_name", "").replace("_", " ").title()
+        recs.append({
+            "title": f"Monitor warning: {name}",
+            "body": a.get("context", {}).get("reason", f"{name} shows a notable deviation. Monitor closely over the next reporting period."),
+        })
+
+    declining = [k for k in kpis if (k.get("change_pct") or 0) < -5]
+    for k in declining[:2]:
+        name = k.get("name", "").replace("_", " ").title()
+        pct = abs(k.get("change_pct") or 0)
+        recs.append({
+            "title": f"Address decline in {name}",
+            "body": f"{name} has decreased by {pct:.1f}% compared to the previous period. Review contributing factors and initiate corrective action.",
+        })
+
+    if not recs:
+        recs.append({
+            "title": "Continue monitoring all KPIs",
+            "body": "No critical issues detected this period. Maintain current operational cadence and ensure data connections remain active for continuous monitoring.",
+        })
+    return recs[:4]
+
+
+def _build_risks(anomalies: list) -> list:
+    """Build risk flags from actual detected anomalies only."""
+    risks = []
+    for a in anomalies:
+        if a.get("severity") in ("CRITICAL", "WARNING"):
+            name = a.get("kpi_name", "").replace("_", " ").title()
+            dev = a.get("deviation", 0)
+            reason = a.get("context", {}).get("reason", "Significant deviation detected.")
+            risks.append({
+                "title": f"{a.get('severity')} — {name}",
+                "body": f"{reason} (z-score deviation: {dev:.1f})",
+            })
+    return risks[:3]
+
+
+def _build_strategic_objectives(kpis: list, supabase) -> list:
+    """
+    Build strategic objectives using DoD% trend as progress indicator.
+    A KPI trending up vs its 7-day average is considered on-track.
+    """
+    objectives = []
+    for kpi in kpis[:6]:
+        value = kpi.get("value", 0)
+        change = kpi.get("change_pct") or 0
+        # Progress: map change_pct to a 0-100 scale centred at 85 (stable = 85%)
+        # Positive trend pushes toward 100, negative toward 60
+        progress = min(100.0, max(0.0, 85.0 + change))
+        objectives.append({
+            "name": kpi.get("name", "KPI").replace("_", " ").title(),
+            "target": f"{value * 1.10:,.0f}",   # 10% stretch target
+            "progress": round(progress, 1),
+            "current": f"{value:,.0f}",
+        })
+    return objectives
+
+
 def _generate_executive_summary(user_id: str, supabase, kpis: list, anomalies: list) -> str:
-    """Generate an executive summary using Groq LLM or rule-based fallback."""
     try:
         from ..services.ai_orchestrator import AIOrchestrator
-        
         kpi_text = "; ".join(f"{k['name']}: {k['value']:,.2f}" for k in kpis[:5])
         anomaly_text = "; ".join(f"{a['kpi_name']} ({a['severity']})" for a in anomalies[:3]) if anomalies else "Aucune anomalie"
-        
-        prompt = f"""You are a CNPS (Cameroon Social Security) executive assistant. 
-Write a concise executive summary in French (100-150 words) for the Director General's monthly report.
-
-Current KPIs: {kpi_text}
-Active alerts: {anomaly_text}
-
-Format: Professional, formal French. Start with "Au cours de cette période,".
-Include: overall performance assessment, key achievements, areas needing attention, and outlook."""
-        
+        prompt = (
+            "You are a CNPS (Cameroon Social Security) executive assistant. "
+            "Write a concise executive summary in French (100-150 words) for the Director General's monthly report.\n\n"
+            f"Current KPIs: {kpi_text}\nActive alerts: {anomaly_text}\n\n"
+            "Format: Professional, formal French. Start with \"Au cours de cette période,\".\n"
+            "Include: overall performance assessment, key achievements, areas needing attention, and outlook."
+        )
         orchestrator = AIOrchestrator()
         result = orchestrator.execute_sync(
             messages=[{"role": "user", "content": prompt}],
@@ -216,22 +276,27 @@ Include: overall performance assessment, key achievements, areas needing attenti
         logger.warning(f"Orchestrator executive summary failed: {e1}")
         try:
             from ..services.groq_utils import execute_groq_completion
-            
             completion = execute_groq_completion(prompt=prompt, temperature=0.3, max_tokens=300)
             if completion and hasattr(completion, "choices") and completion.choices:
                 return completion.choices[0].message.content
         except Exception as e:
             logger.warning(f"LLM executive summary failed: {e}")
-    
-    # Fallback
+
     anomaly_count = len(anomalies)
     kpi_count = len(kpis)
     if anomaly_count > 0:
-        return f"Au cours de cette période, {kpi_count} indicateurs clés ont été analysés avec {anomaly_count} anomalie(s) détectée(s). Les performances globales nécessitent une attention particulière sur les points identifiés dans le rapport détaillé ci-dessous."
-    return f"Au cours de cette période, {kpi_count} indicateurs clés ont été suivis. La situation générale est stable avec des performances conformes aux objectifs fixés."
+        return (
+            f"Au cours de cette période, {kpi_count} indicateurs clés ont été analysés avec "
+            f"{anomaly_count} anomalie(s) détectée(s). Les performances globales nécessitent "
+            "une attention particulière sur les points identifiés dans le rapport détaillé ci-dessous."
+        )
+    return (
+        f"Au cours de cette période, {kpi_count} indicateurs clés ont été suivis. "
+        "La situation générale est stable avec des performances conformes aux objectifs fixés."
+    )
 
 
-# ─── Endpoints ───────────────────────────────────────────────────────────────
+# ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/report/dg")
 def get_dg_report(
@@ -242,14 +307,15 @@ def get_dg_report(
     """Generate the Director General Monthly Report (Rapport Mensuel DG)."""
     supabase = get_supabase()
     user_id = context["user_id"]
-    
+
     kpis = _build_kpi_data(user_id, supabase)
     anomalies = _build_anomaly_data(user_id, supabase)
     regional_data = _build_regional_data(supabase)
     dept_performance = _build_department_performance(supabase)
+    recommendations = _build_recommendations(kpis, anomalies)
+    risks = _build_risks(anomalies)
     executive_summary = _generate_executive_summary(user_id, supabase, kpis, anomalies)
-    
-    # Get company name
+
     from ..services.etl_service import get_department_id
     dept_id = get_department_id(user_id, supabase)
     company_name = "CNPS"
@@ -257,52 +323,30 @@ def get_dg_report(
         dept_resp = supabase.table("departments").select("name").eq("id", dept_id).limit(1).execute()
         if dept_resp.data:
             company_name = dept_resp.data[0].get("name", "CNPS")
-    
+
     report_period = period or datetime.now().strftime("%B %Y")
-    
-    if format == "pdf":
-        pdf_bytes, filename, html = generate_pdf_report(
-            "dg",
-            company_name=company_name,
-            report_period=report_period,
-            kpis=kpis,
-            anomalies=anomalies,
-            regional_data=regional_data,
-            department_performance=dept_performance,
-            recommendations=[
-                {"title": "Suivi des recommandations du mois précédent", "body": "Vérifier la mise en œuvre des actions correctives identifiées lors du dernier rapport."},
-                {"title": "Optimisation du recouvrement des cotisations", "body": "Renforcer les actions de recouvrement auprès des employeurs en retard."},
-            ],
-            risks=[
-                {"title": "Baisse des cotisations dans la région du Littoral", "body": "Une baisse de 12% des cotisations a été observée. Investigation recommandée."},
-            ],
-            executive_summary=executive_summary,
-        )
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Content-Type": "application/pdf",
-            },
-        )
-    
-    html = generate_dg_report(
+
+    kwargs = dict(
         company_name=company_name,
         report_period=report_period,
         kpis=kpis,
         anomalies=anomalies,
         regional_data=regional_data,
         department_performance=dept_performance,
-        recommendations=[
-            {"title": "Suivi des recommandations du mois précédent", "body": "Vérifier la mise en œuvre des actions correctives identifiées lors du dernier rapport."},
-            {"title": "Optimisation du recouvrement des cotisations", "body": "Renforcer les actions de recouvrement auprès des employeurs en retard."},
-        ],
-        risks=[
-            {"title": "Baisse des cotisations dans la région du Littoral", "body": "Une baisse de 12% des cotisations a été observée. Investigation recommandée."},
-        ],
+        recommendations=recommendations,
+        risks=risks,
         executive_summary=executive_summary,
     )
+
+    if format == "pdf":
+        pdf_bytes, filename, _ = generate_pdf_report("dg", **kwargs)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    html = generate_dg_report(**kwargs)
     return Response(
         content=html,
         media_type="text/html",
@@ -316,47 +360,53 @@ def get_board_report(
     format: str = Query("html", pattern="^(html|pdf)$"),
     context: dict = Depends(require_role(["manager", "admin"])),
 ):
-    """Generate the Board of Directors Report (Rapport du Conseil d'Administration)."""
+    """Generate the Board of Directors Report."""
     supabase = get_supabase()
     user_id = context["user_id"]
-    
+
     kpis = _build_kpi_data(user_id, supabase)
+    anomalies = _build_anomaly_data(user_id, supabase)
     report_period = period or datetime.now().strftime("%B %Y")
-    
-    # Build strategic objectives from KPI data
-    strategic_objectives = []
-    for kpi in kpis[:6]:
-        strategic_objectives.append({
-            "name": kpi["name"],
-            "target": f"{kpi['value'] * 1.15:,.0f}",
-            "progress": min(100, (kpi["value"] / (kpi["value"] * 1.15)) * 100) if kpi["value"] > 0 else 0,
-            "current": f"{kpi['value']:,.0f}",
-        })
-    
-    financial_summary = f"Présentation de la situation financière de la CNPS pour la période {report_period}. Les indicateurs clés montrent une stabilité globale avec des axes d'amélioration identifiés."
-    
-    if format == "pdf":
-        pdf_bytes, filename, html = generate_pdf_report(
-            "board",
-            company_name="CNPS",
-            report_period=report_period,
-            kpis=kpis,
-            strategic_objectives=strategic_objectives,
-            financial_summary=financial_summary,
+    strategic_objectives = _build_strategic_objectives(kpis, supabase)
+
+    # AI-generated financial summary
+    try:
+        from ..services.ai_orchestrator import AIOrchestrator
+        kpi_text = "; ".join(f"{k['name']}: {k['value']:,.2f}" for k in kpis[:5])
+        anomaly_text = "; ".join(f"{a['kpi_name']} ({a['severity']})" for a in anomalies[:3]) if anomalies else "Aucune anomalie"
+        prompt = (
+            f"Write a 2-sentence financial summary in French for the CNPS Board of Directors report for {report_period}. "
+            f"KPIs: {kpi_text}. Alerts: {anomaly_text}. Be formal and factual."
         )
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        orchestrator = AIOrchestrator()
+        result = orchestrator.execute_sync(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3, max_tokens=150,
         )
-    
-    html = generate_board_report(
+        financial_summary = result.choices[0].message.content if result and result.choices else ""
+    except Exception:
+        financial_summary = (
+            f"Présentation de la situation financière de la CNPS pour la période {report_period}. "
+            "Les indicateurs clés montrent une stabilité globale avec des axes d'amélioration identifiés."
+        )
+
+    kwargs = dict(
         company_name="CNPS",
         report_period=report_period,
         kpis=kpis,
         strategic_objectives=strategic_objectives,
         financial_summary=financial_summary,
     )
+
+    if format == "pdf":
+        pdf_bytes, filename, _ = generate_pdf_report("board", **kwargs)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    html = generate_board_report(**kwargs)
     return Response(
         content=html,
         media_type="text/html",
@@ -374,25 +424,18 @@ def get_regional_report(
     supabase = get_supabase()
     regions = _build_regional_data(supabase)
     report_period = period or datetime.now().strftime("%B %Y")
-    
+
+    kwargs = dict(company_name="CNPS", report_period=report_period, regions=regions)
+
     if format == "pdf":
-        pdf_bytes, filename, html = generate_pdf_report(
-            "regional",
-            company_name="CNPS",
-            report_period=report_period,
-            regions=regions,
-        )
+        pdf_bytes, filename, _ = generate_pdf_report("regional", **kwargs)
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
-    
-    html = generate_regional_performance_report(
-        company_name="CNPS",
-        report_period=report_period,
-        regions=regions,
-    )
+
+    html = generate_regional_performance_report(**kwargs)
     return Response(
         content=html,
         media_type="text/html",
@@ -407,8 +450,6 @@ def get_fraud_detection_report(
     """Run fraud detection on current data and return results."""
     supabase = get_supabase()
     user_id = context["user_id"]
-    
-    # Fetch KPI data for fraud detection
     kpi_rows = safe_data(
         supabase.table("kpi_results")
         .select("*")
@@ -417,11 +458,8 @@ def get_fraud_detection_report(
         .limit(500)
         .execute()
     )
-    
     from ..services.fraud_detection_service import run_full_fraud_detection
-    result = run_full_fraud_detection(kpi_rows)
-    
-    return result
+    return run_full_fraud_detection(kpi_rows)
 
 
 @router.get("/report/list")
@@ -452,7 +490,7 @@ def list_available_reports(
             {
                 "id": "regional",
                 "name": "Rapport de Performance Régionale",
-                "description": "Comparaison des performances des 10 directions régionales.",
+                "description": "Comparaison des performances des directions régionales.",
                 "formats": ["html", "pdf"],
                 "frequency": "Mensuel",
                 "audience": "Directions Régionales",

@@ -123,32 +123,33 @@ export default function DashboardCustomizer({ isOpen, onClose, onSave, currentLa
           </button>
         </div>
 
+        {/* Section visibility summary */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          {['kpi', 'chart', 'map'].map(type => {
+            const active = layout.widgets.some(w => w.type === type);
+            const labels = { kpi: '📊 KPI Cards', chart: '📈 Charts', map: '🗺️ Regional Map' };
+            return (
+              <span key={type} style={{
+                padding: '4px 12px', borderRadius: 20, fontSize: '0.78rem', fontWeight: 600,
+                background: active ? 'rgba(59,130,246,0.12)' : 'var(--ea-bg-hover)',
+                color: active ? 'var(--ea-primary)' : 'var(--ea-text-secondary)',
+                border: `1px solid ${active ? 'var(--ea-primary)' : 'var(--ea-border)'}`,
+              }}>
+                {active ? '✓' : '✗'} {labels[type]}
+              </span>
+            );
+          })}
+        </div>
+
         {/* Add Widget Buttons */}
-        <div style={{
-          display: 'flex',
-          gap: '8px',
-          marginBottom: '20px',
-          flexWrap: 'wrap',
-        }}>
-          <button
-            className="ea-btn ea-btn-secondary"
-            onClick={() => handleAddWidget('kpi')}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          <button className="ea-btn ea-btn-secondary" onClick={() => handleAddWidget('kpi')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Plus size={16} /> Add KPI Card
           </button>
-          <button
-            className="ea-btn ea-btn-secondary"
-            onClick={() => handleAddWidget('chart')}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
+          <button className="ea-btn ea-btn-secondary" onClick={() => handleAddWidget('chart')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Plus size={16} /> Add Chart
           </button>
-          <button
-            className="ea-btn ea-btn-secondary"
-            onClick={() => handleAddWidget('map')}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
+          <button className="ea-btn ea-btn-secondary" onClick={() => handleAddWidget('map')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Plus size={16} /> Add Map
           </button>
         </div>

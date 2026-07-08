@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
-import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, Search, BarChart2, Shield, Activity } from 'lucide-react';
+import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, BarChart2, Shield, Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/authContext';
-import { apiFetch, apiJson, API_URL } from '../lib/api';
+import { apiFetch, apiJson } from '../lib/api';
 import { useLang } from '../lib/i18n';
+import { invalidateDashboardCache } from '../lib/dashboardSync';
 import ValidationWarnings from '../components/ValidationWarnings';
 import ErrorBoundary from '../components/ErrorBoundary';
 import OnboardingTour from '../components/OnboardingTour';
@@ -152,6 +153,7 @@ const Dashboard = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [showCustomizer, setShowCustomizer] = useState(false);
   const [dashboardLayout, setDashboardLayout] = useState(null);
+  const [regionalData, setRegionalData] = useState([]);
   
   // Refs for cleanup and closure safety
   const fetchDataRef = useRef(null);
@@ -194,9 +196,13 @@ const Dashboard = () => {
       writeCache(DASHBOARD_CACHE_KEY, result);
       setForecasts(forecastResult.forecasts || []);
       setWidgets(widgetResult.widgets || []);
-      const seriesResult = await apiJson(`/api/kpis/series?limit=30&days=${dateRange}`).catch(() => ({ series: {} }));
+      const [seriesResult, regionalResult] = await Promise.all([
+        apiJson(`/api/kpis/series?limit=30&days=${dateRange}`).catch(() => ({ series: {} })),
+        apiJson('/api/dashboard/regional').catch(() => ({ regions: [] })),
+      ]);
       if (!mountedRef.current) return;
       setSeries(seriesResult.series || {});
+      setRegionalData(regionalResult.regions || []);
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
       if (!mountedRef.current) return;
@@ -219,6 +225,16 @@ const Dashboard = () => {
     }
     return () => { mountedRef.current = false; };
   }, [user, fetchData, dateRange]);
+
+  // Listen for external sync events (Settings, Schema, Analysis pages)
+  useEffect(() => {
+    const handleExternalRefresh = () => {
+      invalidateDashboardCache();
+      if (fetchDataRef.current) fetchDataRef.current();
+    };
+    window.addEventListener('dashboard:refresh', handleExternalRefresh);
+    return () => window.removeEventListener('dashboard:refresh', handleExternalRefresh);
+  }, []);
 
   // Fetch executive data when executive tab is active
   useEffect(() => {
@@ -279,22 +295,27 @@ const Dashboard = () => {
 
   // ── Widget grid (top row) - derived from widgetCards in O(n) ──
   const topMetrics = useMemo(() => {
-    return widgetCards.map(({ w, kpi, points, delta }) => {
-      const val = kpi?.value ?? points[points.length - 1]?.value;
-      return { label: w.display_name_en || w.name, value: val, delta, status: kpi?.status, sparklineData: points, icon: <Activity size={16} /> };
-    });
+    return widgetCards
+      .map(({ w, kpi, points, delta }) => {
+        const val = kpi?.value ?? points[points.length - 1]?.value;
+        return { label: w.display_name_en || w.name, value: val, delta, status: kpi?.status, sparklineData: points, icon: <Activity size={16} /> };
+      })
+      .filter(m => m.value != null && m.value !== 0);
   }, [widgetCards]);
 
   // ── KPI cards grid ────────────────────────────────────────────
   const kpiCards = useMemo(() => {
-    return (data.kpis || []).slice(0, 8).map((k) => ({
-      label: k.kpi_name.replaceAll('_', ' '),
-      value: k.value,
-      delta: k.dod_pct,
-      status: k.status,
-      sparklineData: series[k.kpi_name] || [],
-      kpi_name: k.kpi_name,
-    }));
+    return (data.kpis || [])
+      .filter(k => k.value != null && k.value !== 0)
+      .slice(0, 8)
+      .map((k) => ({
+        label: k.kpi_name.replaceAll('_', ' '),
+        value: k.value,
+        delta: k.dod_pct,
+        status: k.status,
+        sparklineData: series[k.kpi_name] || [],
+        kpi_name: k.kpi_name,
+      }));
   }, [data.kpis, series]);
 
   // ── Sync handler with proper cleanup ──────────────────────────
@@ -365,8 +386,24 @@ const Dashboard = () => {
 
   const handleSaveLayout = useCallback((layout) => {
     setDashboardLayout(layout);
-    localStorage.setItem('dashboard_layout', JSON.stringify(layout));
+    try {
+      localStorage.setItem('dashboard_layout', JSON.stringify(layout));
+    } catch (e) { /* noop */ }
+    setShowCustomizer(false);
   }, []);
+
+  // Derive which sections are visible from saved layout
+  const visibleSections = useMemo(() => {
+    if (!dashboardLayout?.widgets?.length) return { kpi: true, chart: true, map: true, narrative: true, forecast: true };
+    const types = new Set(dashboardLayout.widgets.map(w => w.type));
+    return {
+      kpi: types.has('kpi'),
+      chart: types.has('chart'),
+      map: types.has('map'),
+      narrative: true,
+      forecast: types.has('chart'),
+    };
+  }, [dashboardLayout]);
 
   // ── Tab content ───────────────────────────────────────────────
   const renderTabContent = () => {
@@ -374,7 +411,7 @@ const Dashboard = () => {
       case 'overview':
         return (
           <>
-            {topMetrics.length > 0 && (
+            {visibleSections.kpi && topMetrics.length > 0 && (
               <section style={{ marginBottom: 24 }}>
                 <h3 style={{ fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ea-text-secondary)', marginBottom: 12 }}>Key Metrics</h3>
                 <div className="ea-dashboard-grid ea-grid-kpis">
@@ -383,7 +420,7 @@ const Dashboard = () => {
               </section>
             )}
 
-            {kpiCards.length > 0 && (
+            {visibleSections.kpi && kpiCards.length > 0 && (
               <section style={{ marginBottom: 24 }}>
                 <div className="ea-dashboard-grid" style={{ gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
                   {kpiCards.map((k, i) => <MetricCard key={i} {...k} onClick={() => handleKpiClick(k)} />)}
@@ -404,7 +441,7 @@ const Dashboard = () => {
               </section>
             )}
 
-            {data.snapshot_chart && data.kpis.length > 0 && (
+            {visibleSections.chart && data.snapshot_chart && data.kpis.length > 0 && (
               <section className="ea-chart-container" style={{ marginBottom: 24 }}>
                 <ChartRenderer spec={data.snapshot_chart} height={Math.min(320, 80 + data.kpis.length * 24)} />
               </section>
@@ -479,26 +516,26 @@ const Dashboard = () => {
             )}
 
             {/* Map Visualization */}
+            {visibleSections.map && (
             <section className="ea-chart-container" style={{ marginBottom: 24 }}>
-              <h3 className="ea-chart-title">
-                🗺️ Regional Performance
-              </h3>
-              <p style={{ fontSize: '0.82rem', marginBottom: 16, color: 'var(--ea-text-secondary)' }}>Geographic distribution of key metrics</p>
-              <MapVisualization 
-                data={kpiCards.slice(0, 10).map((k, i) => ({
-                  region_id: ['douala', 'yaounde', 'bafoussam', 'garoua', 'maroua', 'bamenda', 'ebolowa', 'bertoua', 'nanga', 'buea'][i] || `region_${i}`,
-                  region_name: k.label?.replace(/_/g, ' ') || `KPI ${i}`,
-                  value: typeof k.value === 'number' ? k.value : 0,
-                }))}
+              <h3 className="ea-chart-title">🗺️ Regional Performance</h3>
+              <p style={{ fontSize: '0.82rem', marginBottom: 16, color: 'var(--ea-text-secondary)' }}>
+                {regionalData.length > 0 && regionalData[0]?.is_kpi_proxy
+                  ? 'KPI values mapped to regions — connect a database with regional data for accurate geographic breakdown'
+                  : 'Geographic distribution of contribution metrics by CNPS region'}
+              </p>
+              <MapVisualization
+                data={regionalData}
                 onRegionClick={(region) => {
-                  alert(`Region: ${region.name}\nValue: ${region.value?.toLocaleString()}\n\nClick OK to see detailed analytics for this region.`);
+                  setSelectedKpi({ label: region.region_name, value: region.value, kpi_name: region.kpi_name, sparklineData: series[region.kpi_name] || [] });
                 }}
                 height={350}
               />
             </section>
+            )}
 
             {/* Forecasts Chart - using lazy-loaded component */}
-            {forecasts.length > 0 && (
+            {visibleSections.chart && forecasts.length > 0 && (
               <section className="ea-chart-container" style={{ marginBottom: 24 }}>
                 <h3 className="ea-chart-title">
                   <TrendingUp size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} /> Forecast
@@ -680,19 +717,13 @@ const Dashboard = () => {
               </button>
             ))}
           </div>
-          <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/reports')}>
-            <FileText size={15} /> Reports
-          </button>
-            {/* Generate Report Button - Always visible */}
+            {/* Generate Report Button */}
             <button className="ea-btn ea-btn-primary" onClick={handleGenerateReport} disabled={reporting || syncing} style={{ background: 'linear-gradient(135deg, var(--ea-primary), #8b5cf6)' }}>
               <FileText size={15} style={{ animation: reporting ? 'ea-pulse 1s ease-in-out infinite' : 'none' }} />
               {reporting ? 'Generating...' : 'Generate Report'}
             </button>
             {isManager && (
               <>
-                <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/query')}>
-                  <Search size={15} /> Query
-                </button>
                 <button className="ea-btn ea-btn-secondary" onClick={() => navigate('/reports/custom')}>
                   <Sparkles size={15} /> Custom Report
                 </button>

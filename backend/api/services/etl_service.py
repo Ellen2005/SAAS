@@ -60,10 +60,8 @@ def _start_ssh_tunnel(*, ssh_host, ssh_user, remote_host, remote_port, local_por
 
 
 # Legacy demo KPI names — only used to strip old seed rows from API responses
-LEGACY_DEMO_KPI_NAMES = frozenset({
-    "net_revenue", "inventory_value", "support_tickets",
-    "Total Revenue", "Inventory Value", "Support Tickets",
-})
+# (canonical definition is in core/constants.py)
+from ..core.constants import LEGACY_DEMO_KPI_NAMES
 
 RAW_COLUMNS = {
     "date", "kpi_name", "value", "source_row_id",
@@ -203,7 +201,36 @@ def extract_from_mapped_tables(user_id: str, db_connection_info: dict, supabase)
                 continue
         engine.dispose()
         if frames:
-            return finalize_extracted_frame(pd.concat(frames, ignore_index=True))
+            result_df = finalize_extracted_frame(pd.concat(frames, ignore_index=True))
+            # Rename kpi_name to use admin-defined global_field_name when mappings exist
+            if not result_df.empty:
+                try:
+                    mappings_resp = (
+                        supabase.table("field_mappings")
+                        .select("local_column_name, semantic_fields(global_field_name)")
+                        .eq("user_id", user_id)
+                        .execute()
+                    )
+                    if hasattr(mappings_resp, "data") and mappings_resp.data:
+                        name_map = {}
+                        for m in mappings_resp.data:
+                            local_col = (m.get("local_column_name") or "").lower()
+                            semantic = m.get("semantic_fields")
+                            if local_col and semantic and semantic.get("global_field_name"):
+                                name_map[local_col] = semantic["global_field_name"]
+                        if name_map:
+                            # The label in kpi_name is derived from table classification,
+                            # so we map it to the first matching global_field_name
+                            current_labels = result_df["kpi_name"].unique()
+                            for label in current_labels:
+                                label_lower = label.lower().replace(" ", "_").replace("-", "_")
+                                for local_col, global_name in name_map.items():
+                                    if local_col in label_lower or label_lower in local_col:
+                                        result_df.loc[result_df["kpi_name"] == label, "kpi_name"] = global_name
+                                        break
+                except Exception as map_err:
+                    print(f"[{datetime.now().isoformat()}] KPI rename from mappings failed: {map_err}")
+            return result_df
     except Exception as err:
         print(f"[{datetime.now().isoformat()}] Mapped extract failed: {err}")
     return pd.DataFrame()
@@ -322,7 +349,35 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                         print(f"[{datetime.now().isoformat()}] Skipped {qname}: {ex}")
                 if generic_frames:
                     combined = pd.concat(generic_frames, ignore_index=True)
-                    return finalize_extracted_frame(combined)
+                    result_df = finalize_extracted_frame(combined)
+                    # Try to rename KPIs using admin-defined field names
+                    if not result_df.empty:
+                        try:
+                            from .kpi_config import get_user_field_mappings
+                            mappings_resp = (
+                                supabase.table("field_mappings")
+                                .select("local_column_name, semantic_fields(global_field_name)")
+                                .eq("user_id", user_id)
+                                .execute()
+                            )
+                            if hasattr(mappings_resp, "data") and mappings_resp.data:
+                                name_map = {}
+                                for m in mappings_resp.data:
+                                    local_col = (m.get("local_column_name") or "").lower()
+                                    semantic = m.get("semantic_fields")
+                                    if local_col and semantic and semantic.get("global_field_name"):
+                                        name_map[local_col] = semantic["global_field_name"]
+                                if name_map:
+                                    current_labels = result_df["kpi_name"].unique()
+                                    for label in current_labels:
+                                        label_lower = label.lower().replace(" ", "_").replace("-", "_")
+                                        for local_col, global_name in name_map.items():
+                                            if local_col in label_lower or label_lower in local_col:
+                                                result_df.loc[result_df["kpi_name"] == label, "kpi_name"] = global_name
+                                                break
+                        except Exception as map_err:
+                            print(f"[{datetime.now().isoformat()}] KPI rename fallback failed: {map_err}")
+                    return result_df
             except Exception as introspect_err:
                 print(f"[{datetime.now().isoformat()}] Introspection-driven extract failed: {introspect_err}")
             print(f"[{datetime.now().isoformat()}] Source DB returned no analyzable KPI rows.")

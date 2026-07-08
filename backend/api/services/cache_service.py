@@ -126,6 +126,10 @@ def set_cached(key: str, value: Any, ttl: int = _cache_ttl):
     cache.set(key, value, ttl)
 
 
-def invalidate_user_cache(user_id: str, prefix: str = "summary"):
-    """Invalidate user cache for the given prefix (default: "summary")."""
-    cache.invalidate_user(user_id, prefix)
+def invalidate_user_cache(user_id: str, prefix: str = "v1"):
+    """Invalidate all cache entries for a user across all prefixes."""
+    for p in ("v1:summary", "v1:kpi_series"):
+        cache.invalidate_user(user_id, p)
+    # Also invalidate by the generic prefix if caller passes one
+    if prefix not in ("v1", "v1:summary", "v1:kpi_series"):
+        cache.invalidate_user(user_id, prefix)

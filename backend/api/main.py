@@ -28,7 +28,7 @@ logger.info(f"Environment loaded from: {env_path}")
 from .core.env_config import validate_environment, configure_cors_origins
 from .core.supabase_client import get_supabase
 from .core.auth import require_role, resolve_user_id
-from .services.email_service import send_automated_briefing
+from .services.email_service import send_automated_briefing, normalize_recipient_email
 from .core.scheduler import start_scheduler, shutdown_scheduler
 from .services.cache_service import get_cached, set_cached
 from .services.audit_service import log_config_change
@@ -114,14 +114,6 @@ try:
     logger.info("Rate limit middleware loaded")
 except Exception:
     logger.warning("Rate limiter not available", exc_info=True)
-
-# CSRF Protection
-try:
-    from .middleware.csrf import CSRFMiddleware
-    app.add_middleware(CSRFMiddleware)
-    logger.info("CSRF middleware loaded")
-except Exception:
-    logger.warning("CSRF middleware not available", exc_info=True)
 
 # Security Hardening
 try:
@@ -449,8 +441,8 @@ def send_test_email(
     body: dict,
     context: dict = Depends(require_role(["admin", "manager"])),
 ):
-    to_email = (body or {}).get("email", "").strip()
-    if not to_email or "@" not in to_email:
+    to_email = normalize_recipient_email((body or {}).get("email", ""))
+    if not to_email:
         raise HTTPException(status_code=400, detail="A valid email address is required.")
     api_key = os.getenv("BREVO_API_KEY")
     if not api_key:
@@ -465,8 +457,7 @@ def send_test_email(
         sender_name = os.getenv("EMAIL_SENDER_NAME", "SAAS Analytics")
         html = (
             "<h2>Enterprise Analytics — Test Email</h2>"
-            f"<p>Hello! This is a test email confirming Brevo is configured correctly "
-            f"for user <b>{context['user_id']}</b>.</p>"
+            "<p>Hello! This is a test email confirming Brevo is configured correctly.</p>"
             "<p>If you received this, your nightly briefings will deliver successfully.</p>"
         )
         resp = client.send_transac_email(sib_api_v3_sdk.SendSmtpEmail(
@@ -477,18 +468,30 @@ def send_test_email(
         ))
         return {"status": "sent", "message_id": resp.message_id, "to": to_email}
     except ApiException as e:
-        logger.error(f"Brevo API error: {getattr(e, 'body', str(e))}", exc_info=True)
+        logger.error(f"Brevo API error: {getattr(e, 'status', 'unknown')}", exc_info=True)
         raise HTTPException(status_code=502, detail="Email service error. Please try again later.")
     except Exception as e:
-        logger.error(f"Email send error: {e}", exc_info=True)
+        logger.error(f"Email send error: {type(e).__name__}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to send email.")
 
 
 @app.get("/api/audit-log")
-def get_audit_log(limit: int = 50, context: dict = Depends(require_role(["manager", "admin"]))):
+def get_audit_log(
+    limit: int = 50,
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    if limit < 1 or limit > 500:
+        limit = 50
     supabase = get_supabase()
     try:
-        rows = supabase.table("audit_logs").select("*").eq("user_id", context["user_id"]).order("created_at", desc=True).limit(limit).execute()
+        rows = (
+            supabase.table("audit_logs")
+            .select("*")
+            .eq("user_id", context["user_id"])
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
         return {"logs": rows.data if hasattr(rows, "data") and rows.data else []}
     except Exception:
         logger.error("Audit log error", exc_info=True)

@@ -1,4 +1,5 @@
 """Goal-driven analysis API for CNPS SAAS."""
+import logging
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List
@@ -8,6 +9,7 @@ from ..core.supabase_client import get_supabase
 from ..services.analysis_engine import run_analysis, list_presets, list_runs, validate_formula
 from ..services.export_service import export_analysis_runs_csv
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
 

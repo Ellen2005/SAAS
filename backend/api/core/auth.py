@@ -23,19 +23,8 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         return user_resp.user
     except HTTPException:
         raise
-    except Exception as e:
-        # Network/DNS failures — try once more before giving up
-        import time
-        time.sleep(0.3)
-        try:
-            user_resp = supabase.auth.get_user(token)
-            if not user_resp or not hasattr(user_resp, "user") or not user_resp.user:
-                raise HTTPException(status_code=401, detail="Invalid or expired token")
-            return user_resp.user
-        except HTTPException:
-            raise
-        except Exception as e2:
-            raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e2)}")
+    except Exception as e2:
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
 
 def resolve_user_id(authorization: Optional[str] = Header(None)) -> str:
@@ -56,7 +45,7 @@ def get_user_role(user_id: str) -> Optional[str]:
     try:
         resp = supabase.table("user_roles").select("role").eq("user_id", user_id).execute()
         if hasattr(resp, "data") and resp.data:
-            roles = [r["role"] for r in resp.data]
+            roles = [r["role"] for r in resp.data if r.get("role")]
             if "admin" in roles:
                 return "admin"
             if "manager" in roles:
@@ -112,10 +101,10 @@ def require_role(allowed_roles: list):
     def role_checker(resolved_user_id: str = Depends(resolve_user_id)):
         user_info = get_user_info(resolved_user_id)
         role = user_info.get("role")
-        if role not in allowed_roles:
+        if not role or role not in allowed_roles:
             raise HTTPException(
                 status_code=403,
-                detail=f"Insufficient permissions. Required: {allowed_roles}, got: {role}",
+                detail="Insufficient permissions.",
             )
         return {
             "user_id": resolved_user_id,

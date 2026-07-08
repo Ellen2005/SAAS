@@ -423,22 +423,19 @@ def _update_webhook_stats(webhook_id: str, success: bool):
     supabase = get_supabase()
     
     try:
+        current = supabase.table("webhooks").select("success_count, failure_count").eq("id", webhook_id).limit(1).execute()
+        row = current.data[0] if hasattr(current, "data") and current.data else {}
+        sc = int(row.get("success_count") or 0)
+        fc = int(row.get("failure_count") or 0)
         if success:
-            supabase.table("webhooks")\
-                .update({
-                    "success_count": supabase.raw("success_count + 1"),
-                    "last_triggered": datetime.now().isoformat(),
-                })\
-                .eq("id", webhook_id)\
-                .execute()
+            sc += 1
         else:
-            supabase.table("webhooks")\
-                .update({
-                    "failure_count": supabase.raw("failure_count + 1"),
-                    "last_triggered": datetime.now().isoformat(),
-                })\
-                .eq("id", webhook_id)\
-                .execute()
+            fc += 1
+        supabase.table("webhooks").update({
+            "success_count": sc,
+            "failure_count": fc,
+            "last_triggered": datetime.now().isoformat(),
+        }).eq("id", webhook_id).execute()
     except Exception as e:
         logger.error(f"Failed to update webhook stats: {e}")
 

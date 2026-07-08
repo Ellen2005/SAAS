@@ -1,8 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-const INACTIVITY_MS = 60 * 60 * 1000;
-const WARNING_MS = 55 * 60 * 1000;
+const INACTIVITY_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+const WARNING_MS = INACTIVITY_MS - 5 * 60 * 1000; // warn 5 min before expiry
 const EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
 
 export function useInactivityTimeout(isAuthenticated) {

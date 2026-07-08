@@ -73,6 +73,9 @@ def delete_instance_template(template_id: str, context: dict = Depends(require_r
     except Exception as error:
         logger.error("Delete instance template failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.post("/instances/deploy")
 def deploy_instance_template(request: DeployTemplateRequest, context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
     errors = []

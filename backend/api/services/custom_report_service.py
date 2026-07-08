@@ -22,6 +22,7 @@ def generate_custom_report(
     kpi_names: list = None,
     supabase=None,
     role: str = "manager",
+    report_template: list = None,  # list of {"title": str, "description": str, "content_type": str}
 ) -> dict:
     """
     Generate a custom report based on user instructions.
@@ -79,29 +80,46 @@ def generate_custom_report(
     anomaly_text = _format_anomalies_for_prompt(anomalies)
     dept_text = ", ".join([d.get("name", "") for d in departments_data]) if departments_data else "your department"
 
-    from .cnps_report_templates import sections_for_format
-    cnps_sections = sections_for_format(format_type)
-    cnps_section_text = "\n".join(f"- {s}" for s in cnps_sections)
-
-    format_instructions = {
-        "narrative": "Write a flowing narrative report with paragraphs. Be analytical and insightful.",
-        "table": "Present data in a structured tabular text format with clear columns and rows.",
-        "bullet_points": "Use bullet points and short sentences. Be concise and scannable.",
-        "executive_brief": "Write a very short executive brief (max 150 words). Focus only on the most critical findings.",
-        "detailed": "Write a comprehensive detailed report with all sections: summary, KPI analysis, anomalies, trends, recommendations.",
-    }
-
-    format_instruction = format_instructions.get(format_type, format_instructions["narrative"])
-    format_instruction += f"\n\nRequired CNPS sections:\n{cnps_section_text}"
     today = date.today().strftime("%B %d, %Y")
     period_text = f"from {date_from} to {date_to}" if date_from and date_to else f"as of {today}"
-
     institution = os.getenv("INSTITUTION_NAME", "CNPS")
-    prompt = f"""You are a senior institutional analyst for {institution} (Caisse Nationale de Prévoyance Sociale). Generate a custom report based on the following request.
+
+    # Build section instructions — user template takes priority over format presets
+    if report_template and len(report_template) > 0:
+        section_lines = []
+        for i, sec in enumerate(report_template, 1):
+            title = sec.get("title", f"Section {i}")
+            desc = sec.get("description", "")
+            ctype = sec.get("content_type", "narrative")
+            hint = {
+                "table": "Present this section as a structured data table with labelled columns and rows.",
+                "table_and_narrative": "Present this section with a data table followed by a short interpretive paragraph.",
+                "narrative": "Write this section as flowing analytical paragraphs.",
+                "bullet_points": "Write this section as concise bullet points.",
+            }.get(ctype, "Write this section as flowing analytical paragraphs.")
+            section_lines.append(f"{i}. {title}\n   Purpose: {desc}\n   Format: {hint}")
+        structure_instruction = (
+            "Generate the report following EXACTLY this user-defined structure. "
+            "Write each section heading in plain text (no asterisks, no markdown). "
+            "Use the actual KPI and anomaly data provided to fill each section.\n\n"
+            + "\n\n".join(section_lines)
+        )
+    else:
+        from .cnps_report_templates import sections_for_format
+        cnps_sections = sections_for_format(format_type)
+        format_instructions = {
+            "narrative": "Write a flowing narrative report with paragraphs. Be analytical and insightful.",
+            "table": "Present data in a structured tabular text format with clear columns and rows.",
+            "bullet_points": "Use bullet points and short sentences. Be concise and scannable.",
+            "executive_brief": "Write a very short executive brief (max 150 words). Focus only on the most critical findings.",
+            "detailed": "Write a comprehensive detailed report with all sections: summary, KPI analysis, anomalies, trends, recommendations.",
+        }
+        base = format_instructions.get(format_type, format_instructions["narrative"])
+        structure_instruction = base + "\n\nRequired sections:\n" + "\n".join(f"- {s}" for s in cnps_sections)
+
+    prompt = f"""You are a senior institutional analyst for {institution} (Caisse Nationale de Prevoyance Sociale). Generate a custom report based on the following request.
 
 USER REQUEST: {instruction}
-
-REPORT FORMAT: {format_instruction}
 
 DATA SCOPE: {dept_text} — {period_text}
 
@@ -111,11 +129,16 @@ KPI DATA:
 ANOMALIES:
 {anomaly_text}
 
-IMPORTANT:
-- Use actual numbers from the data above
-- Do not use placeholders
-- Respond in the same language as the user's request (French or English)
-- Keep it under 800 words unless format is "detailed"
+REPORT STRUCTURE:
+{structure_instruction}
+
+CRITICAL RULES:
+- Use actual numbers from the data above. Do not use placeholders.
+- Do not use asterisks, bold markers, or any markdown formatting.
+- Write section headings as plain text on their own line.
+- Respond in the same language as the user's request (French or English).
+- For table sections, use plain-text aligned columns (spaces/dashes), not markdown pipes.
+- Keep it under 900 words unless format is "detailed".
 
 REPORT:"""
 

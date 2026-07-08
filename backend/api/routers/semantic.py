@@ -84,6 +84,9 @@ def list_templates(context: dict = Depends(require_role(["admin"]))):
     except Exception as error:
         logger.error("List semantic templates failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.post("/admin/semantic/templates")
 def create_template(
     template: TemplateCreate,
     context: dict = Depends(require_role(["admin"])),
@@ -100,6 +103,9 @@ def create_template(
     except Exception as error:
         logger.error("Create semantic template failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.put("/admin/semantic/templates/{template_id}")
 def update_template(
     template_id: str,
     template: TemplateUpdate,
@@ -116,6 +122,9 @@ def update_template(
     except Exception as error:
         logger.error("Update semantic template failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.delete("/admin/semantic/templates/{template_id}")
 def delete_template(
     template_id: str,
     context: dict = Depends(require_role(["admin"])),
@@ -127,6 +136,9 @@ def delete_template(
     except Exception as error:
         logger.error("Delete semantic template failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.get("/admin/semantic/templates/{template_id}/fields")
 def list_fields(
     template_id: str,
     context: dict = Depends(require_role(["admin"])),
@@ -144,6 +156,9 @@ def list_fields(
     except Exception as error:
         logger.error("List semantic fields failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.post("/admin/semantic/templates/{template_id}/fields")
 def create_field(
     template_id: str,
     field: FieldCreate,
@@ -163,6 +178,9 @@ def create_field(
     except Exception as error:
         logger.error("Create semantic field failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.put("/admin/semantic/fields/{field_id}")
 def update_field(
     field_id: str,
     field: FieldUpdate,
@@ -179,6 +197,9 @@ def update_field(
     except Exception as error:
         logger.error("Update semantic field failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.delete("/admin/semantic/fields/{field_id}")
 def delete_field(
     field_id: str,
     context: dict = Depends(require_role(["admin"])),
@@ -190,6 +211,9 @@ def delete_field(
     except Exception as error:
         logger.error("Delete semantic field failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.get("/semantic/my-template")
 def get_my_template(user_id: str = Depends(resolve_user_id)):
     supabase = get_supabase()
     try:
@@ -292,6 +316,9 @@ def create_mapping(
     except Exception as error:
         logger.error("Create field mapping failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.put("/semantic/mappings/{mapping_id}")
 def update_mapping(
     mapping_id: str,
     mapping: MappingUpdate,
@@ -310,6 +337,9 @@ def update_mapping(
     except Exception as error:
         logger.error("Update field mapping failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.delete("/semantic/mappings/{mapping_id}")
 def delete_mapping(
     mapping_id: str,
     user_id: str = Depends(resolve_user_id),
@@ -323,6 +353,9 @@ def delete_mapping(
     except Exception as error:
         logger.error("Delete field mapping failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+
+
+@router.get("/semantic/mappings/validate")
 def validate_mappings(user_id: str = Depends(resolve_user_id)):
     template_data = get_my_template(user_id)
     fields = template_data.get("fields", [])

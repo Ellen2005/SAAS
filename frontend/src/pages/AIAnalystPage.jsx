@@ -4,7 +4,7 @@ import {
   AlertTriangle, CheckCircle, Info, ChevronDown, ChevronRight,
   BookOpen, Share2, Trash2, BarChart2, Play, Target, History,
   Eye, FileSearch, Lightbulb, TrendingDown, ShieldAlert,
-  CalendarClock, ArrowRight, AlertCircle,
+  CalendarClock, ArrowRight, AlertCircle, FileText, Download,
 } from 'lucide-react';
 import { apiJson, apiFetch } from '../lib/api';
 import { useAuth } from '../lib/authContext';
@@ -91,6 +91,8 @@ export default function AIAnalystPage() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [analysisError, setAnalysisError] = useState('');
+  const [reportGenerating, setReportGenerating] = useState(false);
+  const [reportGenerated, setReportGenerated] = useState(null); // { report_id, download_url, excel_url }
 
   const loadInsights = useCallback(async () => {
     setLoading(true);
@@ -200,6 +202,7 @@ export default function AIAnalystPage() {
     setAnalysisLoading(true);
     setAnalysisError('');
     setAnalysisResult(null);
+    setReportGenerated(null);
     try {
       const body = {
         goal_text: goal || (presetSlug ? '' : 'Institutional KPI summary'),
@@ -217,6 +220,41 @@ export default function AIAnalystPage() {
       setAnalysisError(e.message || 'Analysis failed');
     } finally {
       setAnalysisLoading(false);
+    }
+  };
+
+  const generateReport = async () => {
+    if (!analysisResult) return;
+    setReportGenerating(true);
+    try {
+      const body = {
+        analysis_id: analysisResult.id || analysisResult.run_id || '',
+        goal_text: goal || 'Goal Analysis Report',
+      };
+      const res = await apiJson('/api/reports/generate-professional', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      setReportGenerated(res);
+    } catch (e) {
+      alert(`Report generation failed: ${e.message}`);
+    } finally {
+      setReportGenerating(false);
+    }
+  };
+
+  const downloadReport = async (reportId, format) => {
+    try {
+      const response = await apiFetch(`/api/reports/download/${reportId}?format=${format}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `report-${reportId}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Download failed: ${e.message}`);
     }
   };
 
@@ -768,6 +806,54 @@ export default function AIAnalystPage() {
                     {analysisResult.sql}
                   </pre>
                 </details>
+              )}
+
+              {/* ── Generate Professional Report ── */}
+              {isManager && (
+                <div style={{ ...card, borderLeft: '4px solid var(--ea-primary)', background: 'var(--ea-primary-bg)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, color: 'var(--ea-text-primary)', display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <FileText size={16} color="var(--ea-primary)" /> Generate Professional Report
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'var(--ea-text-secondary)', marginTop: 4 }}>
+                        Export this analysis as a full A4 PDF report with charts, risk analysis, and recommendations.
+                      </div>
+                    </div>
+                    {!reportGenerated ? (
+                      <button
+                        className="ea-btn ea-btn-primary"
+                        onClick={generateReport}
+                        disabled={reportGenerating}
+                        style={{ flexShrink: 0 }}
+                      >
+                        <FileText size={14} />
+                        {reportGenerating ? 'Generating…' : 'Generate Report'}
+                      </button>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button
+                          className="ea-btn ea-btn-secondary"
+                          onClick={() => downloadReport(reportGenerated.report_id, 'pdf')}
+                          style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+                        >
+                          <Download size={14} /> PDF
+                        </button>
+                        <button
+                          className="ea-btn ea-btn-secondary"
+                          onClick={() => downloadReport(reportGenerated.report_id, 'excel')}
+                          style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+                        >
+                          <Download size={14} /> Excel
+                        </button>
+                        <span style={{ ...pill('#10b981'), alignSelf: 'center', padding: '4px 10px' }}>
+                          <CheckCircle size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                          Report ready — also saved in Report History
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           )}

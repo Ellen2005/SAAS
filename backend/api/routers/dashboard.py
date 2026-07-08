@@ -24,9 +24,9 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
     
     supabase = get_supabase()
     try:
-        kpi_resp = supabase.table("kpi_results").select("*").eq("user_id", user_id).order("recorded_at", desc=True).limit(25).execute()
+        kpi_resp = supabase.table("kpi_results").select("*").eq("user_id", user_id).order("recorded_at", desc=True).limit(50).execute()
         anomaly_resp = supabase.table("anomaly_records").select("*").eq("user_id", user_id).order("detected_at", desc=True).limit(25).execute()
-        report_resp = supabase.table("daily_reports").select("*").eq("user_id", user_id).order("report_date", desc=True).limit(10).execute()
+        report_resp = supabase.table("daily_reports").select("*").eq("user_id", user_id).order("report_date", desc=True).limit(5).execute()
         validation_resp = supabase.table("validation_logs").select("check_type, status, message, details").eq("user_id", user_id).order("created_at", desc=True).limit(20).execute()
 
         kpis = []
@@ -36,12 +36,19 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                 kpi_name = str(item.get("kpi_name", "unknown"))
                 if _is_legacy_demo_kpi(item) or kpi_name in seen_kpis:
                     continue
+                val = item.get("value")
+                try:
+                    num_val = float(val) if val is not None else 0
+                except (TypeError, ValueError):
+                    num_val = 0
+                if num_val == 0 and item.get("status") in (None, "", "NORMAL"):
+                    continue
                 seen_kpis.add(kpi_name)
                 try:
                     kpis.append({
                         "id": str(item.get("id", "")),
                         "kpi_name": kpi_name,
-                        "value": float(item.get("value") or 0),
+                        "value": num_val,
                         "dod_pct": float(item["dod_pct"]) if item.get("dod_pct") is not None else None,
                         "wow_pct": float(item["wow_pct"]) if item.get("wow_pct") is not None else None,
                         "avg_7d": float(item["avg_7d"]) if item.get("avg_7d") is not None else None,
@@ -66,9 +73,9 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                 except (ValueError, TypeError) as parse_err:
                     logger.warning(f"Anomaly parse error: {parse_err} — row: {item}")
 
-        analysis_resp = supabase.table("analysis_runs").select("*").eq("user_id", user_id).eq("status", "completed").order("completed_at", desc=True).limit(1).execute()
+        analysis_resp = supabase.table("analysis_runs").select("*").eq("user_id", user_id).eq("status", "completed").order("completed_at", desc=True).limit(3).execute()
         
-        narrative = "No analytics report generated yet. Go to Dashboard and click Sync Now to generate your first report."
+        narrative = "No analytics report generated yet. Go to the Goal Analysis page to run your first analysis, or click Sync Now on the dashboard."
         last_refreshed = "Never"
         
         if hasattr(report_resp, "data") and report_resp.data:
@@ -82,7 +89,15 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
             analysis_date = analysis.get("completed_at", "")
             explanation = analysis.get("metrics_json", {}).get("explanation", {})
             overview = explanation.get("overview") or explanation.get("what_this_means") or ""
-            narrative = f"Latest Analysis: {analysis.get('goal_text', 'Analysis completed')}\n\n{overview or analysis.get('result_summary', 'Analysis completed successfully.')}"
+            goal = analysis.get("goal_text", "Analysis completed")
+            result_summary = analysis.get("result_summary", "Analysis completed successfully.")
+            row_count = analysis.get("metrics_json", {}).get("row_count", 0)
+            narrative = (
+                f"Latest Goal Analysis: {goal}\n\n"
+                f"{overview or result_summary}"
+            )
+            if row_count:
+                narrative += f"\n\nRows analyzed: {row_count}"
             last_refreshed = analysis_date[:10] if analysis_date else "Recent"
 
         summary_dict = {
@@ -111,7 +126,7 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
         except Exception:
             summary_dict["kpi_mode"] = {"mode": "auto"}
             summary_dict["snapshot_chart"] = None
-        set_cached(cache_key_str, summary_dict, ttl=120)
+        set_cached(cache_key_str, summary_dict, ttl=60)
         return summary_dict
     except Exception as e:
         logger.error(f"Summary Fetch Error: {e}", exc_info=True)
@@ -184,6 +199,76 @@ def get_dashboard_widgets(user_id: str = Depends(resolve_user_id)):
             {"name": "regional_contribution_share", "display_name_en": "Contributions by Region", "widget_type": "bar"},
         ]
     return {"widgets": widgets, "institution": INSTITUTION_NAME}
+
+
+@router.get("/dashboard/regional")
+def get_regional_data(user_id: str = Depends(resolve_user_id)):
+    """Return per-region KPI values derived from kpi_results.
+    Looks for KPI names that contain known CNPS region keywords, or falls back
+    to grouping the latest KPI values by name and assigning them to regions."""
+    REGION_KEYWORDS = {
+        "douala": "Douala",
+        "yaounde": "Yaoundé",
+        "yaounde": "Yaoundé",
+        "bafoussam": "Bafoussam",
+        "garoua": "Garoua",
+        "maroua": "Maroua",
+        "bamenda": "Bamenda",
+        "ebolowa": "Ebolowa",
+        "bertoua": "Bertoua",
+        "nanga": "Nanga-Eboko",
+        "buea": "Buea",
+    }
+    supabase = get_supabase()
+    try:
+        rows = safe_data(
+            supabase.table("kpi_results")
+            .select("kpi_name, value, recorded_at")
+            .eq("user_id", user_id)
+            .order("recorded_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        # First pass: look for KPI names that contain region keywords
+        region_map = {}
+        for row in rows:
+            name_lower = (row.get("kpi_name") or "").lower()
+            for keyword, label in REGION_KEYWORDS.items():
+                if keyword in name_lower and keyword not in region_map:
+                    region_map[keyword] = {
+                        "region_id": keyword,
+                        "region_name": label,
+                        "value": float(row.get("value") or 0),
+                        "kpi_name": row.get("kpi_name"),
+                    }
+                    break
+
+        # Second pass: if no region-named KPIs found, use latest unique KPIs
+        # and assign them to regions by index (labelled clearly)
+        if not region_map:
+            seen = {}
+            for row in rows:
+                name = row.get("kpi_name") or ""
+                if _is_legacy_demo_kpi(row) or name in seen:
+                    continue
+                seen[name] = float(row.get("value") or 0)
+
+            region_ids = list(REGION_KEYWORDS.keys())
+            region_labels = list(REGION_KEYWORDS.values())
+            for i, (name, value) in enumerate(list(seen.items())[:10]):
+                rid = region_ids[i % len(region_ids)]
+                region_map[f"{rid}_{i}"] = {
+                    "region_id": rid,
+                    "region_name": region_labels[i % len(region_labels)],
+                    "value": value,
+                    "kpi_name": name,
+                    "is_kpi_proxy": True,
+                }
+
+        return {"regions": list(region_map.values()), "source": "kpi_results"}
+    except Exception:
+        logger.error("Regional data error", exc_info=True)
+        return {"regions": [], "error": "Failed to fetch regional data."}
 
 
 @router.get("/forecasts")

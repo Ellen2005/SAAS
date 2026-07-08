@@ -96,15 +96,24 @@ class MockSupabaseClient:
 
 
 _client_cache = {}
+_client_cache_lock = None
+
+
+def _get_lock():
+    """Lazy-init a threading lock to avoid import-time side effects."""
+    global _client_cache_lock
+    if _client_cache_lock is None:
+        import threading
+        _client_cache_lock = threading.Lock()
+    return _client_cache_lock
 
 
 def _build_client(url: str, key: str):
     key_id = f"{url}:{key[:16]}"
-    if key_id not in _client_cache:
-        # For supabase-py v2, just create client without custom options
-        # The library handles SSL verification internally
-        _client_cache[key_id] = create_client(url, key)
-    return _client_cache[key_id]
+    with _get_lock():
+        if key_id not in _client_cache:
+            _client_cache[key_id] = create_client(url, key)
+        return _client_cache[key_id]
 
 
 def _exec_with_retry(client_method, max_retries=2):

@@ -6,7 +6,7 @@ import logging
 
 from ..core.auth import require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
-from ..services.email_service import send_automated_briefing, get_brevo_client
+from ..services.email_service import send_automated_briefing, get_brevo_client, normalize_recipient_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/email", tags=["email"])
@@ -62,8 +62,8 @@ def test_email(
     user_id = context["user_id"]
     supabase = get_supabase()
     
-    # Validate recipient
-    if not request.recipient_email or "@" not in request.recipient_email:
+    normalized_email = normalize_recipient_email(request.recipient_email)
+    if not normalized_email:
         raise HTTPException(status_code=400, detail="Valid recipient email required")
     
     # Check Brevo configuration
@@ -80,7 +80,7 @@ def test_email(
         if not existing.data:
             supabase.table("notification_recipients").insert({
                 "user_id": user_id,
-                "email": request.recipient_email,
+                "email": normalized_email,
             }).execute()
     except Exception as e:
         logger.error(f"Failed to save recipient: {e}")
@@ -119,16 +119,17 @@ def add_email_recipient(
     user_id = context["user_id"]
     supabase = get_supabase()
     
-    if not email or "@" not in email:
+    normalized_email = normalize_recipient_email(email)
+    if not normalized_email:
         raise HTTPException(status_code=400, detail="Valid email address required")
     
     try:
         supabase.table("notification_recipients").upsert({
             "user_id": user_id,
-            "email": email,
+            "email": normalized_email,
         }, on_conflict="user_id,email").execute()
         
-        return {"status": "added", "email": email}
+        return {"status": "added", "email": normalized_email}
     except Exception as e:
         logger.error("Add email recipient failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
@@ -142,10 +143,11 @@ def remove_email_recipient(
     """Remove an email recipient."""
     user_id = context["user_id"]
     supabase = get_supabase()
+    normalized_email = normalize_recipient_email(email)
     
     try:
-        supabase.table("notification_recipients").delete().eq("user_id", user_id).eq("email", email).execute()
-        return {"status": "removed", "email": email}
+        supabase.table("notification_recipients").delete().eq("user_id", user_id).eq("email", normalized_email).execute()
+        return {"status": "removed", "email": normalized_email}
     except Exception as e:
         logger.error("Remove email recipient failed", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")

@@ -5,6 +5,7 @@ import { apiFetch, apiJson } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 import { useNavigate } from 'react-router-dom';
 import { useLang } from '../lib/i18n';
+import { invalidateDashboardCache } from '../lib/dashboardSync';
 
 const DEFAULT_CONNECTION_OPTIONS = {
   tunnel_token: '',
@@ -261,6 +262,7 @@ const Settings = () => {
     setTriggeringSync(true);
     try {
       await apiFetch('/api/etl/trigger', { method: 'POST' });
+      invalidateDashboardCache();
       navigate('/dashboard');
     } catch (error) {
       alert(`Unable to trigger sync: ${error.message}`);

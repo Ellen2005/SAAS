@@ -34,6 +34,11 @@ def trigger_etl(
     body: Optional[dict] = None,
 ):
     update_sync_status(context["user_id"], "FETCHING_DATA")
+    try:
+        from ..services.cache_service import invalidate_user_cache
+        invalidate_user_cache(context["user_id"])
+    except Exception:
+        pass
     goal = body.get("analysis_goal") if body else None
     preset = body.get("preset_slug") if body else None
     background_tasks.add_task(_run_etl_with_optional_goal, context["user_id"], goal, preset)
