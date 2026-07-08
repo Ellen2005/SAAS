@@ -4,6 +4,7 @@ Answers questions about how to use the app, explains features,
 and can reference the user's current data context.
 """
 import os
+import logging
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
@@ -11,6 +12,8 @@ from typing import Optional
 from ..core.auth import resolve_user_id
 from ..core.supabase_client import get_supabase
 from ..services.groq_utils import execute_groq_completion, get_groq_model
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 

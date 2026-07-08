@@ -7,6 +7,7 @@ Feedback, and Background Jobs.
 All endpoints require admin role.
 """
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,6 +17,7 @@ from ..core.auth import require_role
 from ..core.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
+UTC = timezone.utc
 router = APIRouter(prefix="/api/admin/ai", tags=["admin-ai"])
 
 

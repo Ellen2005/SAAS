@@ -4,6 +4,7 @@ import {
   Table as TableIcon, Layers, Hash, Calendar, DollarSign, Link2, AlertCircle,
 } from 'lucide-react';
 import { apiJson } from '../lib/api';
+import { invalidateDashboardCache } from '../lib/dashboardSync';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, Legend,
@@ -113,6 +114,7 @@ export default function SchemaExplorer() {
         method: 'POST', body: JSON.stringify({}),
       });
       setSyncResult(out);
+      invalidateDashboardCache();
     } catch (e) {
       setSyncResult({ error: e.message });
     } finally {

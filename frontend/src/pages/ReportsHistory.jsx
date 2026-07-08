@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X, Download, FileSpreadsheet } from 'lucide-react';
+import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X, Download, FileSpreadsheet, Trash2 } from 'lucide-react';
 import { apiJson, apiFetch, API_URL } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 
@@ -18,12 +18,11 @@ const writeReportsCache = (payload) => {
 
 const ReportsHistory = () => {
   const { user, isManager } = useAuth();
-  const [reports, setReports] = useState(() => {
-    // Restore from cache immediately to avoid flash of empty state
-    const cached = readReportsCache();
-    return cached || [];
-  });
+  const [tab, setTab] = useState('daily'); // 'daily' | 'professional'
+  const [reports, setReports] = useState(() => readReportsCache() || []);
+  const [proReports, setProReports] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [proLoading, setProLoading] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
@@ -38,7 +37,6 @@ const ReportsHistory = () => {
       setReports(data.reports || []);
       writeReportsCache(data.reports || []);
     } catch {
-      // On failure, keep the cached data (already set from useState init)
       const cached = readReportsCache();
       if (cached) setReports(cached);
     } finally {
@@ -46,7 +44,39 @@ const ReportsHistory = () => {
     }
   }, [user]);
 
-  useEffect(() => { fetchReports(); }, [fetchReports]);
+  const fetchProReports = useCallback(async () => {
+    if (!user) return;
+    setProLoading(true);
+    try {
+      const data = await apiJson('/api/reports/professional/list');
+      setProReports(data.reports || []);
+    } catch { /* non-critical */ } finally {
+      setProLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => { fetchReports(); fetchProReports(); }, [fetchReports, fetchProReports]);
+
+  const handleDeletePro = async (reportId) => {
+    if (!window.confirm('Delete this report?')) return;
+    try {
+      await apiFetch(`/api/reports/professional/${reportId}`, { method: 'DELETE' });
+      setProReports(prev => prev.filter(r => r.report_id !== reportId));
+    } catch (err) { alert(`Delete failed: ${err.message}`); }
+  };
+
+  const handleDownloadPro = async (reportId, format) => {
+    try {
+      const response = await apiFetch(`/api/reports/download/${reportId}?format=${format}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `report-${reportId}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) { alert(`Download failed: ${err.message}`); }
+  };
 
   const handleStartEdit = (report) => {
     setEditingId(report.id);
@@ -126,6 +156,13 @@ const ReportsHistory = () => {
     );
   }
 
+  const tabStyle = (active) => ({
+    padding: '8px 20px', border: 'none', cursor: 'pointer', fontWeight: active ? 600 : 400,
+    borderBottom: active ? '2px solid var(--primary-color)' : '2px solid transparent',
+    background: 'none', color: active ? 'var(--primary-color)' : 'var(--text-secondary)',
+    fontSize: '0.95rem',
+  });
+
   return (
     <div style={{ display: 'grid', gap: '24px' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '12px' }}>
@@ -137,12 +174,58 @@ const ReportsHistory = () => {
             All AI-generated reports. Click to read, edit the narrative, or resend to email recipients.
           </p>
         </div>
-        <button className="btn btn-outline" onClick={fetchReports} style={{ display: 'flex', gap: '8px' }}>
+        <button className="btn btn-outline" onClick={() => { fetchReports(); fetchProReports(); }} style={{ display: 'flex', gap: '8px' }}>
           <RefreshCcw size={16} /> Refresh
         </button>
       </header>
 
-      {reports.length === 0 ? (
+      {/* Tabs */}
+      <div style={{ borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '0' }}>
+        <button style={tabStyle(tab === 'daily')} onClick={() => setTab('daily')}>Daily Reports</button>
+        <button style={tabStyle(tab === 'professional')} onClick={() => setTab('professional')}>Professional PDF Reports</button>
+      </div>
+
+      {/* ── Professional reports tab ── */}
+      {tab === 'professional' && (
+        proLoading ? (
+          <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-secondary)' }}>Loading…</div>
+        ) : proReports.length === 0 ? (
+          <div className="glass-panel" style={{ textAlign: 'center', padding: '48px' }}>
+            <FileText size={48} color="var(--text-secondary)" style={{ marginBottom: '16px' }} />
+            <h3 style={{ marginBottom: '8px' }}>No professional reports yet</h3>
+            <p style={{ color: 'var(--text-secondary)' }}>
+              Use the AI Analyst page to run a goal analysis, then click Generate Report to produce a full PDF.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {proReports.map(r => (
+              <div key={r.report_id} className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px' }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{r.title || 'Analysis Report'}</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {r.report_type} · {r.created_at ? r.created_at.slice(0, 10) : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-outline" onClick={() => handleDownloadPro(r.report_id, 'pdf')} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
+                    <Download size={14} /> PDF
+                  </button>
+                  <button className="btn btn-outline" onClick={() => handleDownloadPro(r.report_id, 'excel')} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
+                    <FileSpreadsheet size={14} /> Excel
+                  </button>
+                  <button className="btn btn-outline" onClick={() => handleDeletePro(r.report_id)} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px', color: 'var(--status-critical)' }}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* ── Daily reports tab ── */}
+      {tab === 'daily' && (reports.length === 0 ? (
         <div className="glass-panel" style={{ textAlign: 'center', padding: '48px' }}>
           <FileText size={48} color="var(--text-secondary)" style={{ marginBottom: '16px' }} />
           <h3 style={{ marginBottom: '8px' }}>No reports yet</h3>
@@ -257,7 +340,7 @@ const ReportsHistory = () => {
             );
           })}
         </div>
-      )}
+      ))}
     </div>
   );
 };

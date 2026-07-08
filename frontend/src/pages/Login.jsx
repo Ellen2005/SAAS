@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
 import { Activity, LogIn, Lock, User, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { useLang } from '../lib/i18n';
@@ -7,9 +6,9 @@ import { useAuth } from '../lib/authContext';
 import LanguagePicker from '../components/LanguagePicker';
 
 const Login = () => {
-  const navigate = useNavigate();
   const { t } = useLang();
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
+  // user is only read to satisfy the App.jsx <Navigate> guard — no local redirect needed
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,12 +24,7 @@ const Login = () => {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState(null);
 
-  // Redirect to dashboard if user is already logged in and auth is ready
-  useEffect(() => {
-    if (!authLoading && user) {
-      navigate('/dashboard', { replace: true });
-    }
-  }, [user, authLoading, navigate]);
+  // Redirect handled by App.jsx <Navigate> once user state is set by onAuthStateChange
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -56,20 +50,20 @@ const Login = () => {
         result = await supabase.auth.signUp({ email, password, options: { data: { name } } });
         if (!result.error) {
           setShowLangPicker(true);
+          setLoading(false);
         }
       } else {
         result = await supabase.auth.signInWithPassword({ email, password });
+        // Do NOT call navigate() here — onAuthStateChange sets user state
+        // immediately now, which triggers the <Navigate to="/dashboard"> in
+        // App.jsx. Calling navigate() here as well caused a race where the
+        // route guard saw user=null and bounced back to /login.
       }
       if (result.error) throw result.error;
-      
-      // Auth state will propagate via onAuthStateChange → authContext
-      // The useEffect above handles redirect once user is set
-      // Do NOT set loading=false here — let the useEffect handle it
     } catch (err) {
       setError(err.message);
       setLoading(false);
     }
-    // On success, don't set loading=false — let auth context handle redirect
   };
 
   const handleResetPassword = async () => {

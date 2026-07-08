@@ -69,3 +69,15 @@ scripts/phase16_api_smoke.py
 scripts/phase16_auth_test.py
 scripts/reproduce_500.py
 tests/qa_auth_api_runner.py
+tests/run_tc_*.py
+
+# ── Temp / Reports ──────────────────────────────────────────────────────
+PHASE16_FINAL_REPORT.json
+SAAS_Defense_Report.docx
+project_files.txt
+scripts/phase16_qa_results.json
+tests/phase16_comprehensive_qa.py
+tests/phase16_test_report.json
+tests/test_phase16_comprehensive.py
+tests/generate_final_report.py
+start_backend.py

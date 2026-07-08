@@ -233,6 +233,7 @@ def create_custom_report(
         kpi_names=body.get("kpi_names"),
         supabase=supabase,
         role=context.get("role", "manager"),
+        report_template=body.get("report_template"),
     )
     return result
 

@@ -314,4 +314,9 @@ def sync_to_kpis(
     if result.get("error") and result.get("synced", 0) == 0:
         # Surface as 502 so the UI can render a real error
         raise HTTPException(status_code=502, detail=result["error"])
+    try:
+        from ..services.cache_service import invalidate_user_cache
+        invalidate_user_cache(user_id)
+    except Exception:
+        pass
     return result

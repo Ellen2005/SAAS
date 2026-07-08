@@ -30,7 +30,7 @@ export default function InactivityWarning() {
         Session expiring soon
       </p>
       <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-        You will be signed out in 5 minutes due to inactivity. Move your mouse or press a key to stay signed in.
+        Your session will expire in 5 minutes due to inactivity. Move your mouse or press a key to stay signed in.
       </p>
     </div>
   );

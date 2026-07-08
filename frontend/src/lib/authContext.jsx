@@ -37,14 +37,14 @@ export function AuthProvider({ children }) {
       setRole(resolvedRole);
       setDepartmentId(data.department_id ?? null);
       setDepartmentName(data.department_name ?? null);
-      
+
       if (currentUser?.email) {
         apiJson('/api/users/me/profile', {
           method: 'POST',
-          body: JSON.stringify({ email: currentUser.email, display_name: currentUser.email })
+          body: JSON.stringify({ email: currentUser.email, display_name: currentUser.email }),
         }).catch((err) => console.warn('Profile sync failed:', err));
       }
-      
+
       try {
         localStorage.setItem('saas.user.role.v1', JSON.stringify({
           role: resolvedRole,
@@ -53,8 +53,6 @@ export function AuthProvider({ children }) {
         }));
       } catch { /* ignore */ }
     } catch {
-      // If the API call fails (e.g. 401, network error), use cached role
-      // but NEVER let this throw — it would trigger redirectToLogin
       try {
         const cached = localStorage.getItem('saas.user.role.v1');
         if (cached) {
@@ -63,10 +61,9 @@ export function AuthProvider({ children }) {
           setRole(resolvedRole);
           setDepartmentId(parsed.department_id ?? null);
           setDepartmentName(parsed.department_name ?? null);
+          return resolvedRole;
         }
       } catch { /* ignore */ }
-      // If API failed and no cache, still set a role so the user isn't stuck
-      // Use 'viewer' as default — fail closed, not open
       setRole('viewer');
     }
     return resolvedRole;
@@ -76,58 +73,26 @@ export function AuthProvider({ children }) {
     if (initRef.current) return;
     initRef.current = true;
 
-    // Force UI to unblock after 5 seconds max (prevents infinite loading)
-    const forceUnblock = setTimeout(() => {
-      setLoading(false);
-    }, 5000);
+    const forceUnblock = setTimeout(() => setLoading(false), 5000);
 
-    // Restore cached role immediately - default to 'manager' if user has session
-    // This prevents flashing viewer-only nav while backend resolves
-    let roleFromCache = null;
+    // Restore cached role immediately to avoid nav flash
     try {
       const cached = localStorage.getItem('saas.user.role.v1');
       if (cached) {
         const parsed = JSON.parse(cached);
-        roleFromCache = parsed.role || 'viewer';
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setRole(roleFromCache);
+        setRole(parsed.role || 'viewer');
         setDepartmentId(parsed.department_id ?? null);
         setDepartmentName(parsed.department_name ?? null);
       }
     } catch { /* ignore */ }
 
-    supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        if (session?.user) {
-          // Validate the session by trying to get the user — if refresh token is dead,
-          // this will throw and we can clear state immediately instead of retrying forever
-          try {
-            const { data: { user }, error } = await supabase.auth.getUser(session.access_token)
-            if (error || !user) throw error || new Error('No user')
-            setUser(user)
-          } catch {
-            // Session is stale/invalid (e.g. refresh token revoked) — clear it
-            console.warn('Stale session detected, clearing auth state')
-            await supabase.auth.signOut()
-            resetAuthState()
-            clearTimeout(forceUnblock)
-            setLoading(false)
-            return
-          }
-          // Fetch fresh role in background - don't block UI
-          fetchUserRole(session.user).catch(() => {});
-        } else {
-          resetAuthState();
-        }
-      })
-      .catch(() => {
-        resetAuthState();
-      })
-      .finally(() => {
-        clearTimeout(forceUnblock);
-        setLoading(false);
-      });
-
+    // Register onAuthStateChange BEFORE getSession so no events are missed.
+    // This is the fix for the login redirect bug:
+    // Previously onAuthStateChange awaited supabase.auth.getUser() before
+    // calling setUser(), so user stayed null while the async call was in-flight.
+    // The Login page called navigate('/dashboard') but App.jsx bounced it back
+    // to /login because user was still null. Now we set user immediately from
+    // the session object — Supabase already validated it when issuing the token.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (event === 'SIGNED_OUT') {
@@ -135,26 +100,57 @@ export function AuthProvider({ children }) {
           return;
         }
         if (session?.user) {
-          // Validate session in auth state change too
-          supabase.auth.getUser(session.access_token)
-            .then(({ data: { user }, error }) => {
-              if (error || !user) {
-                supabase.auth.signOut().catch(() => {})
-                resetAuthState()
-                return
-              }
-              setUser(user)
-              // Fire and forget — never block the auth state change callback
-              fetchUserRole(user).catch(() => {});
-            })
-            .catch(() => {
-              resetAuthState()
-            })
+          // Set user immediately — no async gap, route guards unblock instantly
+          setUser(session.user);
+          // Fetch role in background, never block the state change
+          fetchUserRole(session.user).catch(() => {});
         } else {
           resetAuthState();
         }
       }
     );
+
+    // Check for an existing session on mount (page refresh / returning user)
+    supabase.auth.getSession()
+      .then(async ({ data: { session } }) => {
+        if (session?.user) {
+          // Validate the stored session is still live (catches revoked refresh tokens)
+          try {
+            const { data: { user: validatedUser }, error } = await supabase.auth.getUser(session.access_token);
+            if (error || !validatedUser) throw error || new Error('No user');
+            setUser(validatedUser);
+          } catch (err) {
+            // Distinguish network errors from real auth errors so offline users
+            // are not forcibly signed out and can still browse cached data.
+            const msg = (err?.message || '').toLowerCase();
+            const isNetworkError = !navigator.onLine
+              || err?.name === 'TypeError'
+              || msg.includes('fetch')
+              || msg.includes('network')
+              || msg.includes('failed to fetch');
+
+            if (isNetworkError) {
+              // Keep the cached session — OfflineBanner will alert the user
+              setUser(session.user);
+            } else {
+              console.warn('Stale session detected, clearing auth state');
+              await supabase.auth.signOut();
+              resetAuthState();
+              clearTimeout(forceUnblock);
+              setLoading(false);
+              return;
+            }
+          }
+          fetchUserRole(session.user).catch(() => {});
+        } else {
+          resetAuthState();
+        }
+      })
+      .catch(() => resetAuthState())
+      .finally(() => {
+        clearTimeout(forceUnblock);
+        setLoading(false);
+      });
 
     return () => {
       clearTimeout(forceUnblock);

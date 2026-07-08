@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Play, History, Target } from 'lucide-react';
 import { useLang } from '../lib/i18n';
 import { apiJson } from '../lib/api';
+import { invalidateDashboardCache } from '../lib/dashboardSync';
 import ChartRenderer from '../components/ChartRenderer';
 
 export default function AnalysisPage() {
@@ -48,6 +49,7 @@ export default function AnalysisPage() {
       });
       setResult(res);
       loadMeta();
+      invalidateDashboardCache();
     } catch (e) {
       setError(e.message || 'Analysis failed');
     } finally {

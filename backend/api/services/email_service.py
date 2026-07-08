@@ -2,6 +2,8 @@ import os
 import hmac
 import hashlib
 import logging
+import re
+from html import escape
 from datetime import datetime, date
 try:
     import sib_api_v3_sdk
@@ -21,28 +23,41 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 INSTITUTION = os.getenv("INSTITUTION_NAME", "Smart Analytics")
 SENDER_NAME = os.getenv("EMAIL_SENDER_NAME", f"{INSTITUTION} System")
 SENDER_EMAIL = os.getenv("EMAIL_SENDER_ADDRESS", "analytics@company.com")
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def normalize_recipient_email(email: str | None) -> str | None:
+    if not email:
+        return None
+    normalized = str(email).strip().lower()
+    if not normalized or len(normalized) > 254 or not EMAIL_REGEX.fullmatch(normalized):
+        return None
+    return normalized
 
 
 def _make_unsubscribe_token(email: str) -> str:
+    normalized_email = normalize_recipient_email(email) or ""
     if not UNSUBSCRIBE_SECRET:
-        # Generate a random token when secret is not configured
-        # This prevents the bypass where empty token == empty token
-        import secrets
-        return secrets.token_hex(32)
-    return hmac.HMAC(
+        return hashlib.sha256(f"no-secret:{normalized_email}".encode()).hexdigest()
+    return hmac.new(
         UNSUBSCRIBE_SECRET.encode(),
-        email.encode(),
+        normalized_email.encode(),
         hashlib.sha256,
     ).hexdigest()
 
 
 def _unsubscribe_url(email: str) -> str:
-    token = _make_unsubscribe_token(email)
+    normalized_email = normalize_recipient_email(email)
+    if not normalized_email:
+        return f"{FRONTEND_URL}/unsubscribe"
+    token = _make_unsubscribe_token(normalized_email)
     from urllib.parse import quote
-    return f"{FRONTEND_URL}/unsubscribe?email={quote(email)}&token={quote(token)}"
+    return f"{FRONTEND_URL}/unsubscribe?email={quote(normalized_email)}&token={quote(token)}"
 
 
 def verify_unsubscribe_token(email: str, token: str) -> bool:
+    if not email or not token:
+        return False
     return hmac.compare_digest(_make_unsubscribe_token(email), token)
 
 
@@ -78,7 +93,10 @@ def generate_professional_html_email(
         report_period = date.today().strftime("%B %d, %Y")
 
     today = date.today().strftime("%B %d, %Y")
-    dept_label = f" — {department_name}" if department_name else ""
+    safe_department_name = escape(str(department_name or ""))
+    safe_report_type = escape(str(report_type or "Daily"))
+    safe_report_period = escape(str(report_period or today))
+    dept_label = f" — {safe_department_name}" if safe_department_name else ""
     rag_color, rag_label = _rag_badge(kpis)
     dashboard_url = f"{FRONTEND_URL}/reports"
     unsubscribe = _unsubscribe_url(recipient_email) if recipient_email else "#"
@@ -86,11 +104,11 @@ def generate_professional_html_email(
 
     kpi_rows = ""
     for k in kpis:
-        name = k.get("kpi_name", "").replace("_", " ").title()
+        name = escape(str(k.get("kpi_name", "")).replace("_", " ").title())
         val = f"{k.get('value', 0):,.2f}"
         dod = k.get("dod_pct") or 0
         wow = k.get("wow_pct") or 0
-        status = k.get("status", "NORMAL")
+        status = escape(str(k.get("status", "NORMAL")))
         dod_color = "#10b981" if dod >= 0 else "#ef4444"
         wow_color = "#10b981" if wow >= 0 else "#ef4444"
         status_color = "#10b981" if status == "NORMAL" else "#f59e0b" if status == "WARNING" else "#ef4444"
@@ -108,9 +126,9 @@ def generate_professional_html_email(
     anomaly_rows = ""
     if anomalies:
         for a in anomalies:
-            name = a.get("kpi_name", "").replace("_", " ").title()
-            sev = a.get("severity", "WARNING")
-            reason = a.get("context", {}).get("reason", "Deviation detected")
+            name = escape(str(a.get("kpi_name", "")).replace("_", " ").title())
+            sev = escape(str(a.get("severity", "WARNING")))
+            reason = escape(str(a.get("context", {}).get("reason", "Deviation detected")))
             dev = a.get("deviation", 0)
             sc = "#ef4444" if sev == "CRITICAL" else "#f59e0b"
             anomaly_rows += f"""
@@ -126,7 +144,7 @@ def generate_professional_html_email(
         anomaly_rows = '<tr><td colspan="4" style="padding:16px;color:#6b7280;text-align:center;">No anomalies detected in this period.</td></tr>'
 
     narrative_html = "".join(
-        f'<p style="margin:0 0 12px 0;line-height:1.7;color:#374151;">{p.strip()}</p>'
+        f'<p style="margin:0 0 12px 0;line-height:1.7;color:#374151;">{escape(p.strip())}</p>'
         for p in (narrative_text or "").split("\n") if p.strip()
     )
 
@@ -141,15 +159,15 @@ def generate_professional_html_email(
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>{report_type} Report</title></head>
+<title>{safe_report_type} Report</title></head>
 <body style="margin:0;padding:20px 0;background:#f3f4f6;font-family:Helvetica,Arial,sans-serif;">
 <div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
   <div style="background:linear-gradient(135deg,#4f46e5,#3b82f6);padding:32px 40px;">
     <div style="color:rgba(255,255,255,0.7);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Smart Automated Analytics System</div>
-    <h1 style="margin:0;color:#ffffff;font-size:1.5rem;font-weight:700;">{report_type} Performance Report{dept_label}</h1>
+    <h1 style="margin:0;color:#ffffff;font-size:1.5rem;font-weight:700;">{safe_report_type} Performance Report{dept_label}</h1>
     <div style="margin-top:12px;color:rgba(255,255,255,0.85);font-size:0.85rem;">
-      &#128197; Period: {report_period} &nbsp;&nbsp; &#128228; Submitted: {today}
+      &#128197; Period: {safe_report_period} &nbsp;&nbsp; &#128228; Submitted: {today}
     </div>
   </div>
 
@@ -229,7 +247,12 @@ def send_automated_briefing(
     supabase = get_supabase()
 
     response = supabase.table("notification_recipients").select("email").eq("user_id", user_id).execute()
-    recipients = [row["email"] for row in response.data] if hasattr(response, "data") and response.data else []
+    recipients = []
+    if hasattr(response, "data") and response.data:
+        for row in response.data:
+            normalized_email = normalize_recipient_email(row.get("email"))
+            if normalized_email:
+                recipients.append(normalized_email)
 
     if not recipients:
         print(f"[{datetime.now().isoformat()}] WARNING: No email recipients configured for user {user_id}. Go to Settings > Email Recipients to add at least one.")
@@ -310,18 +333,19 @@ def send_automated_briefing(
 
 
 def send_anomaly_alert(to_email: str, anomaly_data: dict):
-    if not to_email or "@" not in to_email:
+    normalized_email = normalize_recipient_email(to_email)
+    if not normalized_email:
         return {"status": "skipped", "reason": "invalid_recipient"}
 
     client = get_brevo_client()
-    kpi_name = (anomaly_data or {}).get("kpi_name", "Unknown KPI").replace("_", " ").title()
-    severity = (anomaly_data or {}).get("severity", "WARNING")
+    kpi_name = escape(str((anomaly_data or {}).get("kpi_name", "Unknown KPI")).replace("_", " ").title())
+    severity = escape(str((anomaly_data or {}).get("severity", "WARNING")))
     deviation = (anomaly_data or {}).get("deviation", 0)
-    reason = (anomaly_data or {}).get("context", {}).get("reason", "Anomaly detected.")
+    reason = escape(str((anomaly_data or {}).get("context", {}).get("reason", "Anomaly detected.")))
 
     if not client:
-        print(f"[{datetime.now().isoformat()}] INFO: BREVO_API_KEY not set. Would send anomaly alert to {to_email}.")
-        return {"status": "simulated", "recipient": to_email, "severity": severity}
+        print(f"[{datetime.now().isoformat()}] INFO: BREVO_API_KEY not set. Would send anomaly alert to {normalized_email}.")
+        return {"status": "simulated", "recipient": normalized_email, "severity": severity}
 
     color = "#ef4444" if severity == "CRITICAL" else "#f59e0b"
     html_content = f"""<div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111827;padding:24px;">
@@ -333,15 +357,15 @@ def send_anomaly_alert(to_email: str, anomaly_data: dict):
     </div>"""
     try:
         response = client.send_transac_email(sib_api_v3_sdk.SendSmtpEmail(
-            to=[{"email": to_email}],
+            to=[{"email": normalized_email}],
             sender={"name": SENDER_NAME, "email": SENDER_EMAIL},
             subject=f"{severity}: {kpi_name} anomaly",
             html_content=html_content,
         ))
-        return {"status": "sent", "recipient": to_email, "message_id": response.message_id}
+        return {"status": "sent", "recipient": normalized_email, "message_id": response.message_id}
     except ApiException as e:
-        print(f"[{datetime.now().isoformat()}] Anomaly alert failed for {to_email}: {e}")
-        return {"status": "failed", "recipient": to_email, "error": str(e)}
+        print(f"[{datetime.now().isoformat()}] Anomaly alert failed for {normalized_email}: {e}")
+        return {"status": "failed", "recipient": normalized_email, "error": str(e)}
 
 
 def send_admin_onboarding_notification(new_user_id: str):
