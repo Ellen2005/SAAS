@@ -7,6 +7,7 @@ from ..services.cache_service import get_cached, set_cached
 from ..core.constants import LEGACY_DEMO_KPI_NAMES, is_legacy_demo_kpi as _is_legacy_demo_kpi, is_legacy_demo_report as _is_legacy_demo_report
 import os
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +25,41 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
     
     supabase = get_supabase()
     try:
-        kpi_resp = supabase.table("kpi_results").select("*").eq("user_id", user_id).order("recorded_at", desc=True).limit(50).execute()
-        anomaly_resp = supabase.table("anomaly_records").select("*").eq("user_id", user_id).order("detected_at", desc=True).limit(25).execute()
-        report_resp = supabase.table("daily_reports").select("*").eq("user_id", user_id).order("report_date", desc=True).limit(5).execute()
-        validation_resp = supabase.table("validation_logs").select("check_type, status, message, details").eq("user_id", user_id).order("created_at", desc=True).limit(20).execute()
+        def fetch_kpis():
+            return supabase.table("kpi_results").select("*").eq("user_id", user_id).order("recorded_at", desc=True).limit(50).execute()
+        def fetch_anomalies():
+            return supabase.table("anomaly_records").select("*").eq("user_id", user_id).order("detected_at", desc=True).limit(25).execute()
+        def fetch_reports():
+            return supabase.table("daily_reports").select("*").eq("user_id", user_id).order("report_date", desc=True).limit(5).execute()
+        def fetch_validations():
+            return supabase.table("validation_logs").select("check_type, status, message, details").eq("user_id", user_id).order("created_at", desc=True).limit(20).execute()
+        def fetch_analysis():
+            return supabase.table("analysis_runs").select("*").eq("user_id", user_id).eq("status", "completed").order("completed_at", desc=True).limit(3).execute()
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures = {
+                pool.submit(fetch_kpis): "kpi",
+                pool.submit(fetch_anomalies): "anomaly",
+                pool.submit(fetch_reports): "report",
+                pool.submit(fetch_validations): "validation",
+                pool.submit(fetch_analysis): "analysis",
+            }
+            results = {}
+            for future in as_completed(futures):
+                try:
+                    results[futures[future]] = future.result()
+                except Exception as e:
+                    logger.warning(f"Parallel fetch {futures[future]} failed: {e}")
+                    results[futures[future]] = None
+
+        kpi_resp = results.get("kpi")
+        anomaly_resp = results.get("anomaly")
+        report_resp = results.get("report")
+        validation_resp = results.get("validation")
+        analysis_resp = results.get("analysis")
 
         kpis = []
-        if hasattr(kpi_resp, "data") and kpi_resp.data:
+        if kpi_resp and hasattr(kpi_resp, "data") and kpi_resp.data:
             seen_kpis = set()
             for item in kpi_resp.data:
                 kpi_name = str(item.get("kpi_name", "unknown"))
@@ -59,7 +88,7 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                     logger.warning(f"KPI parse error: {parse_err} — row: {item}")
 
         anomalies = []
-        if hasattr(anomaly_resp, "data") and anomaly_resp.data:
+        if anomaly_resp and hasattr(anomaly_resp, "data") and anomaly_resp.data:
             for item in [row for row in anomaly_resp.data if not _is_legacy_demo_kpi(row)]:
                 try:
                     anomalies.append({
@@ -73,12 +102,10 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
                 except (ValueError, TypeError) as parse_err:
                     logger.warning(f"Anomaly parse error: {parse_err} — row: {item}")
 
-        analysis_resp = supabase.table("analysis_runs").select("*").eq("user_id", user_id).eq("status", "completed").order("completed_at", desc=True).limit(3).execute()
-        
         narrative = "No analytics report generated yet. Go to the Goal Analysis page to run your first analysis, or click Sync Now on the dashboard."
         last_refreshed = "Never"
         
-        if hasattr(report_resp, "data") and report_resp.data:
+        if report_resp and hasattr(report_resp, "data") and report_resp.data:
             reports = [row for row in report_resp.data if not _is_legacy_demo_report(row)]
             if reports:
                 narrative = reports[0].get("narrative") or narrative

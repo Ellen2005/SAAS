@@ -18,6 +18,51 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["reports"])
 
 
+def _find_report(supabase, report_id: str, user_id: str):
+    """Find a report by report_id, falling back to id if report_id column doesn't exist."""
+    try:
+        resp = supabase.table("reports").select("*").eq("report_id", report_id).eq("user_id", user_id).limit(1).execute()
+        if hasattr(resp, "data") and resp.data:
+            return resp.data[0]
+    except Exception as e:
+        if "column" in str(e).lower() or "schema" in str(e).lower():
+            pass
+        else:
+            raise
+    resp = supabase.table("reports").select("*").eq("id", report_id).eq("user_id", user_id).limit(1).execute()
+    if hasattr(resp, "data") and resp.data:
+        return resp.data[0]
+    return None
+
+
+def _delete_report_by_id(supabase, report_id: str, user_id: str):
+    """Delete a report by report_id, falling back to id."""
+    try:
+        supabase.table("reports").delete().eq("report_id", report_id).eq("user_id", user_id).execute()
+    except Exception as e:
+        if "column" in str(e).lower() or "schema" in str(e).lower():
+            supabase.table("reports").delete().eq("id", report_id).eq("user_id", user_id).execute()
+        else:
+            raise
+
+
+def _update_report_narrative(supabase, report_id: str, user_id: str, narrative: str):
+    """Update report narrative by report_id, falling back to id."""
+    update_data = {"narrative": narrative}
+    try:
+        update_data["updated_at"] = datetime.now(UTC).isoformat()
+    except Exception:
+        pass
+    try:
+        supabase.table("reports").update(update_data).eq("report_id", report_id).eq("user_id", user_id).execute()
+    except Exception as e:
+        if "column" in str(e).lower() or "schema" in str(e).lower():
+            update_data.pop("updated_at", None)
+            supabase.table("reports").update(update_data).eq("id", report_id).eq("user_id", user_id).execute()
+        else:
+            raise
+
+
 @router.get("/reports/history")
 def get_reports_history(limit: int = 50, user_id: str = Depends(resolve_user_id)):
     supabase = get_supabase()
@@ -301,12 +346,22 @@ def generate_professional_report(
             "user_id": user_id,
             "report_type": "goal_analysis",
             "file_path": result["pdf"],
-            "excel_path": result.get("excel"),
-            "report_id": result["report_id"],
             "title": analysis_result.get("goal_text", "Goal Analysis Report")[:80],
             "status": "generated"
         }
-        supabase.table("reports").insert(report_record).execute()
+        try:
+            report_record_full = {
+                **report_record,
+                "excel_path": result.get("excel"),
+                "report_id": result["report_id"],
+            }
+            supabase.table("reports").insert(report_record_full).execute()
+        except Exception as insert_err:
+            if "column" in str(insert_err).lower() or "schema" in str(insert_err).lower():
+                logger.warning(f"reports table missing columns, inserting without optional fields: {insert_err}")
+                supabase.table("reports").insert(report_record).execute()
+            else:
+                raise
         
         return {
             "status": "success",
@@ -334,11 +389,9 @@ def download_professional_report(
     supabase = get_supabase()
     user_id = context["user_id"]
     
-    report_resp = supabase.table("reports").select("*").eq("report_id", report_id).eq("user_id", user_id).limit(1).execute()
-    if not hasattr(report_resp, "data") or not report_resp.data:
+    report = _find_report(supabase, report_id, user_id)
+    if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    
-    report = report_resp.data[0]
     
     if format == "excel":
         file_path = report.get("excel_path") or report.get("file_path", "").replace(".pdf", ".xlsx")
@@ -383,11 +436,19 @@ def list_professional_reports(
     try:
         rows = supabase.table("reports").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
         reports = rows.data if hasattr(rows, "data") and rows.data else []
-        
-        return {"reports": reports}
     except Exception as e:
-        logger.error(f"List reports error: {e}", exc_info=True)
-        return {"reports": [], "error": "Failed to fetch reports"}
+        if "column" in str(e).lower() or "schema" in str(e).lower():
+            logger.warning(f"reports table schema issue, listing without optional columns: {e}")
+            try:
+                rows = supabase.table("reports").select("id, user_id, report_type, file_path, title, status, created_at").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
+                reports = rows.data if hasattr(rows, "data") and rows.data else []
+            except Exception:
+                reports = []
+        else:
+            logger.error(f"List reports error: {e}")
+            reports = []
+    
+    return {"reports": reports}
 
 
 @router.delete("/reports/professional/{report_id}")
@@ -398,11 +459,9 @@ def delete_professional_report(
     supabase = get_supabase()
     user_id = context["user_id"]
     
-    report_resp = supabase.table("reports").select("*").eq("report_id", report_id).eq("user_id", user_id).limit(1).execute()
-    if not hasattr(report_resp, "data") or not report_resp.data:
+    report = _find_report(supabase, report_id, user_id)
+    if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    
-    report = report_resp.data[0]
     
     for path_key in ["file_path", "excel_path"]:
         file_path = report.get(path_key)
@@ -415,7 +474,7 @@ def delete_professional_report(
             except Exception as e:
                 logger.warning(f"Could not delete file {file_path}: {e}")
     
-    supabase.table("reports").delete().eq("report_id", report_id).eq("user_id", user_id).execute()
+    _delete_report_by_id(supabase, report_id, user_id)
     
     return {"status": "deleted", "report_id": report_id}
 
@@ -436,9 +495,6 @@ def update_report_narrative(
     if len(narrative) > 100000:
         raise HTTPException(status_code=400, detail="Narrative too long (max 100KB)")
     
-    supabase.table("reports").update({
-        "narrative": narrative,
-        "updated_at": datetime.now(UTC).isoformat()
-    }).eq("report_id", report_id).eq("user_id", user_id).execute()
+    _update_report_narrative(supabase, report_id, user_id, narrative)
     
     return {"status": "updated", "report_id": report_id}
