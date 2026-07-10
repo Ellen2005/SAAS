@@ -362,14 +362,22 @@ def generate_professional_report(
                 supabase.table("reports").insert(report_record).execute()
             else:
                 raise
-        
+
+        db_report_id = result["report_id"]
+        try:
+            latest = supabase.table("reports").select("id").eq("user_id", user_id).eq("file_path", result["pdf"]).order("created_at", desc=True).limit(1).execute()
+            if hasattr(latest, "data") and latest.data:
+                db_report_id = latest.data[0]["id"]
+        except Exception as e:
+            logger.warning(f"Could not fetch inserted report id: {e}")
+
         return {
             "status": "success",
-            "report_id": result["report_id"],
+            "report_id": db_report_id,
             "pdf_path": result["pdf"],
             "excel_path": result.get("excel"),
-            "download_url": f"/api/reports/download/{result['report_id']}?format=pdf",
-            "excel_url": f"/api/reports/download/{result['report_id']}?format=excel"
+            "download_url": f"/api/reports/download/{db_report_id}?format=pdf",
+            "excel_url": f"/api/reports/download/{db_report_id}?format=excel"
         }
     
     except Exception as e:

@@ -32,7 +32,7 @@ export function AuthProvider({ children }) {
   const fetchUserRole = useCallback(async (currentUser) => {
     let resolvedRole = 'viewer';
     try {
-      const data = await apiJson('/api/users/me');
+      const data = await apiJson('/api/users/me', { safe: true });
       resolvedRole = data.role || 'viewer';
       setRole(resolvedRole);
       setDepartmentId(data.department_id ?? null);
@@ -42,6 +42,7 @@ export function AuthProvider({ children }) {
         apiJson('/api/users/me/profile', {
           method: 'POST',
           body: JSON.stringify({ email: currentUser.email, display_name: currentUser.email }),
+          safe: true,
         }).catch((err) => console.warn('Profile sync failed:', err));
       }
 

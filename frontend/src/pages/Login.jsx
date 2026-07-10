@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Activity, LogIn, Lock, User, Eye, EyeOff, UserPlus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useLang } from '../lib/i18n';
 import { useAuth } from '../lib/authContext';
@@ -8,7 +9,7 @@ import LanguagePicker from '../components/LanguagePicker';
 const Login = () => {
   const { t } = useLang();
   const { user } = useAuth();
-  // user is only read to satisfy the App.jsx <Navigate> guard — no local redirect needed
+  const navigate = useNavigate();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,7 +25,11 @@ const Login = () => {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState(null);
 
-  // Redirect handled by App.jsx <Navigate> once user state is set by onAuthStateChange
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, navigate]);
 
   const handleAuth = async (e) => {
     e.preventDefault();
