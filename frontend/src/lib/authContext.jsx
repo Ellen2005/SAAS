@@ -94,6 +94,8 @@ export function AuthProvider({ children }) {
     // The Login page called navigate('/dashboard') but App.jsx bounced it back
     // to /login because user was still null. Now we set user immediately from
     // the session object — Supabase already validated it when issuing the token.
+    const authHandledByEvent = { current: false };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (event === 'SIGNED_OUT') {
@@ -101,9 +103,8 @@ export function AuthProvider({ children }) {
           return;
         }
         if (session?.user) {
-          // Set user immediately — no async gap, route guards unblock instantly
+          authHandledByEvent.current = true;
           setUser(session.user);
-          // Fetch role in background, never block the state change
           fetchUserRole(session.user).catch(() => {});
         } else {
           resetAuthState();
@@ -114,6 +115,8 @@ export function AuthProvider({ children }) {
     // Check for an existing session on mount (page refresh / returning user)
     supabase.auth.getSession()
       .then(async ({ data: { session } }) => {
+        if (authHandledByEvent.current) return;
+
         if (session?.user) {
           // Validate the stored session is still live (catches revoked refresh tokens)
           try {
