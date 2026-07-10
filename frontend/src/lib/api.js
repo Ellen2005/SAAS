@@ -80,7 +80,7 @@ async function doFetch(path, options = {}, tokenOverride = null) {
 }
 
 export async function apiFetch(path, options = {}) {
-  const maxRetries = 2
+  const maxRetries = options.safe ? 0 : 2
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     let response
     try {
@@ -90,7 +90,7 @@ export async function apiFetch(path, options = {}) {
       throw err
     }
 
-    if (response.status === 401) {
+    if (response.status === 401 && !options.safe) {
       let session
       try {
         const { data, error } = await supabase.auth.refreshSession()
