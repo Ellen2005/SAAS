@@ -105,6 +105,7 @@ export function AuthProvider({ children }) {
         if (session?.user) {
           authHandledByEvent.current = true;
           setUser(session.user);
+          setLoading(false);
           fetchUserRole(session.user).catch(() => {});
         } else {
           resetAuthState();
