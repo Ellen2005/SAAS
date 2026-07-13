@@ -74,18 +74,16 @@ Schema:
 """
     try:
         try:
-            from .ai_orchestrator import AIOrchestrator
-            orchestrator = AIOrchestrator()
-            result = orchestrator.execute_sync(
+            from .ai_orchestrator import execute_llm_sync
+            completion = execute_llm_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=500,
                 model=get_groq_model(),
             )
-            completion = result
         except Exception as e:
             logger.debug(f"Primary completion failed, using fallback: {e}")
-            completion = execute_groq_completion(
+            completion = execute_llm_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=500,
@@ -292,18 +290,16 @@ IMPORTANT:
 """
     try:
         try:
-            from .ai_orchestrator import AIOrchestrator
-            orchestrator = AIOrchestrator()
-            result = orchestrator.execute_sync(
+            from .ai_orchestrator import execute_llm_sync
+            completion = execute_llm_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=1500,
                 model=get_groq_model(),
             )
-            completion = result
         except Exception as e:
             logger.debug(f"Primary completion failed, using fallback: {e}")
-            completion = execute_groq_completion(
+            completion = execute_llm_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=1500,

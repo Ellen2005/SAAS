@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Boxes, Plus, Save, Send } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
+import { useToast } from '../components/ToastProvider';
 
 const EMPTY_TEMPLATE = {
   name: '',
@@ -15,6 +16,7 @@ const EMPTY_TEMPLATE = {
 };
 
 const AdminTemplates = () => {
+  const toast = useToast();
   const [templates, setTemplates] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
@@ -56,7 +58,7 @@ const AdminTemplates = () => {
       setDraft(EMPTY_TEMPLATE);
       await loadData();
     } catch (error) {
-      alert(`Unable to create template: ${error.message}`);
+      toast.error(`Unable to create template: ${error.message}`);
     }
   };
 
@@ -71,10 +73,10 @@ const AdminTemplates = () => {
           department_id: selectedDepartmentId,
         }),
       });
-      alert('Template deployed to department.');
+      toast.success('Template deployed to department.');
       await loadData();
     } catch (error) {
-      alert(`Unable to deploy template: ${error.message}`);
+      toast.error(`Unable to deploy template: ${error.message}`);
     }
   };
 

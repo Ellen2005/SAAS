@@ -125,6 +125,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         key = f"{client_ip}:{path}"
         self.clients[key] = [t for t in self.clients[key] if now - t < window]
 
+        # Evict stale keys when dict grows too large (every 10000 entries)
+        if len(self.clients) > 10000:
+            cutoff = now - window * 2
+            stale_keys = [k for k, v in self.clients.items() if not v or max(v) < cutoff]
+            for k in stale_keys[:len(stale_keys) // 2]:
+                del self.clients[k]
+
         if len(self.clients[key]) >= limit:
             return False
 

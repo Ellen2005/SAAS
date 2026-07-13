@@ -6,6 +6,7 @@ import { useAuth } from '../lib/authContext';
 import { useNavigate } from 'react-router-dom';
 import { useLang } from '../lib/i18n';
 import { invalidateDashboardCache } from '../lib/dashboardSync';
+import { useToast } from '../components/ToastProvider';
 
 const DEFAULT_CONNECTION_OPTIONS = {
   tunnel_token: '',
@@ -19,6 +20,8 @@ const Settings = () => {
   const { user, departmentName } = useAuth();
   const { t, lang, setLang } = useLang();
   const navigate = useNavigate();
+  const toast = useToast();
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [savingConnection, setSavingConnection] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
@@ -46,6 +49,7 @@ const Settings = () => {
   const [mappingStatus, setMappingStatus] = useState({ valid: true, missing_required: [], missing_optional: [] });
   const [mappingInputs, setMappingInputs] = useState({});
   const [savingMapId, setSavingMapId] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const mappedFieldIds = useMemo(
     () => new Map((templateData.mappings || []).map((mapping) => [mapping.template_field_id, mapping])),
@@ -72,6 +76,12 @@ const Settings = () => {
       // Ignore when localStorage is unavailable.
     }
   }, [themeMode]);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const [accountLoading, setAccountLoading] = useState(false);
   const [newPassword, setNewPassword] = useState('');
@@ -188,7 +198,7 @@ const Settings = () => {
       });
       setDbStatus('saved');
     } catch (error) {
-      alert(`Unable to save connection: ${error.message}`);
+      toast.error(`Unable to save connection: ${error.message}`);
       setDbStatus('error');
     } finally {
       setSavingConnection(false);
@@ -214,11 +224,11 @@ const Settings = () => {
       });
       setDbStatus(result.status === 'success' ? 'success' : 'error');
       if (result.status !== 'success') {
-        alert(result.message);
+        toast.error(result.message);
       }
     } catch (error) {
       setDbStatus('error');
-      alert(`Connection test failed: ${error.message}`);
+      toast.error(`Connection test failed: ${error.message}`);
     } finally {
       setTestingConnection(false);
     }
@@ -250,9 +260,9 @@ const Settings = () => {
         );
       }
 
-      alert('Governed preferences updated.');
+      toast.success('Governed preferences updated.');
     } catch (error) {
-      alert(`Unable to save preferences: ${error.message}`);
+      toast.error(`Unable to save preferences: ${error.message}`);
     } finally {
       setSavingPreferences(false);
     }
@@ -265,7 +275,7 @@ const Settings = () => {
       invalidateDashboardCache();
       navigate('/dashboard');
     } catch (error) {
-      alert(`Unable to trigger sync: ${error.message}`);
+      toast.error(`Unable to trigger sync: ${error.message}`);
     } finally {
       setTriggeringSync(false);
     }
@@ -292,7 +302,7 @@ const Settings = () => {
       setTemplateData(semanticData);
       setMappingStatus(mappingValidation);
     } catch (error) {
-      alert(`Unable to save mapping: ${error.message}`);
+      toast.error(`Unable to save mapping: ${error.message}`);
     } finally {
       setSavingMapId(null);
     }
@@ -325,7 +335,11 @@ const Settings = () => {
   };
 
   const handleDeleteAccount = async () => {
-    if (!confirm('Delete your account? This cannot be undone.')) return;
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteAccount = async () => {
+    setShowDeleteConfirm(false);
     setAccountMessage(null);
     setAccountLoading(true);
     try {
@@ -398,7 +412,7 @@ const Settings = () => {
           )}
 
           {connectionMethod === 'ssh_tunnel' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
               <div className="form-group">
                 <label>SSH Host</label>
                 <input
@@ -442,7 +456,7 @@ const Settings = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
             <div className="form-group">
               <label>{t('settings_db_type')}</label>
               <select value={dbType} onChange={(event) => setDbType(event.target.value)}>
@@ -575,7 +589,7 @@ const Settings = () => {
           <Bell size={20} color="var(--primary-color)" /> AI Narrative and Delivery
         </h2>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
           <div className="form-group">
             <label>AI Tone</label>
             <select value={aiTone} onChange={(event) => setAiTone(event.target.value)}>
@@ -722,6 +736,28 @@ const Settings = () => {
           )}
         </div>
       </section>
+
+      {showDeleteConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }} onClick={() => setShowDeleteConfirm(false)}>
+          <div className="glass-panel" style={{ maxWidth: '380px', width: '100%', padding: '24px', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '12px' }}>Delete Account?</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
+              This action is permanent and cannot be undone. All your data will be deleted.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button className="btn btn-outline" onClick={() => setShowDeleteConfirm(false)} style={{ padding: '8px 20px' }}>Cancel</button>
+              <button className="btn btn-primary" onClick={confirmDeleteAccount}
+                style={{ padding: '8px 20px', background: 'var(--status-critical)', borderColor: 'var(--status-critical)' }}>
+                Delete Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

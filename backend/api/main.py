@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Configure logging
+# Configure logging - handle missing correlation_id gracefully
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -86,6 +86,16 @@ async def lifespan(app: FastAPI):
         logger.info("Starting scheduler...")
         start_scheduler()
         logger.info("Application startup complete ✓")
+        
+        # Run pending migrations if AUTO_MIGRATE is enabled
+        if os.getenv("AUTO_MIGRATE", "false").lower() == "true":
+            logger.info("AUTO_MIGRATE enabled, running startup migrations...")
+            try:
+                from .services.migration_runner import auto_run_migrations_on_startup
+                await auto_run_migrations_on_startup()
+            except Exception as e:
+                logger.error(f"Startup migrations failed: {e}")
+                # Don't raise - allow app to start even if migrations fail
     except Exception as e:
         logger.error(f"Startup failed: {str(e)}", exc_info=True)
         raise
@@ -95,6 +105,15 @@ async def lifespan(app: FastAPI):
     finally:
         logger.info("Shutting down scheduler...")
         shutdown_scheduler()
+        
+        # Close Groq HTTP client
+        logger.info("Closing Groq HTTP client...")
+        try:
+            from .services.groq_utils import close_groq_client
+            await close_groq_client()
+        except Exception as e:
+            logger.warning(f"Failed to close Groq client: {e}")
+        
         logger.info("Application shutdown complete ✓")
 
 
@@ -145,6 +164,23 @@ async def add_security_headers(request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+# ── Correlation ID Middleware (Structured Logging) ─────────────────────────────
+import uuid
+import contextvars
+
+_correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar('correlation_id', default='none')
+
+@app.middleware("http")
+async def add_correlation_id(request, call_next):
+    correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4())[:8])
+    request.state.correlation_id = correlation_id
+    _correlation_id_var.set(correlation_id)
+    
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
     return response
 
 
@@ -248,13 +284,182 @@ class DashboardSummary(BaseModel):
     validation: List[dict] = []
 
 
-# ── Keepalive ping ────────────────────────────────────────────────────────────
+# ── Request Size Limit Middleware ──────────────────────────────────────────────
+@app.middleware("http")
+async def request_size_limit(request, call_next):
+    if request.method in ("POST", "PUT", "PATCH"):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > 10 * 1024 * 1024:  # 10MB limit
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Request body too large (max 10MB)"},
+            )
+    return await call_next(request)
 
-@app.get("/api/ping", include_in_schema=False)
-def ping():
-    return {"ok": True, "timestamp": datetime.now(UTC).isoformat()}
+
+# ── Health Check Endpoint ──────────────────────────────────────────────────────
+from pydantic import BaseModel, Field
+from typing import List
+import time
+
+class HealthComponent(BaseModel):
+    name: str
+    status: str  # healthy, degraded, unhealthy
+    details: str = ""
+    latency_ms: float = 0.0
+
+class HealthResponse(BaseModel):
+    status: str  # healthy, degraded, unhealthy
+    timestamp: str
+    version: str
+    components: List[HealthComponent]
 
 
+@app.get("/api/health", response_model=HealthResponse, include_in_schema=False)
+async def health_check():
+    """Comprehensive health check for all system dependencies."""
+    start_time = time.perf_counter()
+    components = []
+    overall_status = "healthy"
+    
+    # 1. Supabase / Database connectivity
+    supabase_start = time.perf_counter()
+    try:
+        supabase = get_supabase()
+        # Simple query to verify connection
+        result = supabase.table("departments").select("id").limit(1).execute()
+        latency = round((time.perf_counter() - supabase_start) * 1000, 2)
+        components.append(HealthComponent(
+            name="supabase",
+            status="healthy",
+            details=f"Connected, {len(result.data) if result.data else 0} dept(s)",
+            latency_ms=latency
+        ))
+    except Exception as e:
+        latency = round((time.perf_counter() - supabase_start) * 1000, 2)
+        components.append(HealthComponent(
+            name="supabase",
+            status="unhealthy",
+            details=f"Connection failed: {str(e)[:100]}",
+            latency_ms=latency
+        ))
+        overall_status = "unhealthy"
+    
+    # 2. Redis connectivity
+    redis_start = time.perf_counter()
+    redis_url = os.environ.get("REDIS_URL")
+    if redis_url:
+        try:
+            import redis.asyncio as aioredis
+            client = aioredis.from_url(
+                redis_url,
+                decode_responses=True,
+                socket_connect_timeout=3,
+                socket_timeout=3,
+            )
+            await client.ping()
+            await client.close()
+            latency = round((time.perf_counter() - redis_start) * 1000, 2)
+            components.append(HealthComponent(
+                name="redis",
+                status="healthy",
+                details="Connected",
+                latency_ms=latency
+            ))
+        except Exception as e:
+            latency = round((time.perf_counter() - redis_start) * 1000, 2)
+            components.append(HealthComponent(
+                name="redis",
+                status="degraded",
+                details=f"Connection failed: {str(e)[:100]}",
+                latency_ms=latency
+            ))
+            if overall_status == "healthy":
+                overall_status = "degraded"
+    else:
+        components.append(HealthComponent(
+            name="redis",
+            status="degraded",
+            details="Not configured"
+        ))
+    
+    # 3. Groq API key availability
+    groq_key = os.environ.get("GROQ_API_KEY")
+    if groq_key:
+        components.append(HealthComponent(
+            name="groq_api",
+            status="healthy",
+            details="API key configured"
+        ))
+    else:
+        components.append(HealthComponent(
+            name="groq_api",
+            status="degraded",
+            details="API key not configured"
+        ))
+        if overall_status == "healthy":
+            overall_status = "degraded"
+    
+    # 4. Scheduler status
+    try:
+        from .core.scheduler import scheduler
+        if scheduler.running:
+            job_count = len(scheduler.get_jobs())
+            components.append(HealthComponent(
+                name="scheduler",
+                status="healthy",
+                details=f"{job_count} jobs scheduled"
+            ))
+        else:
+            components.append(HealthComponent(
+                name="scheduler",
+                status="unhealthy",
+                details="Scheduler not running"
+            ))
+            overall_status = "unhealthy"
+    except Exception as e:
+        components.append(HealthComponent(
+            name="scheduler",
+            status="unhealthy",
+            details=f"Error: {str(e)[:100]}"
+        ))
+        overall_status = "unhealthy"
+    
+    # 5. Database migrations table check
+    try:
+        supabase = get_supabase()
+        result = supabase.table("schema_migrations").select("version, applied_at").order("applied_at", desc=True).limit(1).execute()
+        if result.data:
+            latest = result.data[0]
+            components.append(HealthComponent(
+                name="migrations",
+                status="healthy",
+                details=f"Latest: {latest.get('version', 'unknown')}"
+            ))
+        else:
+            components.append(HealthComponent(
+                name="migrations",
+                status="degraded",
+                details="No migrations recorded"
+            ))
+    except Exception:
+        components.append(HealthComponent(
+            name="migrations",
+            status="healthy",
+            details="Migration tracking not configured"
+        ))
+    
+    total_latency = round((time.perf_counter() - start_time) * 1000, 2)
+    
+    return HealthResponse(
+        status=overall_status,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        version="1.0.0",
+        components=components
+    )
+
+
+# ── Token Verification Helper ─────────────────────────────────────────────────
 def _verify_supabase_token(token: str) -> dict:
     """Verify a Supabase JWT token and return the user dict."""
     try:
@@ -269,7 +474,6 @@ def _verify_supabase_token(token: str) -> dict:
     except HTTPException:
         raise
     except Exception as e:
-        # Don't log the full token or sensitive details
         logger.warning(f"Token verification failed: {type(e).__name__}")
         raise HTTPException(status_code=401, detail="Token verification failed")
 
@@ -279,14 +483,13 @@ def _verify_supabase_token(token: str) -> dict:
 @app.get("/api/realtime/stream")
 async def realtime_stream(
     authorization: Optional[str] = Header(None),
-    token: Optional[str] = Query(None),
 ):
-    """Server-Sent Events stream (heartbeat only). Auth via Authorization header or ?token= query param."""
+    """Server-Sent Events stream (heartbeat only). Auth via Authorization header only."""
     from fastapi.responses import StreamingResponse
     import asyncio
     import json
 
-    auth_token = (authorization or "").replace("Bearer ", "") or token
+    auth_token = (authorization or "").replace("Bearer ", "")
     if not auth_token:
         raise HTTPException(status_code=401, detail="Missing authentication")
     

@@ -11,6 +11,7 @@ These are the reports CNPS leadership needs to see — not another dashboard.
 
 import os
 import io
+import html as html_mod
 import base64
 import logging
 from datetime import datetime, timezone, date as date_type
@@ -170,7 +171,7 @@ def _kpi_card_html(name: str, value: float, change_pct: float = None,
     
     return f"""
     <div class="kpi-card">
-        <div class="label">{name}</div>
+        <div class="label">{html_mod.escape(str(name))}</div>
         <div class="value">{_format_currency(value)}</div>
         {change_html}
         <div style="margin-top:4px;"><span class="badge badge-{rag.lower() if rag in ['green','amber','red'] else 'green'}">{_rag_badge(rag)}</span></div>
@@ -181,8 +182,8 @@ def _kpi_card_html(name: str, value: float, change_pct: float = None,
 def _recommendation_html(title: str, body: str) -> str:
     return f"""
     <div class="recommendation">
-        <h4>📋 {title}</h4>
-        <p>{body}</p>
+        <h4>📋 {html_mod.escape(str(title))}</h4>
+        <p>{html_mod.escape(str(body))}</p>
     </div>
     """
 
@@ -190,16 +191,17 @@ def _recommendation_html(title: str, body: str) -> str:
 def _risk_html(title: str, body: str) -> str:
     return f"""
     <div class="risk-flag">
-        <h4>⚠️ {title}</h4>
-        <p>{body}</p>
+        <h4>⚠️ {html_mod.escape(str(title))}</h4>
+        <p>{html_mod.escape(str(body))}</p>
     </div>
     """
 
 
 def _table_html(headers: list, rows: list) -> str:
-    header_row = "".join(f"<th>{h}</th>" for h in headers)
+    import html
+    header_row = "".join(f"<th>{html.escape(str(h))}</th>" for h in headers)
     body_rows = "".join(
-        "<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>"
+        "<tr>" + "".join(f"<td>{html.escape(str(c))}</td>" for c in row) + "</tr>"
         for row in rows
     )
     return f"""
@@ -268,10 +270,10 @@ def generate_dg_report(
         badge_label = {"critical": "CRITICAL", "warning": "WARNING"}.get(sev, "INFO")
         anomalies_html += f"""
         <tr>
-            <td>{anomaly.get('kpi_name', 'N/A')}</td>
+            <td>{html_mod.escape(str(anomaly.get('kpi_name', 'N/A')))}</td>
             <td><span class="badge {badge_cls}">{badge_label}</span></td>
             <td>{anomaly.get('deviation', 0):.1f}%</td>
-            <td>{anomaly.get('context', {}).get('reason', 'N/A')[:120]}</td>
+            <td>{html_mod.escape(str(anomaly.get('context', {}).get('reason', 'N/A')[:120]))}</td>
         </tr>"""
     
     if anomalies_html:
@@ -333,7 +335,7 @@ def generate_dg_report(
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Rapport Mensuel du Directeur Général — {report_period}</title>
+<title>Rapport Mensuel du Directeur Général — {html_mod.escape(str(report_period))}</title>
 {EXECUTIVE_REPORT_CSS}
 </head>
 <body>
@@ -343,7 +345,7 @@ def generate_dg_report(
 <div class="header">
     <div class="title-block">
         <h1>Rapport Mensuel du Directeur Général</h1>
-        <h2>{company_name} — Période: {report_period}</h2>
+        <h2>{html_mod.escape(str(company_name))} — Période: {html_mod.escape(str(report_period))}</h2>
     </div>
     <div class="logo">
         <div>Généré le: {datetime.now().strftime("%d/%m/%Y à %H:%M")}</div>
@@ -353,13 +355,13 @@ def generate_dg_report(
 
 <div class="meta">
     <div><span>Référence:</span> DG-RAP-{datetime.now().strftime("%Y%m")}-001</div>
-    <div><span>Période:</span> {report_period}</div>
+    <div><span>Période:</span> {html_mod.escape(str(report_period))}</div>
     <div><span>Statut:</span> <span class="badge badge-green">FINAL</span></div>
 </div>
 
 <div class="executive-summary">
     <h3>📊 Synthèse de Direction</h3>
-    <p>{executive_summary or "Aucune synthèse générée automatiquement."}</p>
+    <p>{html_mod.escape(str(executive_summary or "Aucune synthèse générée automatiquement."))}</p>
 </div>
 
 <!-- KPIs Section -->
@@ -458,7 +460,7 @@ def generate_board_report(
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Rapport du Conseil d'Administration — {report_period}</title>
+<title>Rapport du Conseil d'Administration — {html_mod.escape(str(report_period))}</title>
 {EXECUTIVE_REPORT_CSS}
 </head>
 <body>
@@ -468,7 +470,7 @@ def generate_board_report(
 <div class="header">
     <div class="title-block">
         <h1>Rapport du Conseil d'Administration</h1>
-        <h2>{company_name} — Exercice {report_period}</h2>
+        <h2>{html_mod.escape(str(company_name))} — Exercice {html_mod.escape(str(report_period))}</h2>
     </div>
     <div class="logo">
         <div>Généré le: {datetime.now().strftime("%d/%m/%Y")}</div>
@@ -478,7 +480,7 @@ def generate_board_report(
 
 <div class="executive-summary">
     <h3>📊 Résumé de Direction</h3>
-    <p>{financial_summary or "Présentation de la situation financière et des objectifs stratégiques."}</p>
+    <p>{html_mod.escape(str(financial_summary or "Présentation de la situation financière et des objectifs stratégiques."))}</p>
 </div>
 
 <div class="section">
@@ -546,7 +548,7 @@ def generate_regional_performance_report(
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Rapport de Performance Régionale — {report_period}</title>
+<title>Rapport de Performance Régionale — {html_mod.escape(str(report_period))}</title>
 {EXECUTIVE_REPORT_CSS}
 </head>
 <body>
@@ -554,7 +556,7 @@ def generate_regional_performance_report(
 <div class="header">
     <div class="title-block">
         <h1>Rapport de Performance Régionale</h1>
-        <h2>{company_name} — {report_period}</h2>
+        <h2>{html_mod.escape(str(company_name))} — {html_mod.escape(str(report_period))}</h2>
     </div>
     <div class="logo">
         <div>Généré le: {datetime.now().strftime("%d/%m/%Y")}</div>

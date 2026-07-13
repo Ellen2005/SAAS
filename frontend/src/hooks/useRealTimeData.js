@@ -1,10 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
-
-function _buildSseUrl(endpoint) {
-  const apiUrl = import.meta.env.VITE_API_URL || '';
-  return `${apiUrl}${endpoint}`;
-}
+import { API_URL } from '../lib/api';
 
 export function useRealTimeData(userId, options = {}) {
   const {
@@ -54,7 +50,7 @@ export function useRealTimeData(userId, options = {}) {
       reconnectTimeoutRef.current = null;
     }
 
-    const url = `${_buildSseUrl(endpoint)}?token=${encodeURIComponent(token)}`;
+    const url = `${API_URL}${endpoint}?token=${encodeURIComponent(token)}`;
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
 

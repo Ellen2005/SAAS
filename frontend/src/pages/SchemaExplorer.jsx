@@ -36,6 +36,7 @@ function fmtNum(n) {
 }
 
 export default function SchemaExplorer() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [schema, setSchema] = useState(null);
@@ -50,9 +51,16 @@ export default function SchemaExplorer() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [prefs, setPrefs] = useState(null);
+  const [saveMessage, setSaveMessage] = useState(null);
 
   useEffect(() => {
     apiJson('/api/settings/preferences').then(setPrefs).catch(() => setPrefs(null));
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const loadSchema = async (refresh = false) => {
@@ -125,14 +133,15 @@ export default function SchemaExplorer() {
   const saveMappings = async () => {
     if (!autoMapResult?.suggestions?.length) return;
     setSavingMappings(true);
+    setSaveMessage(null);
     try {
       const out = await apiJson('/api/introspect/apply-mappings', {
         method: 'POST',
         body: JSON.stringify({ mappings: autoMapResult.suggestions }),
       });
-      alert(`Saved ${out.saved} field mapping(s)${out.errors?.length ? ` with ${out.errors.length} error(s)` : ''}.`);
+      setSaveMessage({ type: 'success', text: `Saved ${out.saved} field mapping(s)${out.errors?.length ? ` with ${out.errors.length} error(s)` : ''}.` });
     } catch (e) {
-      alert(e.message);
+      setSaveMessage({ type: 'error', text: e.message });
     } finally {
       setSavingMappings(false);
     }
@@ -166,7 +175,7 @@ export default function SchemaExplorer() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
         <div>
-          <h1 style={{ margin: 0, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <h1 style={{ margin: 0, display: 'flex', gap: 10, alignItems: 'center', fontSize: isMobile ? '1.3rem' : '1.6rem' }}>
             <Database size={28} /> Schema Explorer
           </h1>
           <p style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
@@ -280,7 +289,12 @@ export default function SchemaExplorer() {
                   ))}
                 </tbody>
               </table>
-              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
+                {saveMessage && (
+                  <span style={{ fontSize: '0.85rem', color: saveMessage.type === 'success' ? 'var(--status-normal)' : 'var(--status-critical)' }}>
+                    {saveMessage.text}
+                  </span>
+                )}
                 <button className="btn" onClick={saveMappings} disabled={savingMappings}>
                   {savingMappings ? 'Saving…' : 'Apply all mappings'}
                 </button>
@@ -383,7 +397,10 @@ function TableCard({ table, expanded, onToggle }) {
   return (
     <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
       <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
         style={{
           padding: 10, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
           background: 'rgba(255,255,255,0.03)',

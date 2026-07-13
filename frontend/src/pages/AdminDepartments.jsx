@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, Plus, Trash2, RefreshCcw, Clock, Users, Edit3, Grid3x3 } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
+import { useToast } from '../components/ToastProvider';
 
 const AdminDepartments = () => {
+  const toast = useToast();
   const [departments, setDepartments] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -10,6 +12,7 @@ const AdminDepartments = () => {
   const [showEdit, setShowEdit] = useState(null);
   const [newDept, setNewDept] = useState({ name: '', description: '', heartbeat_schedule: 'daily', heartbeat_time: '06:00' });
   const [editDept, setEditDept] = useState({ template_id: '' });
+  const [confirmDelete, setConfirmDelete] = useState(null); // deptId pending deletion
 
   const fetchDepartments = async () => {
     try {
@@ -61,7 +64,13 @@ const AdminDepartments = () => {
   };
 
   const handleDelete = async (deptId) => {
-    if (!confirm('Delete this department? Users will be unassigned.')) return;
+    setConfirmDelete(deptId);
+  };
+
+  const confirmDeleteDept = async () => {
+    const deptId = confirmDelete;
+    setConfirmDelete(null);
+    if (!deptId) return;
     try {
       await apiFetch(`/api/admin/departments/${deptId}`, { method: 'DELETE' });
       fetchDepartments();
@@ -71,7 +80,7 @@ const AdminDepartments = () => {
   const handleTriggerHeartbeat = async (deptId) => {
     try {
       const data = await apiJson(`/api/admin/heartbeat/trigger/${deptId}`, { method: 'POST' });
-      alert(`Triggered ETL for ${data.users_triggered} user(s) in this department.`);
+      toast.success(`Triggered ETL for ${data.users_triggered} user(s) in this department.`);
     } catch (err) { console.error(err); }
   };
 
@@ -130,8 +139,8 @@ const AdminDepartments = () => {
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}
           onClick={() => setShowEdit(null)}
         >
-          <div className="glass-panel" style={{ maxWidth: '500px', width: '92%' }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="glass-panel" style={{ maxWidth: '500px', width: '92%' }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="assign-template-title">
+            <h3 id="assign-template-title" style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Grid3x3 size={18} /> Assign Semantic Template
             </h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
@@ -209,6 +218,28 @@ const AdminDepartments = () => {
         ))}
         {departments.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>No departments yet. Create one to get started.</p>}
       </div>
+
+      {confirmDelete && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }} onClick={() => setConfirmDelete(null)}>
+          <div className="glass-panel" style={{ maxWidth: '380px', width: '100%', padding: '24px', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '12px' }}>Delete Department?</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
+              Users in this department will be unassigned. This action cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button className="btn btn-outline" onClick={() => setConfirmDelete(null)} style={{ padding: '8px 20px' }}>Cancel</button>
+              <button className="btn btn-primary" onClick={confirmDeleteDept}
+                style={{ padding: '8px 20px', background: 'var(--status-critical)', borderColor: 'var(--status-critical)' }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X, Download, FileSpreadsheet, Trash2 } from 'lucide-react';
 import { apiJson, apiFetch, API_URL } from '../lib/api';
 import { useAuth } from '../lib/authContext';
+import { useToast } from '../components/ToastProvider';
 
 const REPORTS_CACHE_KEY = 'saas.reports.cache.v1';
 
@@ -18,6 +19,7 @@ const writeReportsCache = (payload) => {
 
 const ReportsHistory = () => {
   const { user, isManager } = useAuth();
+  const toast = useToast();
   const [tab, setTab] = useState('daily'); // 'daily' | 'professional'
   const [reports, setReports] = useState(() => readReportsCache() || []);
   const [proReports, setProReports] = useState([]);
@@ -29,6 +31,7 @@ const ReportsHistory = () => {
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(null);
   const [sentId, setSentId] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null); // reportId pending deletion
 
   const fetchReports = useCallback(async () => {
     if (!user) return;
@@ -58,11 +61,17 @@ const ReportsHistory = () => {
   useEffect(() => { fetchReports(); fetchProReports(); }, [fetchReports, fetchProReports]);
 
   const handleDeletePro = async (reportId) => {
-    if (!window.confirm('Delete this report?')) return;
+    setConfirmDelete(reportId);
+  };
+
+  const confirmDeletePro = async () => {
+    const reportId = confirmDelete;
+    setConfirmDelete(null);
+    if (!reportId) return;
     try {
       await apiFetch(`/api/reports/professional/${reportId}`, { method: 'DELETE' });
       setProReports(prev => prev.filter(r => r.report_id !== reportId));
-    } catch (err) { alert(`Delete failed: ${err.message}`); }
+    } catch (err) { toast.error(`Delete failed: ${err.message}`); }
   };
 
   const handleDownloadPro = async (reportId, format) => {
@@ -75,7 +84,7 @@ const ReportsHistory = () => {
       a.download = `report-${reportId}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
-    } catch (err) { alert(`Download failed: ${err.message}`); }
+    } catch (err) { toast.error(`Download failed: ${err.message}`); }
   };
 
   const handleStartEdit = (report) => {
@@ -94,7 +103,7 @@ const ReportsHistory = () => {
       setReports((prev) => prev.map((r) => r.id === reportId ? { ...r, narrative: editText } : r));
       setEditingId(null);
     } catch (err) {
-      alert(`Failed to save: ${err.message}`);
+      toast.error(`Failed to save: ${err.message}`);
     } finally {
       setSaving(false);
     }
@@ -112,7 +121,7 @@ const ReportsHistory = () => {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert(`Download failed: ${err.message}`);
+      toast.error(`Download failed: ${err.message}`);
     }
   };
 
@@ -129,7 +138,7 @@ const ReportsHistory = () => {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert(`Excel export failed: ${err.message}`);
+      toast.error(`Excel export failed: ${err.message}`);
     }
   };
 
@@ -140,7 +149,7 @@ const ReportsHistory = () => {
       setSentId(reportId);
       setTimeout(() => setSentId(null), 3000);
     } catch (err) {
-      alert(`Failed to send: ${err.message}`);
+      toast.error(`Failed to send: ${err.message}`);
     } finally {
       setSending(null);
     }
@@ -341,6 +350,28 @@ const ReportsHistory = () => {
           })}
         </div>
       ))}
+
+      {confirmDelete && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }} onClick={() => setConfirmDelete(null)}>
+          <div className="glass-panel" style={{ maxWidth: '380px', width: '100%', padding: '24px', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '12px' }}>Delete Report?</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
+              This action cannot be undone. The report will be permanently removed.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button className="btn btn-outline" onClick={() => setConfirmDelete(null)} style={{ padding: '8px 20px' }}>Cancel</button>
+              <button className="btn btn-primary" onClick={confirmDeletePro}
+                style={{ padding: '8px 20px', background: 'var(--status-critical)', borderColor: 'var(--status-critical)' }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

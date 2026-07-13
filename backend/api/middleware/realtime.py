@@ -26,11 +26,13 @@ except ImportError:
 
 
 if SOCKETIO_AVAILABLE:
+    import os
+    _cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
     sio = socketio.AsyncServer(
         async_mode='asgi',
-        cors_allowed_origins="*",
-        logger=True,
-        engineio_logger=True,
+        cors_allowed_origins=_cors_origins,
+        logger=False,
+        engineio_logger=False,
     )
     app = socketio.ASGIApp(sio)
     
@@ -38,18 +40,38 @@ if SOCKETIO_AVAILABLE:
     connected_users: Dict[str, Set[str]] = {}
     user_rooms: Dict[str, str] = {}
     
+    def _verify_token(token: str) -> Optional[str]:
+        """Verify a Supabase JWT and return user_id, or None if invalid."""
+        if not token:
+            return None
+        try:
+            from ..core.supabase_client import get_supabase
+            supabase = get_supabase()
+            user_resp = supabase.auth.get_user(token)
+            if user_resp and hasattr(user_resp, "user") and user_resp.user:
+                user = user_resp.user
+                return getattr(user, "id", None) if not isinstance(user, dict) else user.get("id")
+        except Exception as e:
+            logger.debug(f"Socket.io token verification failed: {type(e).__name__}")
+        return None
+
     @sio.event
     async def connect(sid, environ, auth):
-        user_id = auth.get('user_id') if auth else None
-        if user_id:
-            if user_id not in connected_users:
-                connected_users[user_id] = set()
-            connected_users[user_id].add(sid)
-            logger.info(f"User {user_id} connected (sid: {sid})")
-            await sio.emit('user_joined', {
-                'user_id': user_id,
-                'timestamp': datetime.now().isoformat()
-            })
+        # Verify JWT token from auth payload
+        token = auth.get('token') if auth else None
+        user_id = _verify_token(token) if token else None
+        if not user_id:
+            logger.warning(f"Socket.io connection rejected - invalid or missing token (sid: {sid})")
+            raise socketio.exceptions.ConnectionRefusedError("Authentication required")
+        
+        if user_id not in connected_users:
+            connected_users[user_id] = set()
+        connected_users[user_id].add(sid)
+        logger.info(f"User {user_id} connected (sid: {sid})")
+        await sio.emit('user_joined', {
+            'user_id': user_id,
+            'timestamp': datetime.now().isoformat()
+        })
     
     @sio.event
     async def disconnect(sid):

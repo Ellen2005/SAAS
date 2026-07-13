@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { apiJson } from '../lib/api';
 
 const ValidationHistory = () => {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -44,6 +45,12 @@ const ValidationHistory = () => {
     loadLogs();
   }, []);
 
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   if (loading) {
     return <p style={{ color: 'var(--text-secondary)' }}>Loading validation history...</p>;
   }
@@ -65,7 +72,7 @@ const ValidationHistory = () => {
               key={log.id}
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'auto 120px 120px 1fr',
+                gridTemplateColumns: isMobile ? '1fr' : 'auto 120px 120px 1fr',
                 gap: '16px',
                 alignItems: 'start',
                 padding: '14px 0',

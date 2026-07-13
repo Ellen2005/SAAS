@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './lib/authContext.jsx';
 import { LangProvider, useLang } from './lib/i18n.jsx';
 import { useInactivityTimeout } from './hooks/useInactivityTimeout';
 import ErrorBoundary from './components/ErrorBoundary';
+import { ToastProvider } from './components/ToastProvider';
 
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -36,7 +37,6 @@ const DataQualityPage = lazy(() => import('./pages/DataQualityPage'));
 const PageLoader = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', color: 'var(--text-secondary)' }}>
     <div style={{ width: '32px', height: '32px', border: '3px solid var(--border-color)', borderTopColor: 'var(--primary-color)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-    <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
   </div>
 );
 
@@ -89,6 +89,14 @@ function AppShell() {
     return true; // Default dark mode (original blue theme)
   });
 
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Apply theme class to root element
   useEffect(() => {
     if (isDark) {
@@ -103,11 +111,13 @@ function AppShell() {
   const handleLogout = async () => {
     try {
       localStorage.removeItem('saas.dashboard.lastSummary.v1');
+      localStorage.removeItem('saas.dashboard.lastSummary.v2');
+      localStorage.removeItem('saas.dashboard.metricsCache.v1');
       localStorage.removeItem('saas.validation.lastLogs.v1');
       localStorage.removeItem('saas.user.role.v1');
+      localStorage.removeItem('dashboard_layout');
     } catch { /* ignore */ }
     await supabase.auth.signOut();
-    // Redirect to login after signout
     navigate('/login', { replace: true });
   };
 
@@ -116,7 +126,6 @@ function AppShell() {
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg-color)', gap: '16px' }}>
         <img src="/logo.png" alt="CNPS" style={{ width: '56px', height: '56px', opacity: 0.9 }} />
         <div style={{ width: '32px', height: '32px', border: '3px solid var(--border-color)', borderTopColor: 'var(--primary-color)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-        <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
       </div>
     );
   }
@@ -182,7 +191,7 @@ function AppShell() {
                 </div>
               </nav>
 
-              <main style={{ padding: '32px', maxWidth: '1440px', margin: '0 auto' }}>
+              <main style={{ padding: isMobile ? '16px' : '32px', maxWidth: '1440px', margin: '0 auto' }}>
                 {isAdmin && <AdminSubNav />}
                 <ErrorBoundary>
                 <Suspense fallback={<PageLoader />}>
@@ -248,13 +257,15 @@ function App() {
   return (
     <LangProvider>
       <AuthProvider>
-        <Router>
-          <ReloadPrompt />
-          <OfflineBanner />
-          <InactivityWarning />
-          <AssistantBot />
-          <AppShell />
-        </Router>
+        <ToastProvider>
+          <Router>
+            <ReloadPrompt />
+            <OfflineBanner />
+            <InactivityWarning />
+            <AssistantBot />
+            <AppShell />
+          </Router>
+        </ToastProvider>
       </AuthProvider>
     </LangProvider>
   );

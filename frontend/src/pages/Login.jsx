@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Activity, LogIn, Lock, User, Eye, EyeOff, UserPlus } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Activity, LogIn, Lock, User, Eye, EyeOff, UserPlus, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useLang } from '../lib/i18n';
@@ -19,11 +19,81 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showLangPicker, setShowLangPicker] = useState(false);
-
   const [showReset, setShowReset] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState(null);
+
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [touched, setTouched] = useState({});
+  const errorIdRef = useRef('login-error');
+  const emailValidRef = useRef(false);
+
+  const getPasswordStrength = (pwd) => {
+    if (!pwd) return { score: 0, label: '', color: '' };
+    let score = 0;
+    if (pwd.length >= 8) score++;
+    if (pwd.length >= 12) score++;
+    if (/[A-Z]/.test(pwd)) score++;
+    if (/[a-z]/.test(pwd)) score++;
+    if (/[0-9]/.test(pwd)) score++;
+    if (/[^A-Za-z0-9]/.test(pwd)) score++;
+    if (score <= 2) return { score: 1, label: 'Weak', color: '#ef4444' };
+    if (score <= 4) return { score: 2, label: 'Fair', color: '#f59e0b' };
+    return { score: 3, label: 'Strong', color: '#10b981' };
+  };
+
+  const validateEmail = (value) => {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(value);
+  };
+
+  const validateField = (field, value) => {
+    switch (field) {
+      case 'email':
+        if (!value) return t('login_email') + ' is required';
+        if (!validateEmail(value)) return 'Invalid email format';
+        return null;
+      case 'password':
+        if (!value) return t('login_password') + ' is required';
+        if (value.length < 6) return 'Password must be at least 6 characters';
+        return null;
+      case 'confirmPassword':
+        if (!value) return 'Please confirm your password';
+        if (value !== password) return 'Passwords do not match';
+        return null;
+      case 'name':
+        if (isSignUp && !value) return t('login_name') + ' is required';
+        return null;
+      default:
+        return null;
+    }
+  };
+
+  const handleBlur = (field) => {
+    setTouched(prev => ({ ...prev, [field]: true }));
+    const err = validateField(field, field === 'confirmPassword' ? confirmPassword : 
+      field === 'password' ? password : field === 'email' ? email : name);
+    setFieldErrors(prev => ({ ...prev, [field]: err }));
+  };
+
+  const handleChange = (field, value) => {
+    if (field === 'email') {
+      setEmail(value);
+      emailValidRef.current = validateEmail(value);
+    } else if (field === 'password') {
+      setPassword(value);
+    } else if (field === 'confirmPassword') {
+      setConfirmPassword(value);
+    } else if (field === 'name') {
+      setName(value);
+    }
+    if (touched[field]) {
+      const err = validateField(field, field === 'confirmPassword' ? value : 
+        field === 'password' ? value : field === 'email' ? value : name);
+      setFieldErrors(prev => ({ ...prev, [field]: err }));
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -63,6 +133,9 @@ const Login = () => {
         // immediately now, which triggers the <Navigate to="/dashboard"> in
         // App.jsx. Calling navigate() here as well caused a race where the
         // route guard saw user=null and bounced back to /login.
+        // Clear loading so button returns to normal state even if navigation
+        // is slightly delayed.
+        setLoading(false);
       }
       if (result.error) throw result.error;
     } catch (err) {
@@ -104,7 +177,7 @@ const Login = () => {
           </p>
 
           {error && (
-            <div style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--status-critical)', padding: '10px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.9rem' }}>
+            <div id={errorIdRef.current} role="alert" style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--status-critical)', padding: '10px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.9rem' }}>
               {error}
             </div>
           )}
@@ -115,7 +188,8 @@ const Login = () => {
                 <label htmlFor="login-name" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <UserPlus size={16} /> {t('login_name')}
                 </label>
-                <input id="login-name" name="name" type="text" placeholder="Department or Username" required value={name} onChange={(e) => setName(e.target.value)} />
+                <input id="login-name" name="name" type="text" placeholder="Department or Username" required value={name} onChange={(e) => handleChange('name', e.target.value)} onBlur={() => handleBlur('name')} aria-invalid={touched.name && !!fieldErrors.name} aria-describedby={touched.name && fieldErrors.name ? 'name-error' : undefined} />
+                {touched.name && fieldErrors.name && <p id="name-error" role="alert" style={{ color: 'var(--status-critical)', fontSize: '0.8rem', marginTop: '4px' }}>{fieldErrors.name}</p>}
               </div>
             )}
 
@@ -123,7 +197,8 @@ const Login = () => {
               <label htmlFor="login-email" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <User size={16} /> {t('login_email')}
               </label>
-              <input id="login-email" name="email" type="email" placeholder="name@company.com" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+              <input id="login-email" name="email" type="email" placeholder="name@company.com" required value={email} onChange={(e) => handleChange('email', e.target.value)} onBlur={() => handleBlur('email')} autoComplete="email" aria-invalid={touched.email && !!fieldErrors.email} aria-describedby={touched.email && fieldErrors.email ? 'email-error' : undefined} />
+              {touched.email && fieldErrors.email && <p id="email-error" role="alert" style={{ color: 'var(--status-critical)', fontSize: '0.8rem', marginTop: '4px' }}>{fieldErrors.email}</p>}
             </div>
 
             <div className="form-group" style={{ textAlign: 'left', position: 'relative' }}>
@@ -138,15 +213,32 @@ const Login = () => {
                   placeholder="••••••••"
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => handleChange('password', e.target.value)}
+                  onBlur={() => handleBlur('password')}
                   style={{ paddingRight: '45px' }}
                   autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                  aria-invalid={touched.password && !!fieldErrors.password}
+                  aria-describedby={touched.password && fieldErrors.password ? 'password-error' : undefined}
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)}
+                <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}
                   style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+              {touched.password && fieldErrors.password && <p id="password-error" role="alert" style={{ color: 'var(--status-critical)', fontSize: '0.8rem', marginTop: '4px' }}>{fieldErrors.password}</p>}
+              {isSignUp && password && (() => {
+                const strength = getPasswordStrength(password);
+                return (
+                  <div style={{ marginTop: '6px' }}>
+                    <div style={{ display: 'flex', gap: '3px', marginBottom: '4px' }}>
+                      {[1, 2, 3].map(i => (
+                        <div key={i} style={{ flex: 1, height: '3px', borderRadius: '2px', background: i <= strength.score ? strength.color : 'rgba(255,255,255,0.1)' }} />
+                      ))}
+                    </div>
+                    <span style={{ fontSize: '0.7rem', color: strength.color }}>{strength.label}</span>
+                  </div>
+                );
+              })()}
             </div>
 
             {!isSignUp && (
@@ -173,7 +265,8 @@ const Login = () => {
                 <label htmlFor="login-confirm-password" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Lock size={16} /> {t('login_confirm_password')}
                 </label>
-                <input id="login-confirm-password" name="confirmPassword" type={showPassword ? 'text' : 'password'} placeholder="••••••••" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" />
+                <input id="login-confirm-password" name="confirmPassword" type={showPassword ? 'text' : 'password'} placeholder="••••••••" required value={confirmPassword} onChange={(e) => handleChange('confirmPassword', e.target.value)} onBlur={() => handleBlur('confirmPassword')} autoComplete="new-password" aria-invalid={touched.confirmPassword && !!fieldErrors.confirmPassword} aria-describedby={touched.confirmPassword && fieldErrors.confirmPassword ? 'confirm-error' : undefined} />
+                {touched.confirmPassword && fieldErrors.confirmPassword && <p id="confirm-error" role="alert" style={{ color: 'var(--status-critical)', fontSize: '0.8rem', marginTop: '4px' }}>{fieldErrors.confirmPassword}</p>}
               </div>
             )}
 

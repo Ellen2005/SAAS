@@ -185,11 +185,29 @@ def set_user_role(
         raise HTTPException(status_code=400, detail="Invalid role")
 
     supabase = get_supabase()
-    
-    try:
-        supabase.table("user_roles").delete().eq("user_id", target_user_id).execute()
-    except Exception as e:
-        logger.debug(f"Failed to delete old role (may not exist): {e}")
+    admin_user_id = context["user_id"]
+
+    # Prevent removing the last admin
+    if request.role != "admin":
+        try:
+            admin_roles = safe_data(
+                supabase.table("user_roles")
+                .select("user_id")
+                .eq("role", "admin")
+                .execute()
+            )
+            admin_count = len(admin_roles or [])
+            is_target_admin = any(r.get("user_id") == target_user_id for r in (admin_roles or []))
+            if is_target_admin and admin_count <= 1:
+                raise HTTPException(status_code=400, detail="Cannot remove the last admin. Assign another admin first.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Admin count check failed: {e}")
+
+    # Prevent self-demotion below admin (optional safety)
+    if target_user_id == admin_user_id and request.role == "viewer":
+        raise HTTPException(status_code=400, detail="Admins cannot demote themselves to viewer.")
     
     payload = {
         "user_id": target_user_id,
@@ -197,8 +215,28 @@ def set_user_role(
         "department_id": request.department_id,
     }
     try:
-        supabase.table("user_roles").insert(payload).execute()
-        return {"status": "success", **payload, "updated_by": context["user_id"]}
+        supabase.table("user_roles").upsert(
+            payload, on_conflict="user_id,department_id"
+        ).execute()
+
+        # Blacklist all tokens for the target user on role change
+        if target_user_id != admin_user_id:
+            try:
+                from ..services.token_blacklist import blacklist_user_tokens
+                blacklist_user_tokens(target_user_id)
+            except Exception as e:
+                logger.debug(f"Token blacklist on role change failed (non-critical): {e}")
+
+        # Evict role cache for the target user
+        try:
+            from ..core.auth import evict_role_cache
+            evict_role_cache(target_user_id)
+        except Exception as e:
+            logger.debug(f"Role cache eviction failed (non-critical): {e}")
+
+        return {"status": "success", **payload, "updated_by": admin_user_id}
+    except HTTPException:
+        raise
     except Exception:
         logger.error("Set user role failed", exc_info=True)
         return {"status": "error", "message": "Failed to set user role."}
@@ -207,12 +245,52 @@ def set_user_role(
 @router.delete("/admin/users/{target_user_id}/role")
 def remove_user_role(
     target_user_id: str,
+    department_id: Optional[str] = None,
     context: dict = Depends(require_role(["admin"])),
 ):
     supabase = get_supabase()
+    admin_user_id = context["user_id"]
+
+    # Prevent removing the last admin
     try:
-        supabase.table("user_roles").delete().eq("user_id", target_user_id).execute()
-        return {"status": "success", "removed": target_user_id, "removed_by": context["user_id"]}
+        admin_roles = safe_data(
+            supabase.table("user_roles")
+            .select("user_id")
+            .eq("role", "admin")
+            .execute()
+        )
+        is_target_admin = any(r.get("user_id") == target_user_id for r in (admin_roles or []))
+        total_admin_count = len(admin_roles or [])
+        if is_target_admin and total_admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot remove the last admin. Assign another admin first.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Admin count check failed: {e}")
+
+    try:
+        query = supabase.table("user_roles").delete().eq("user_id", target_user_id)
+        if department_id:
+            query = query.eq("department_id", department_id)
+        query.execute()
+
+        # Blacklist all tokens for the removed user
+        try:
+            from ..services.token_blacklist import blacklist_user_tokens
+            blacklist_user_tokens(target_user_id)
+        except Exception as e:
+            logger.debug(f"Token blacklist on role removal failed (non-critical): {e}")
+
+        # Evict role cache for the removed user
+        try:
+            from ..core.auth import evict_role_cache
+            evict_role_cache(target_user_id)
+        except Exception as e:
+            logger.debug(f"Role cache eviction failed (non-critical): {e}")
+
+        return {"status": "success", "removed": target_user_id, "removed_by": admin_user_id}
+    except HTTPException:
+        raise
     except Exception:
         logger.error("Remove user role failed", exc_info=True)
         return {"status": "error", "message": "Failed to remove user role."}
@@ -235,6 +313,22 @@ def delete_my_account(authorization: Optional[str] = Header(None)):
 
     supabase = get_supabase()
     try:
+        # Blacklist the token before deletion so the user can't continue using it
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization.replace("Bearer ", "")
+            import time
+            try:
+                import jwt
+                payload = jwt.decode(token, options={"verify_signature": False})
+                expires_at = float(payload.get("exp", time.time() + 3600))
+            except Exception:
+                expires_at = time.time() + 3600
+            try:
+                from ..services.token_blacklist import blacklist_token
+                blacklist_token(token, expires_at)
+            except Exception as e:
+                logger.debug(f"Token blacklist failed during account deletion (non-critical): {e}")
+
         supabase.auth.admin.delete_user(user_id)
         return {"status": "deleted", "user_id": user_id}
     except Exception:
@@ -308,13 +402,29 @@ def update_my_profile(
     profile_data: dict,
     user_id: str = Depends(resolve_user_id)
 ):
-    # Always return success to not block login flow
+    # Validate required fields
+    if not profile_data or not isinstance(profile_data, dict):
+        raise HTTPException(status_code=400, detail="Invalid profile data")
+    
+    email = profile_data.get("email", "").strip()
+    display_name = profile_data.get("display_name", "").strip() if profile_data.get("display_name") else None
+    
+    # Basic email validation
+    if email and ("@" not in email or "." not in email.split("@")[-1]):
+        raise HTTPException(status_code=400, detail="Invalid email format")
+    
+    # Limit field lengths
+    if email and len(email) > 255:
+        raise HTTPException(status_code=400, detail="Email too long (max 255 characters)")
+    if display_name and len(display_name) > 200:
+        raise HTTPException(status_code=400, detail="Display name too long (max 200 characters)")
+
     try:
         supabase = get_supabase()
         profile_update = {
             "id": user_id,
-            "email": profile_data.get("email"),
-            "display_name": profile_data.get("display_name") or profile_data.get("email")
+            "email": email or None,
+            "display_name": display_name or email or None,
         }
         
         # Try user_profiles table first, fallback to user_roles
@@ -330,7 +440,8 @@ def update_my_profile(
                 logger.debug(f"Profile update fallback also failed (non-critical): {e2}")
         
         return {"status": "success", "profile": profile_update}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.debug(f"Profile update failed: {e}")
-        # Return success anyway to not block login flow
-        return {"status": "success", "profile": {"id": user_id}}
+        logger.error(f"Profile update failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update profile.")

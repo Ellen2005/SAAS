@@ -254,7 +254,7 @@ def _build_strategic_objectives(kpis: list, supabase) -> list:
 
 def _generate_executive_summary(user_id: str, supabase, kpis: list, anomalies: list) -> str:
     try:
-        from ..services.ai_orchestrator import AIOrchestrator
+        from ..services.ai_orchestrator import execute_llm_sync
         kpi_text = "; ".join(f"{k['name']}: {k['value']:,.2f}" for k in kpis[:5])
         anomaly_text = "; ".join(f"{a['kpi_name']} ({a['severity']})" for a in anomalies[:3]) if anomalies else "Aucune anomalie"
         prompt = (
@@ -264,8 +264,7 @@ def _generate_executive_summary(user_id: str, supabase, kpis: list, anomalies: l
             "Format: Professional, formal French. Start with \"Au cours de cette période,\".\n"
             "Include: overall performance assessment, key achievements, areas needing attention, and outlook."
         )
-        orchestrator = AIOrchestrator()
-        result = orchestrator.execute_sync(
+        result = execute_llm_sync(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=300,
@@ -275,8 +274,12 @@ def _generate_executive_summary(user_id: str, supabase, kpis: list, anomalies: l
     except Exception as e1:
         logger.warning(f"Orchestrator executive summary failed: {e1}")
         try:
-            from ..services.groq_utils import execute_groq_completion
-            completion = execute_groq_completion(prompt=prompt, temperature=0.3, max_tokens=300)
+            from ..services.ai_orchestrator import execute_llm_sync as _fallback_llm
+            completion = _fallback_llm(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=300,
+            )
             if completion and hasattr(completion, "choices") and completion.choices:
                 return completion.choices[0].message.content
         except Exception as e:
@@ -371,19 +374,18 @@ def get_board_report(
 
     # AI-generated financial summary
     try:
-        from ..services.ai_orchestrator import AIOrchestrator
+        from ..services.ai_orchestrator import execute_llm_sync
         kpi_text = "; ".join(f"{k['name']}: {k['value']:,.2f}" for k in kpis[:5])
         anomaly_text = "; ".join(f"{a['kpi_name']} ({a['severity']})" for a in anomalies[:3]) if anomalies else "Aucune anomalie"
         prompt = (
             f"Write a 2-sentence financial summary in French for the CNPS Board of Directors report for {report_period}. "
             f"KPIs: {kpi_text}. Alerts: {anomaly_text}. Be formal and factual."
         )
-        orchestrator = AIOrchestrator()
-        result = orchestrator.execute_sync(
+        result = execute_llm_sync(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3, max_tokens=150,
         )
-        financial_summary = result.choices[0].message.content if result and result.choices else ""
+        financial_summary = result.choices[0].message.content if result and hasattr(result, "choices") and result.choices else ""
     except Exception:
         financial_summary = (
             f"Présentation de la situation financière de la CNPS pour la période {report_period}. "

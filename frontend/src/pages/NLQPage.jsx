@@ -106,6 +106,8 @@ const AssistantMessage = ({ message }) => {
 
 const NLQPage = () => {
   const { t } = useLang();
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [sidebarOpen, setSidebarOpen] = useState(!window.innerWidth < 768);
   const [conversations, setConversations] = useState(readConversations);
   const [activeId, setActiveId] = useState(() => conversations[0]?.id);
   const [question, setQuestion] = useState('');
@@ -122,6 +124,16 @@ const NLQPage = () => {
   useEffect(() => {
     writeConversations(conversations);
   }, [conversations]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) setSidebarOpen(true);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const updateActive = (updater) => {
     setConversations((items) => items.map((item) => (
@@ -196,8 +208,18 @@ const NLQPage = () => {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr)', gap: 20, minHeight: '70vh' }}>
-      <aside className="glass-panel" style={{ padding: 14, alignSelf: 'start', position: 'sticky', top: 16 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '260px minmax(0, 1fr)', gap: 20, minHeight: '70vh' }}>
+      {isMobile && (
+        <button
+          className="btn btn-outline"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: -12 }}
+        >
+          {sidebarOpen ? 'Hide' : 'Show'} conversations
+        </button>
+      )}
+      {(!isMobile || sidebarOpen) && (
+      <aside className="glass-panel" style={{ padding: 14, alignSelf: 'start', position: isMobile ? 'static' : 'sticky', top: 16 }}>
         <button className="btn btn-primary" onClick={startNewConversation} style={{ width: '100%', display: 'flex', justifyContent: 'center', gap: 8 }}>
           <Plus size={16} /> New conversation
         </button>
@@ -226,6 +248,7 @@ const NLQPage = () => {
           ))}
         </div>
       </aside>
+      )}
 
       <main style={{ display: 'grid', gap: 18, alignContent: 'start' }}>
         <header>

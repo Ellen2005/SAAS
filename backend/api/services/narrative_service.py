@@ -217,9 +217,8 @@ def generate_live_narrative(
     # 1. Groq (primary) via orchestrator
     if groq_api_key:
         try:
-            from .ai_orchestrator import AIOrchestrator
-            orchestrator = AIOrchestrator()
-            result = orchestrator.execute_sync(
+            from .ai_orchestrator import execute_llm_sync
+            result = execute_llm_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.6,
                 max_tokens=900,
@@ -229,7 +228,7 @@ def generate_live_narrative(
         except Exception as e1:
             logger.error(f"Orchestrator Error: {e1}")
             try:
-                completion = execute_groq_completion(
+                completion = execute_llm_sync(
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.6,
                     max_tokens=900,
@@ -242,13 +241,14 @@ def generate_live_narrative(
     # 2. Ollama (fallback)
     if HTTPX_AVAILABLE:
         try:
-            response = httpx.post(
-                "http://localhost:11434/api/generate",
-                json={"model": "llama3", "prompt": prompt, "stream": False},
-                timeout=15.0,
-            )
-            if response.status_code == 200:
-                return response.json().get("response")
+            import httpx as _httpx_sync
+            with _httpx_sync.Client(timeout=15.0) as client:
+                resp = client.post(
+                    "http://localhost:11434/api/generate",
+                    json={"model": "llama3", "prompt": prompt, "stream": False},
+                )
+                if resp.status_code == 200:
+                    return resp.json().get("response")
         except Exception as e:
             logger.warning(f"Ollama Fallback Failed: {e}")
 
@@ -339,9 +339,8 @@ CRITICAL RULES:
     groq_api_key = os.getenv("GROQ_API_KEY")
     if groq_api_key:
         try:
-            from .ai_orchestrator import AIOrchestrator
-            orchestrator = AIOrchestrator()
-            result = orchestrator.execute_sync(
+            from .ai_orchestrator import execute_llm_sync
+            result = execute_llm_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
                 max_tokens=600,
@@ -351,7 +350,7 @@ CRITICAL RULES:
         except Exception as e1:
             logger.error(f"Orchestrator Error in overview narrative: {e1}")
             try:
-                completion = execute_groq_completion(
+                completion = execute_llm_sync(
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.5,
                     max_tokens=600,
@@ -364,13 +363,14 @@ CRITICAL RULES:
     # 2. Ollama (fallback)
     if HTTPX_AVAILABLE:
         try:
-            response = httpx.post(
-                "http://localhost:11434/api/generate",
-                json={"model": "llama3", "prompt": prompt, "stream": False},
-                timeout=15.0,
-            )
-            if response.status_code == 200:
-                return response.json().get("response")
+            import httpx as _httpx_sync
+            with _httpx_sync.Client(timeout=15.0) as client:
+                resp = client.post(
+                    "http://localhost:11434/api/generate",
+                    json={"model": "llama3", "prompt": prompt, "stream": False},
+                )
+                if resp.status_code == 200:
+                    return resp.json().get("response")
         except Exception as e:
             logger.warning(f"Ollama Overview Fallback Failed: {e}")
 
@@ -741,9 +741,8 @@ CRITICAL RULES:
     groq_api_key = os.getenv("GROQ_API_KEY")
     if groq_api_key:
         try:
-            from .ai_orchestrator import AIOrchestrator
-            orchestrator = AIOrchestrator()
-            result = orchestrator.execute_sync(
+            from .ai_orchestrator import execute_llm_sync
+            result = execute_llm_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4,
                 max_tokens=1200,
@@ -753,7 +752,7 @@ CRITICAL RULES:
         except Exception as e1:
             logger.error(f"Orchestrator Error in autonomous narrative: {e1}")
             try:
-                completion = execute_groq_completion(
+                completion = execute_llm_sync(
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.4,
                     max_tokens=1200,
@@ -766,13 +765,14 @@ CRITICAL RULES:
     # 2. Ollama (fallback)
     if HTTPX_AVAILABLE:
         try:
-            response = httpx.post(
-                "http://localhost:11434/api/generate",
-                json={"model": "llama3", "prompt": prompt, "stream": False},
-                timeout=20.0,
-            )
-            if response.status_code == 200:
-                return response.json().get("response")
+            import httpx as _httpx_sync
+            with _httpx_sync.Client(timeout=20.0) as client:
+                resp = client.post(
+                    "http://localhost:11434/api/generate",
+                    json={"model": "llama3", "prompt": prompt, "stream": False},
+                )
+                if resp.status_code == 200:
+                    return resp.json().get("response")
         except Exception as e:
             logger.warning(f"Ollama Autonomous Narrative Fallback Failed: {e}")
 

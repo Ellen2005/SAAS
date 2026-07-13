@@ -75,11 +75,18 @@ class AnalysisContext:
             parts.append(f"Filters: {json.dumps(last['filters'])}")
         return ". ".join(parts)
 
-# Global context instance
-_analysis_context = AnalysisContext()
+# Per-user context instances (prevents data leakage between users)
+_user_contexts: dict[str, AnalysisContext] = {}
 
-def get_analysis_context() -> AnalysisContext:
-    return _analysis_context
+def get_analysis_context(user_id: str = None) -> AnalysisContext:
+    """Get or create a per-user analysis context."""
+    if not user_id:
+        # Fallback for backward compatibility, but log a warning
+        logger.warning("get_analysis_context called without user_id - using shared context")
+        return _user_contexts.setdefault("_shared", AnalysisContext())
+    if user_id not in _user_contexts:
+        _user_contexts[user_id] = AnalysisContext()
+    return _user_contexts[user_id]
 
 
 # ─── Helper Functions ────────────────────────────────────────────────────────
@@ -359,7 +366,7 @@ def explain_anomaly(anomaly: dict) -> str:
     
     # Try orchestrator first, then direct Groq
     try:
-        from .ai_orchestrator import AIOrchestrator
+        from .ai_orchestrator import execute_llm_sync
         prompt = f"""Explain this CNPS data anomaly in simple English (max 3 sentences):
 KPI: {kpi_name}
 Severity: {sev_label}
@@ -367,14 +374,13 @@ Deviation: {deviation:.1f}%
 Context: {reason}
 
 Format: Plain explanation, no technical jargon."""
-        orchestrator = AIOrchestrator()
-        result = orchestrator.execute_sync(
+        result = execute_llm_sync(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=150,
         )
-        if result and "error" not in str(result).lower():
-            return result
+        if result and hasattr(result, "choices") and result.choices:
+            return result.choices[0].message.content
     except Exception:
         pass
     
@@ -387,7 +393,12 @@ Deviation: {deviation:.1f}%
 Context: {reason}
 
 Format: Plain explanation, no technical jargon."""
-        response = execute_groq_completion(prompt, temperature=0.3, max_tokens=150)
+        from .ai_orchestrator import execute_llm_sync
+        response = execute_llm_sync(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=150,
+        )
         if response and "error" not in str(response).lower():
             return response
     except Exception:

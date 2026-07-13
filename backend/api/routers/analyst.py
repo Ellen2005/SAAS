@@ -215,8 +215,8 @@ def analyze_data(
         if not body.data:
             return {"error": "No data available for analysis."}
         
-        # Store in context memory
-        ctx = get_analysis_context()
+        # Store in context memory (per-user to prevent data leakage)
+        ctx = get_analysis_context(user_id=user_id)
         ctx.add_analysis(body.question, f"{len(body.data)} rows", {"row_count": len(body.data)})
         
         # Generate rich insight
@@ -278,7 +278,8 @@ def get_context(
 ):
     """Get the current analysis context memory (previous questions)."""
     try:
-        ctx = get_analysis_context()
+        user_id = context.get("user_id")
+        ctx = get_analysis_context(user_id=user_id)
         return {
             "history": ctx.history,
             "last_question": ctx.last_question,
