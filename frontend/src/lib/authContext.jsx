@@ -16,8 +16,11 @@ export function AuthProvider({ children }) {
   const clearCache = useCallback(() => {
     try {
       localStorage.removeItem('saas.dashboard.lastSummary.v1');
+      localStorage.removeItem('saas.dashboard.lastSummary.v2');
+      localStorage.removeItem('saas.dashboard.metricsCache.v1');
       localStorage.removeItem('saas.validation.lastLogs.v1');
       localStorage.removeItem('saas.user.role.v1');
+      localStorage.removeItem('dashboard_layout');
     } catch { /* ignore */ }
   }, []);
 
@@ -27,6 +30,7 @@ export function AuthProvider({ children }) {
     setRole(null);
     setDepartmentId(null);
     setDepartmentName(null);
+    setLoading(false);
   }, [clearCache]);
 
   const fetchUserRole = useCallback(async (currentUser) => {
@@ -146,7 +150,7 @@ export function AuthProvider({ children }) {
               return;
             }
           }
-          fetchUserRole(session.user).catch(() => {});
+          // fetchUserRole called by onAuthStateChange for SIGNED_IN; skip duplicate here
         } else {
           resetAuthState();
         }

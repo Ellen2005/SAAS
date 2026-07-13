@@ -416,7 +416,9 @@ def download_professional_report(
     try:
         file_path = os.path.normpath(file_path)
         allowed_dir = os.path.normpath(tempfile.gettempdir())
-        if not file_path.startswith(allowed_dir):
+        real_path = os.path.realpath(file_path)
+        real_allowed = os.path.realpath(allowed_dir)
+        if not real_path.startswith(real_allowed + os.sep) and real_path != real_allowed:
             logger.warning(f"Attempted path traversal attack: {file_path} from user {user_id}")
             raise HTTPException(status_code=403, detail="Access denied")
     except Exception as e:

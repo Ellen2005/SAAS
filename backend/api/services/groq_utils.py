@@ -11,6 +11,8 @@ Set GROQ_MODEL in .env to override the default.
 """
 import os
 import logging
+import httpx
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,28 @@ _DECOMMISSION_SIGNALS = (
     "not supported",
 )
 
+# HTTP client with timeout for Groq
+_GROQ_HTTP_CLIENT: Optional[httpx.AsyncClient] = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Get or create shared HTTP client with timeout."""
+    global _GROQ_HTTP_CLIENT
+    if _GROQ_HTTP_CLIENT is None:
+        _GROQ_HTTP_CLIENT = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=5),
+        )
+    return _GROQ_HTTP_CLIENT
+
+
+async def close_groq_client():
+    """Close the shared HTTP client on shutdown."""
+    global _GROQ_HTTP_CLIENT
+    if _GROQ_HTTP_CLIENT:
+        await _GROQ_HTTP_CLIENT.aclose()
+        _GROQ_HTTP_CLIENT = None
+
 
 def get_groq_model(default: str = "llama-3.3-70b-versatile") -> str:
     """Return the configured model name, falling back to the best available."""
@@ -45,11 +69,11 @@ def create_groq_client():
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("GROQ_API_KEY not configured in environment.")
-    from groq import Groq
-    return Groq(api_key=api_key)
+    from groq import AsyncGroq
+    return AsyncGroq(api_key=api_key, http_client=_get_http_client())
 
 
-def execute_groq_completion(
+async def execute_groq_completion(
     messages: list | None = None,
     prompt: str | None = None,
     temperature: float = 0.1,
@@ -81,7 +105,7 @@ def execute_groq_completion(
             continue
         seen.add(candidate)
         try:
-            return client.chat.completions.create(
+            return await client.chat.completions.create(
                 model=candidate,
                 messages=messages,
                 temperature=temperature,

@@ -173,23 +173,24 @@ def extract_from_mapped_tables(user_id: str, db_connection_info: dict, supabase)
             if not amt or not dt:
                 continue
             label = (tbl.get("classifications") or [tbl["name"]])[0].title()
+            safe_label = label.replace("'", "''")
             qname = tbl["qualified_name"]
             quoted = f'"{qname}"' if db_type != "mysql" else f"`{qname}`"
             if db_type == "sqlite":
                 gen_sql = (
-                    f"SELECT date({dt}) AS date, '{label}' AS kpi_name, SUM({amt}) AS value "
+                    f"SELECT date({dt}) AS date, '{safe_label}' AS kpi_name, SUM({amt}) AS value "
                     f"FROM {quoted} GROUP BY date({dt}) ORDER BY 1 DESC LIMIT 90"
                 )
             elif db_type == "oracle":
                 gen_sql = (
                     f'SELECT TRUNC("{dt}") AS date, '
-                    f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
+                    f"'{safe_label}' AS kpi_name, SUM(\"{amt}\") AS value "
                     f"FROM {quoted} "
                     f"GROUP BY TRUNC(\"{dt}\") ORDER BY 1 FETCH FIRST 90 ROWS ONLY"
                 )
             else:
                 gen_sql = (
-                    f'SELECT "{dt}" AS date, \'{label}\' AS kpi_name, SUM("{amt}") AS value '
+                    f'SELECT "{dt}" AS date, \'{safe_label}\' AS kpi_name, SUM("{amt}") AS value '
                     f'FROM {quoted} GROUP BY "{dt}" ORDER BY 1 DESC LIMIT 90'
                 )
             try:
@@ -302,6 +303,7 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                     if not amt or not dt:
                         continue
                     label = (tbl.get("classifications") or [tbl["name"]])[0].title()
+                    safe_label = label.replace("'", "''")
                     qname = tbl["qualified_name"]
                     schema_part, name_part = (qname.split(".", 1) + [None])[:2]
                     quoted = (
@@ -313,7 +315,7 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                     if engine.dialect.name == "postgresql":
                         gen_sql = (
                             f"SELECT date_trunc('day', \"{dt}\") AS date, "
-                            f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
+                            f"'{safe_label}' AS kpi_name, SUM(\"{amt}\") AS value "
                             f"FROM {quoted} "
                             f"WHERE \"{dt}\" > NOW() - INTERVAL '30 days' "
                             f"GROUP BY 1 ORDER BY 1"
@@ -321,7 +323,7 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                     elif engine.dialect.name == "mysql":
                         gen_sql = (
                             f"SELECT DATE(`{dt}`) AS date, "
-                            f"'{label}' AS kpi_name, SUM(`{amt}`) AS value "
+                            f"'{safe_label}' AS kpi_name, SUM(`{amt}`) AS value "
                             f"FROM {quoted} "
                             f"WHERE `{dt}` > (NOW() - INTERVAL 30 DAY) "
                             f"GROUP BY 1 ORDER BY 1"
@@ -329,7 +331,7 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                     elif engine.dialect.name == "oracle":
                         gen_sql = (
                             f"SELECT TRUNC(\"{dt}\") AS date, "
-                            f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
+                            f"'{safe_label}' AS kpi_name, SUM(\"{amt}\") AS value "
                             f"FROM {quoted} "
                             f"WHERE \"{dt}\" > SYSDATE - 30 "
                             f"GROUP BY TRUNC(\"{dt}\") ORDER BY 1 FETCH FIRST 30 ROWS ONLY"
@@ -337,7 +339,7 @@ def extract_from_source(user_id: str, db_connection_info: dict) -> pd.DataFrame:
                     else:
                         gen_sql = (
                             f'SELECT "{dt}" AS date, '
-                            f"'{label}' AS kpi_name, SUM(\"{amt}\") AS value "
+                            f"'{safe_label}' AS kpi_name, SUM(\"{amt}\") AS value "
                             f"FROM {quoted} GROUP BY \"{dt}\" ORDER BY 1 DESC LIMIT 30"
                         )
                     try:

@@ -146,9 +146,8 @@ REPORT:"""
     if groq_api_key:
         try:
             from .groq_utils import get_groq_model
-            from .ai_orchestrator import AIOrchestrator
-            orchestrator = AIOrchestrator()
-            result = orchestrator.execute_sync(
+            from .ai_orchestrator import execute_llm_sync
+            result = execute_llm_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
                 max_tokens=1200,
@@ -158,8 +157,8 @@ REPORT:"""
         except Exception as e1:
             logger.error(f"Orchestrator error in custom report: {e1}")
             try:
-                from .groq_utils import execute_groq_completion, get_groq_model
-                completion = execute_groq_completion(
+                from .groq_utils import execute_llm_sync
+                completion = execute_llm_sync(
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.5,
                     max_tokens=1200,

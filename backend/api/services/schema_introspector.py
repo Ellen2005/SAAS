@@ -213,6 +213,7 @@ def introspect_sql(
 
     started = datetime.now(UTC)
     engine, tunnel_proc = _open_sql_engine(conn_info)
+    dialect = getattr(engine.dialect, "name", "unknown")
     try:
         inspector = inspect(engine)
 
@@ -947,14 +948,13 @@ def suggest_field_mappings(
                 f"CANDIDATE COLUMNS:\n{json.dumps(columns[:300], indent=2)}\n\n"
                 "Return JSON only."
             )
-            orchestrator = AIOrchestrator()
-            result = orchestrator.execute_sync(
+            from .ai_orchestrator import execute_llm_sync
+            completion = execute_llm_sync(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=1500,
                 model=get_groq_model(),
             )
-            completion = result
             raw = completion.choices[0].message.content.strip()
             if raw.startswith("```"):
                 raw = raw.split("```")[1]

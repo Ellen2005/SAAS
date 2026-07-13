@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { FileText, Sparkles, Save, Check, Plus, Trash2, ChevronDown, ChevronUp, LayoutTemplate } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
-import { useLang } from '../lib/i18n';
 import { useAuth } from '../lib/authContext';
 
 const CONTENT_TYPES = [
@@ -25,7 +24,6 @@ const CNPS_PRESET = [
 const emptySection = () => ({ title: '', description: '', content_type: 'narrative', _id: Math.random() });
 
 const CustomReportPage = () => {
-  const { t } = useLang();
   const { isAdmin } = useAuth();
 
   const [instruction, setInstruction] = useState('');

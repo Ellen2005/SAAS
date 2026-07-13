@@ -4,6 +4,7 @@ BEGIN;
 -- Reports table
 CREATE TABLE IF NOT EXISTS reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id TEXT UNIQUE,  -- Stable external identifier
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
     title TEXT,
@@ -11,14 +12,24 @@ CREATE TABLE IF NOT EXISTS reports (
     report_type TEXT DEFAULT 'daily',
     format TEXT DEFAULT 'html',
     file_path TEXT,
+    excel_path TEXT,  -- Path to generated Excel file
     status TEXT DEFAULT 'generated',
     metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_reports_user_created ON reports(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_reports_dept ON reports(department_id);
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
+CREATE INDEX IF NOT EXISTS idx_reports_report_id ON reports(report_id);
+
+-- Add updated_at trigger
+DROP TRIGGER IF EXISTS update_reports_updated_at ON reports;
+CREATE TRIGGER update_reports_updated_at
+    BEFORE UPDATE ON reports
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
 

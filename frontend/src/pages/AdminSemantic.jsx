@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Layers, Plus, Trash2 } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
+import { useToast } from '../components/ToastProvider';
 
 const DATA_TYPES = ['currency', 'string', 'date', 'percent', 'integer', 'float'];
 
 const AdminSemantic = () => {
+  const toast = useToast();
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [fields, setFields] = useState([]);
@@ -13,6 +16,7 @@ const AdminSemantic = () => {
   const [showCreateField, setShowCreateField] = useState(false);
   const [newTemplate, setNewTemplate] = useState({ name: '', description: '' });
   const [newField, setNewField] = useState({ global_field_name: '', data_type: 'string', required: false, description: '' });
+  const [confirmDelete, setConfirmDelete] = useState(null); // template id pending deletion
 
   const fetchTemplates = async () => {
     try {
@@ -29,6 +33,12 @@ const AdminSemantic = () => {
   };
 
   useEffect(() => { fetchTemplates(); }, []);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handleSelectTemplate = (tpl) => {
     setSelectedTemplate(tpl);
@@ -48,7 +58,13 @@ const AdminSemantic = () => {
   };
 
   const handleDeleteTemplate = async (id) => {
-    if (!confirm('Delete this template and all its fields?')) return;
+    setConfirmDelete(id);
+  };
+
+  const confirmDeleteTemplate = async () => {
+    const id = confirmDelete;
+    setConfirmDelete(null);
+    if (!id) return;
     try {
       await apiFetch(`/api/admin/semantic/templates/${id}`, { method: 'DELETE' });
       setSelectedTemplate(null);
@@ -88,7 +104,7 @@ const AdminSemantic = () => {
         </p>
       </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 2fr', gap: '24px' }}>
         {/* Template List */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -169,6 +185,7 @@ const AdminSemantic = () => {
               )}
 
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <caption style={{ textAlign: 'left', padding: '8px', fontWeight: 600, fontSize: '0.85rem' }}>Semantic Fields</caption>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <th style={{ padding: '8px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Field Name</th>
@@ -205,6 +222,28 @@ const AdminSemantic = () => {
           )}
         </div>
       </div>
+
+      {confirmDelete && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }} onClick={() => setConfirmDelete(null)}>
+          <div className="glass-panel" style={{ maxWidth: '380px', width: '100%', padding: '24px', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '12px' }}>Delete Template?</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
+              This will permanently delete the template and all its fields.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button className="btn btn-outline" onClick={() => setConfirmDelete(null)} style={{ padding: '8px 20px' }}>Cancel</button>
+              <button className="btn btn-primary" onClick={confirmDeleteTemplate}
+                style={{ padding: '8px 20px', background: 'var(--status-critical)', borderColor: 'var(--status-critical)' }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

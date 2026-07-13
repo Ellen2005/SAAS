@@ -10,6 +10,7 @@ import { apiJson, apiFetch } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 import { useLang } from '../lib/i18n';
 import ChartRenderer from '../components/ChartRenderer';
+import { useToast } from '../components/ToastProvider';
 
 const card = {
   background: 'var(--ea-bg-card)',
@@ -68,6 +69,7 @@ function DimensionBar({ label, value }) {
 export default function AIAnalystPage() {
   const { isManager } = useAuth();
   const { lang, t } = useLang();
+  const toast = useToast();
   const [tab, setTab] = useState('insights');
   const [loading, setLoading] = useState(false);
   const [fullResult, setFullResult] = useState(null);
@@ -161,7 +163,7 @@ export default function AIAnalystPage() {
       const snaps = await apiJson('/api/analyst/snapshots');
       setSnapshots(snaps.snapshots || []);
     } catch (e) {
-      alert(e.message);
+      toast.error(e.message);
     } finally {
       setSavingSnap(false);
     }
@@ -183,7 +185,7 @@ export default function AIAnalystPage() {
       const snaps = await apiJson('/api/analyst/snapshots');
       setSnapshots(snaps.snapshots || []);
     } catch (e) {
-      alert(e.message);
+      toast.error(e.message);
     } finally {
       setSavingSnap(false);
     }
@@ -194,7 +196,7 @@ export default function AIAnalystPage() {
       await apiFetch(`/api/analyst/snapshots/${id}`, { method: 'DELETE' });
       setSnapshots((prev) => prev.filter((s) => s.id !== id));
     } catch (e) {
-      alert(e.message);
+      toast.error(e.message);
     }
   };
 
@@ -237,7 +239,7 @@ export default function AIAnalystPage() {
       });
       setReportGenerated(res);
     } catch (e) {
-      alert(`Report generation failed: ${e.message}`);
+      toast.error(`Report generation failed: ${e.message}`);
     } finally {
       setReportGenerating(false);
     }
@@ -254,7 +256,7 @@ export default function AIAnalystPage() {
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert(`Download failed: ${e.message}`);
+      toast.error(`Download failed: ${e.message}`);
     }
   };
 

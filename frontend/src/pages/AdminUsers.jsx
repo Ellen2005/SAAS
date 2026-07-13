@@ -2,15 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { Users as UsersIcon, Trash2 } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
 import { useLang } from '../lib/i18n';
+import { useAuth } from '../lib/authContext';
 
 const ROLE_LABELS = { admin: 'role_admin', manager: 'role_manager', viewer: 'role_viewer' };
 
 const AdminUsers = () => {
   const { t } = useLang();
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editRole, setEditRole] = useState(null); // { userId, role, departmentId }
+  const [confirmRemove, setConfirmRemove] = useState(null); // userId pending removal
 
   const fetchData = async () => {
     try {
@@ -38,7 +41,13 @@ const AdminUsers = () => {
   };
 
   const handleRemoveRole = async (userId) => {
-    if (!confirm('Remove all roles for this user?')) return;
+    setConfirmRemove(userId);
+  };
+
+  const confirmRemoveRole = async () => {
+    const userId = confirmRemove;
+    setConfirmRemove(null);
+    if (!userId) return;
     try {
       await apiFetch(`/api/admin/users/${userId}/role`, { method: 'DELETE' });
       fetchData();
@@ -58,6 +67,7 @@ const AdminUsers = () => {
 
       <div className="glass-panel">
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <caption style={{ textAlign: 'left', padding: '12px', fontWeight: 600, fontSize: '0.9rem' }}>System Users</caption>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
               <th style={{ padding: '12px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>User</th>
@@ -113,7 +123,7 @@ const AdminUsers = () => {
                       <button className="btn btn-outline" onClick={() => setEditRole({ userId: u.user_id, role: u.role || 'viewer', departmentId: u.department_id })} style={{ padding: '4px 12px', fontSize: '0.8rem' }}>
                         {u.role ? 'Edit' : 'Assign Role'}
                       </button>
-                      {u.role && (
+                      {u.role && currentUser?.id !== u.user_id && (
                         <button onClick={() => handleRemoveRole(u.user_id)} style={{ background: 'none', border: 'none', color: 'var(--status-critical)', cursor: 'pointer' }}>
                           <Trash2 size={14} />
                         </button>
@@ -127,6 +137,28 @@ const AdminUsers = () => {
         </table>
         {users.length === 0 && <p style={{ color: 'var(--text-secondary)', padding: '16px' }}>No users found. Users will appear here after they sign up and log in.</p>}
       </div>
+
+      {confirmRemove && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }} onClick={() => setConfirmRemove(null)}>
+          <div className="glass-panel" style={{ maxWidth: '380px', width: '100%', padding: '24px', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '12px' }}>Remove User Role?</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
+              This will remove all role assignments for this user. They will lose access until re-assigned.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button className="btn btn-outline" onClick={() => setConfirmRemove(null)} style={{ padding: '8px 20px' }}>Cancel</button>
+              <button className="btn btn-primary" onClick={confirmRemoveRole}
+                style={{ padding: '8px 20px', background: 'var(--status-critical)', borderColor: 'var(--status-critical)' }}>
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

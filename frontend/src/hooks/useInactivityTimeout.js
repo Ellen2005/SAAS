@@ -30,11 +30,14 @@ export function useInactivityTimeout(isAuthenticated) {
     logoutTimer.current = setTimeout(async () => {
       try {
         localStorage.removeItem('saas.dashboard.lastSummary.v1');
+        localStorage.removeItem('saas.dashboard.lastSummary.v2');
+        localStorage.removeItem('saas.dashboard.metricsCache.v1');
         localStorage.removeItem('saas.validation.lastLogs.v1');
-      } catch {
-        // ignore
-      }
+        localStorage.removeItem('saas.user.role.v1');
+        localStorage.removeItem('dashboard_layout');
+      } catch { /* ignore */ }
       await supabase.auth.signOut();
+      window.location.href = '/login';
     }, INACTIVITY_MS);
   }, [isAuthenticated, clearTimers]);
 

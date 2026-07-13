@@ -30,12 +30,16 @@ from .groq_utils import execute_groq_completion, get_groq_model
 logger = logging.getLogger(__name__)
 
 
+# Global singleton instance
+_orchestrator_instance: Optional['AIOrchestrator'] = None
+
+
 class AIOrchestrator:
     """
     Central AI orchestration service.
     
     Usage (new pattern):
-        orchestrator = AIOrchestrator(db, user_id=user_id)
+        orchestrator = get_orchestrator(db, user_id=user_id)
         result = await orchestrator.execute(
             category="nlq",
             prompt_name="sql_generation",
@@ -68,6 +72,18 @@ class AIOrchestrator:
         self._governance = None
         self._monitor = None
         self._confidence = None
+
+    @staticmethod
+    def get_instance(db=None, user_id: Optional[str] = None) -> 'AIOrchestrator':
+        """Get or create the singleton AIOrchestrator instance."""
+        global _orchestrator_instance
+        if _orchestrator_instance is None:
+            _orchestrator_instance = AIOrchestrator(db=db, user_id=user_id)
+        elif db and _orchestrator_instance.db is None:
+            _orchestrator_instance.db = db
+        if user_id:
+            _orchestrator_instance.user_id = user_id
+        return _orchestrator_instance
 
     def _get_prompt_manager(self):
         if self._prompt_manager is None and self.db:
@@ -173,11 +189,11 @@ class AIOrchestrator:
                 if isinstance(msg.get("content"), str):
                     # Block prompt injection attempts
                     injection_result = sanitizer.check_prompt_injection(msg["content"])
-                    if injection_result.get("detected"):
+                    if not injection_result.get("safe", True):
                         logger.warning(
-                            "Prompt injection blocked: patterns=%s category=%s",
-                            injection_result.get("patterns"),
-                            final_category,
+                            "Prompt injection blocked: threats=%s category=%s",
+                            injection_result.get("threats"),
+                            category,
                         )
                         return {
                             "content": "I'm sorry, but I cannot process this request. Please rephrase your question about the data.",
@@ -186,7 +202,7 @@ class AIOrchestrator:
                             "model": final_model,
                             "latency_ms": 0,
                             "tokens": {},
-                            "category": final_category,
+                            "category": category,
                             "error": "prompt_injection_detected",
                         }
                     # Sanitize input
@@ -201,7 +217,7 @@ class AIOrchestrator:
         llm_response = None
         error = None
         try:
-            llm_response = execute_groq_completion(
+            llm_response = await execute_groq_completion(
                 messages=messages,
                 temperature=final_temp,
                 max_tokens=final_max,
@@ -320,21 +336,20 @@ class AIOrchestrator:
             "error": error,
         }
 
-    # ── Backward-compatible sync helper ──────────────────────────────────
+    # ── Backward-compatible async helper ──────────────────────────────────
 
     @staticmethod
-    def execute_sync(
+    async def execute_llm(
         messages: list,
         temperature: float = 0.1,
         max_tokens: int = 400,
         model: str = None,
     ):
         """
-        Synchronous wrapper around execute_groq_completion.
-        Provides backward compatibility for services that haven't migrated yet.
-        Returns the raw Groq response object.
+        Async wrapper around execute_groq_completion.
+        Use this from async callers. Returns the raw Groq response object.
         """
-        return execute_groq_completion(
+        return await execute_groq_completion(
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -347,3 +362,41 @@ class AIOrchestrator:
 def get_orchestrator(db=None, user_id: Optional[str] = None) -> AIOrchestrator:
     """Get an AIOrchestrator instance."""
     return AIOrchestrator(db=db, user_id=user_id)
+
+
+# ── Sync helper for non-async callers ────────────────────────────────────────
+
+import concurrent.futures
+_sync_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="llm_sync")
+
+def execute_llm_sync(
+    messages: list,
+    temperature: float = 0.1,
+    max_tokens: int = 400,
+    model: str = None,
+) -> object:
+    """
+    Synchronous wrapper for LLM calls from non-async contexts.
+    Uses a thread pool to run the async call without blocking the event loop.
+    Returns the raw Groq response object.
+    """
+    import asyncio
+
+    async def _run():
+        return await execute_groq_completion(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            model=model,
+        )
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        future = _sync_executor.submit(asyncio.run, _run())
+        return future.result(timeout=45)
+    else:
+        return asyncio.run(_run())

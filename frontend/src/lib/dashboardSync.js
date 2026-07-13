@@ -6,6 +6,6 @@ export function invalidateDashboardCache() {
   try {
     localStorage.removeItem('saas.dashboard.lastSummary.v2');
     localStorage.removeItem('saas.dashboard.metricsCache.v1');
-  } catch (e) { /* noop */ }
+  } catch { /* noop */ }
   window.dispatchEvent(new CustomEvent('dashboard:refresh'));
 }

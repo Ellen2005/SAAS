@@ -4,6 +4,15 @@
 -- Run this in Supabase SQL Editor (Dashboard > SQL Editor)
 -- =============================================================================
 
+-- Utility function for auto-updating updated_at columns
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- -----------------------------------------------------------------------------
 -- 1. DEPARTMENTS
 -- -----------------------------------------------------------------------------
@@ -154,6 +163,20 @@ ALTER TABLE public.kpi_results ADD COLUMN IF NOT EXISTS source_record_count INTE
 ALTER TABLE public.anomaly_records ADD COLUMN IF NOT EXISTS department_id UUID REFERENCES public.departments(id);
 
 ALTER TABLE public.daily_reports ADD COLUMN IF NOT EXISTS department_id UUID REFERENCES public.departments(id);
+
+-- Add unique constraint to prevent duplicate daily reports per user per day
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'daily_reports_user_date_unique'
+    ) THEN
+        ALTER TABLE public.daily_reports 
+        ADD CONSTRAINT daily_reports_user_date_unique 
+        UNIQUE (user_id, report_date);
+    END IF;
+END $$;
+
 ALTER TABLE public.database_connections ADD COLUMN IF NOT EXISTS connection_method VARCHAR(50) DEFAULT 'direct';
 ALTER TABLE public.database_connections ADD COLUMN IF NOT EXISTS connection_options JSONB;
 
@@ -451,11 +474,11 @@ DECLARE
     admin_uid UUID;
     default_dept_id UUID;
 BEGIN
-    -- Find user by email
+    -- Find user by email using parameterized query
     SELECT id INTO admin_uid FROM auth.users WHERE email = admin_email LIMIT 1;
     
     IF admin_uid IS NULL THEN
-        RETURN 'ERROR: No user found with email ' || admin_email || '. Please sign up first.';
+        RETURN format('ERROR: No user found with email %L. Please sign up first.', admin_email);
     END IF;
     
     -- Get default department
@@ -466,12 +489,12 @@ BEGIN
     VALUES (admin_uid, NULL, 'admin')
     ON CONFLICT (user_id, department_id) DO UPDATE SET role = 'admin';
     
-    RETURN 'SUCCESS: ' || admin_email || ' is now an admin.';
+    RETURN format('SUCCESS: %L is now an admin.', admin_email);
 END;
 $$ LANGUAGE plpgsql;
 
 -- =============================================================================
--- HELPER: Assign existing users to default department as managers
+-- HELPER: Assign existing users to default department as VIEWERS (not managers)
 -- Run this ONCE after migration if you have existing users
 -- =============================================================================
 CREATE OR REPLACE FUNCTION assign_existing_users_to_default()
@@ -495,13 +518,13 @@ BEGIN
         )
     LOOP
         INSERT INTO public.user_roles (user_id, department_id, role)
-        VALUES (user_rec.id, default_dept_id, 'manager')
+        VALUES (user_rec.id, default_dept_id, 'viewer')
         ON CONFLICT DO NOTHING;
         
         assign_count := assign_count + 1;
     END LOOP;
     
-    RETURN 'SUCCESS: Assigned ' || assign_count || ' existing users to General department as managers.';
+    RETURN format('SUCCESS: Assigned %s existing users to General department as viewers.', assign_count);
 END;
 $$ LANGUAGE plpgsql;
 

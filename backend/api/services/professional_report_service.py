@@ -5,6 +5,7 @@ Creates A4-sized PDF reports with full CNPS-style formatting
 
 import os
 import logging
+import threading
 from datetime import datetime, date
 from typing import Dict, List, Any, Optional
 import json
@@ -44,6 +45,9 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 from io import BytesIO
 
+# Thread lock for matplotlib (not thread-safe)
+_matplotlib_lock = threading.Lock()
+
 
 class ProfessionalReportGenerator:
     """Generate professional A4 PDF reports with CNPS-style formatting"""
@@ -54,6 +58,15 @@ class ProfessionalReportGenerator:
             raise RuntimeError("reportlab is not installed — PDF reports are unavailable")
         self.styles = getSampleStyleSheet()
         self._setup_custom_styles()
+
+    @property
+    def _matplotlib_locked(self):
+        """Context manager for matplotlib thread safety."""
+        return _matplotlib_lock
+        
+    def _matplotlib_locked(self):
+        """Context manager for thread-safe matplotlib operations."""
+        return _matplotlib_lock
         
     def _setup_custom_styles(self):
         """Setup custom paragraph styles for professional formatting"""
@@ -613,22 +626,23 @@ class ProfessionalReportGenerator:
         }
         bar_colors = [colors_map.get(s, '#6b7280') for s in statuses]
         
-        fig, ax = plt.subplots(figsize=(12, 6))
-        bars = ax.barh(names, values, color=bar_colors)
-        
-        ax.set_xlabel('Value', fontsize=12, fontweight='bold')
-        ax.set_title('Top 10 Key Performance Indicators', fontsize=14, fontweight='bold', pad=20)
-        ax.grid(axis='x', alpha=0.3, linestyle='--')
-        
-        # Add value labels on bars
-        for bar, val in zip(bars, values):
-            width = bar.get_width()
-            ax.text(width, bar.get_y() + bar.get_height()/2, 
-                   f'{val:,.0f}', ha='left', va='center', fontsize=9)
-        
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        plt.close()
+        with self._matplotlib_locked():
+            fig, ax = plt.subplots(figsize=(12, 6))
+            bars = ax.barh(names, values, color=bar_colors)
+            
+            ax.set_xlabel('Value', fontsize=12, fontweight='bold')
+            ax.set_title('Top 10 Key Performance Indicators', fontsize=14, fontweight='bold', pad=20)
+            ax.grid(axis='x', alpha=0.3, linestyle='--')
+            
+            # Add value labels on bars
+            for bar, val in zip(bars, values):
+                width = bar.get_width()
+                ax.text(width, bar.get_y() + bar.get_height()/2, 
+                       f'{val:,.0f}', ha='left', va='center', fontsize=9)
+            
+            plt.tight_layout()
+            plt.savefig(output_path, dpi=150, bbox_inches='tight')
+            plt.close()
     
     def _generate_anomaly_chart(self, anomalies: List[Dict], output_path: str):
         """Generate pie chart showing anomaly severity distribution"""
@@ -653,20 +667,21 @@ class ProfessionalReportGenerator:
         }
         chart_colors = [colors_map.get(l, '#6b7280') for l in labels]
         
-        fig, ax = plt.subplots(figsize=(8, 6))
-        wedges, texts, autotexts = ax.pie(
-            sizes, 
-            labels=labels, 
-            colors=chart_colors,
-            autopct='%1.0f%%',
-            startangle=90,
-            textprops={'fontsize': 11, 'fontweight': 'bold'}
-        )
-        
-        ax.set_title('Anomaly Severity Distribution', fontsize=14, fontweight='bold', pad=20)
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        plt.close()
+        with self._matplotlib_locked():
+            fig, ax = plt.subplots(figsize=(8, 6))
+            wedges, texts, autotexts = ax.pie(
+                sizes, 
+                labels=labels, 
+                colors=chart_colors,
+                autopct='%1.0f%%',
+                startangle=90,
+                textprops={'fontsize': 11, 'fontweight': 'bold'}
+            )
+            
+            ax.set_title('Anomaly Severity Distribution', fontsize=14, fontweight='bold', pad=20)
+            plt.tight_layout()
+            plt.savefig(output_path, dpi=150, bbox_inches='tight')
+            plt.close()
     
     def _generate_time_series_chart(self, time_series: List[Dict], output_path: str):
         """Generate line chart showing KPI trends over time"""
@@ -687,28 +702,29 @@ class ProfessionalReportGenerator:
         # Take top 5 KPIs by data points
         top_kpis = sorted(kpi_groups.items(), key=lambda x: len(x[1]), reverse=True)[:5]
         
-        fig, ax = plt.subplots(figsize=(12, 6))
-        
-        for name, data_points in top_kpis:
-            # Sort by time
-            sorted_points = sorted(data_points, key=lambda x: x['t'])
-            times = [p['t'][:10] for p in sorted_points]  # Show date only
-            values = [p['value'] for p in sorted_points]
+        with self._matplotlib_locked():
+            fig, ax = plt.subplots(figsize=(12, 6))
             
-            ax.plot(times, values, marker='o', linewidth=2, markersize=4, label=name.replace('_', ' ').title())
-        
-        ax.set_xlabel('Date', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Value', fontsize=12, fontweight='bold')
-        ax.set_title('KPI Trends Over Time', fontsize=14, fontweight='bold', pad=20)
-        ax.legend(loc='best', fontsize=9)
-        ax.grid(True, alpha=0.3, linestyle='--')
-        
-        # Rotate x-axis labels
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        plt.close()
-
+            for name, data_points in top_kpis:
+                # Sort by time
+                sorted_points = sorted(data_points, key=lambda x: x['t'])
+                times = [p['t'][:10] for p in sorted_points]  # Show date only
+                values = [p['value'] for p in sorted_points]
+                
+                ax.plot(times, values, marker='o', linewidth=2, markersize=4, label=name.replace('_', ' ').title())
+            
+            ax.set_xlabel('Date', fontsize=12, fontweight='bold')
+            ax.set_ylabel('Value', fontsize=12, fontweight='bold')
+            ax.set_title('KPI Trends Over Time', fontsize=14, fontweight='bold', pad=20)
+            ax.legend(loc='best', fontsize=9)
+            ax.grid(True, alpha=0.3, linestyle='--')
+            
+            # Rotate x-axis labels
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+            plt.savefig(output_path, dpi=150, bbox_inches='tight')
+            plt.close()
+    
     def _generate_excel(self, report_data: Dict[str, Any], output_path: str) -> str:
         """Generate Excel workbook with multiple sheets"""
         

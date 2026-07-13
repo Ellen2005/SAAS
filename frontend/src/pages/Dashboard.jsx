@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
-import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, BarChart2, Shield, Activity } from 'lucide-react';
+import { AlertCircle, ArrowDownRight, ArrowUpRight, FileText, RefreshCcw, TrendingUp, Sparkles, BarChart2, Shield, Activity, LayoutDashboard, Search, ClipboardList } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/authContext';
 import { apiFetch, apiJson } from '../lib/api';
@@ -10,6 +10,7 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import OnboardingTour from '../components/OnboardingTour';
 import DashboardCustomizer from '../components/DashboardCustomizer';
 import SparklineChart from '../components/SparklineChart';
+import KpiCard from '../components/KpiCard';
 import { useRealTimeData } from '../hooks/useRealTimeData';
 
 // Lazy-loaded heavy components (chart renderer, map, forecast)
@@ -43,83 +44,6 @@ const SYNC_STATUS_LABELS = {
   SENDING_EMAILS: 'Sending emails...',
   VALIDATION_FAILED: 'Validation failed',
 };
-
-// ─── Reusable Enterprise KPI Card ──────────────────────────────────────────
-const MetricCard = ({ label, value, delta, status, sparklineData, format, onClick }) => {
-  const fmt = format || ((v) => {
-    if (v == null) return '—';
-    const num = Number(v);
-    if (Math.abs(num) >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1)}B`;
-    if (Math.abs(num) >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-    if (Math.abs(num) >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
-    return num.toLocaleString('en-US', { maximumFractionDigits: 0 });
-  });
-  const deltaDisplay = delta != null && !isNaN(delta) && delta !== 0;
-  const statusColor = status === 'CRITICAL' ? '#ef4444' : status === 'WARNING' ? '#f59e0b' : '#10b981';
-
-  return (
-    <div 
-      className="ea-kpi-card" 
-      role="region" 
-      aria-label={`KPI Card: ${label}`}
-      onClick={onClick}
-      style={{ cursor: onClick ? 'pointer' : 'default' }}
-    >
-      <div className="ea-kpi-label">{label}</div>
-      <div className="ea-kpi-value">{fmt(value)}</div>
-      {deltaDisplay && (
-        <span className={`ea-kpi-delta ${delta > 0 ? 'positive' : 'negative'}`}>
-          {delta > 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-          {Math.abs(delta).toFixed(1)}%
-        </span>
-      )}
-      {sparklineData && sparklineData.length > 1 && (
-        <div style={{ height: 32, marginTop: 8 }}>
-          <SparklineChart
-            data={sparklineData.slice(-14)}
-            width={200}
-            height={32}
-            color={statusColor}
-            strokeWidth={1.5}
-          />
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ─── Error Boundary ────────────────────────────────────────────────────────
-class DashboardErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-  componentDidCatch(error, errorInfo) {
-    console.error('Dashboard Error:', error, errorInfo);
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="ea-empty-state">
-          <div className="ea-empty-state-icon">
-            <AlertCircle size={28} />
-          </div>
-          <h3 className="ea-empty-state-title">Something went wrong</h3>
-          <p className="ea-empty-state-description">
-            An unexpected error occurred loading the dashboard. Please try refreshing the page.
-          </p>
-          <button className="ea-btn ea-btn-primary" onClick={() => { this.setState({ hasError: false }); window.location.reload(); }}>
-            Refresh Dashboard
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 // ─── Loading Skeleton ──────────────────────────────────────────────────────
 const DashboardSkeleton = () => (
@@ -166,13 +90,16 @@ const Dashboard = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-
-  // Real-time data streaming
+// Real-time data streaming
   useRealTimeData(user?.id, {
     onData: (data) => {
       if (data.type === 'kpi-update') {
-        // Refresh dashboard when KPIs update
-        fetchDataRef.current?.();
+        // Refresh dashboard when KPIs update - use current fetch function
+        if (activeTab === 'overview' || activeTab === 'analytics') {
+          fetchOverviewRef.current?.();
+        } else if (activeTab === 'executive') {
+          fetchExecutiveRef.current?.();
+        }
       }
     },
     onError: () => {
@@ -181,8 +108,9 @@ const Dashboard = () => {
   });
 
 
-
-  const fetchData = useCallback(async () => {
+  // ─── Tab-specific data fetchers ─────────────────────────────────────────
+  
+  const fetchOverview = useCallback(async () => {
     try {
       if (!user) return;
       setLoading(true);
@@ -204,7 +132,7 @@ const Dashboard = () => {
       setSeries(seriesResult.series || {});
       setRegionalData(regionalResult.regions || []);
     } catch (err) {
-      console.error('Error fetching dashboard data:', err);
+      console.error('Error fetching overview data:', err);
       if (!mountedRef.current) return;
       const cached = readCache(DASHBOARD_CACHE_KEY);
       if (cached) setData(cached);
@@ -213,42 +141,68 @@ const Dashboard = () => {
       if (mountedRef.current) setLoading(false);
     }
   }, [user, dateRange]);
-  
-  // Store fetchData in ref for polling
-  fetchDataRef.current = fetchData;
+
+  const fetchExecutive = useCallback(async () => {
+    try {
+      if (!user) return;
+      setLoading(true);
+      const executiveResult = await apiJson('/api/executive/overview');
+      if (!mountedRef.current) return;
+      setExecutiveData(executiveResult);
+    } catch (err) {
+      console.error('Error fetching executive data:', err);
+      if (!mountedRef.current) return;
+      setExecutiveData(null);
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
+  }, [user]);
+
+  // Refs to current fetch functions for real-time updates
+  const fetchOverviewRef = useRef(fetchOverview);
+  const fetchExecutiveRef = useRef(fetchExecutive);
 
   useEffect(() => {
+    fetchOverviewRef.current = fetchOverview;
+  }, [fetchOverview]);
+
+  useEffect(() => {
+    fetchExecutiveRef.current = fetchExecutive;
+  }, [fetchExecutive]);
+
+  // Main data fetch effect - only fetches for active tab
+  useEffect(() => {
     if (user) {
-      // Small delay to ensure auth context is fully settled
-      const timer = setTimeout(() => fetchData(), 100);
+      const timer = setTimeout(() => {
+        if (activeTab === 'overview' || activeTab === 'analytics') {
+          fetchOverview();
+        } else if (activeTab === 'executive') {
+          fetchExecutive();
+        }
+      }, 100);
       return () => clearTimeout(timer);
     }
     return () => { mountedRef.current = false; };
-  }, [user, fetchData, dateRange]);
-
-  // Listen for external sync events (Settings, Schema, Analysis pages)
-  useEffect(() => {
-    const handleExternalRefresh = () => {
-      invalidateDashboardCache();
-      if (fetchDataRef.current) fetchDataRef.current();
-    };
-    window.addEventListener('dashboard:refresh', handleExternalRefresh);
-    return () => window.removeEventListener('dashboard:refresh', handleExternalRefresh);
-  }, []);
-
-  // Fetch executive data when executive tab is active
-  useEffect(() => {
-    if (activeTab === 'executive' && user) {
-      apiJson('/api/executive/overview')
-        .then(data => setExecutiveData(data))
-        .catch(() => setExecutiveData(null));
-    }
-  }, [activeTab, user]);
+  }, [user, activeTab, fetchOverview, fetchExecutive, dateRange]);
   
   useEffect(() => {
     document.title = 'Dashboard - Enterprise Analytics Platform';
     return () => { document.title = 'Enterprise Analytics'; };
   }, []);
+
+  // Listen for external sync events (Settings, Schema, Analysis pages)
+  useEffect(() => {
+    const handleExternalRefresh = () => {
+      invalidateDashboardCache();
+      if (activeTab === 'overview' || activeTab === 'analytics') {
+        fetchOverviewRef.current?.();
+      } else if (activeTab === 'executive') {
+        fetchExecutiveRef.current?.();
+      }
+    };
+    window.addEventListener('dashboard:refresh', handleExternalRefresh);
+    return () => window.removeEventListener('dashboard:refresh', handleExternalRefresh);
+  }, [activeTab]);
 
   // Cleanup interval on unmount
   useEffect(() => {
@@ -298,21 +252,31 @@ const Dashboard = () => {
     return widgetCards
       .map(({ w, kpi, points, delta }) => {
         const val = kpi?.value ?? points[points.length - 1]?.value;
-        return { label: w.display_name_en || w.name, value: val, delta, status: kpi?.status, sparklineData: points, icon: <Activity size={16} /> };
+        const kpiStatus = kpi?.status;
+        const statusMap = { CRITICAL: 'negative', WARNING: 'warning', NORMAL: 'positive' };
+        return { 
+          title: w.display_name_en || w.name, 
+          value: val, 
+          delta, 
+          status: statusMap[kpiStatus] || 'neutral', 
+          sparklineData: points, 
+          icon: <Activity size={16} /> 
+        };
       })
-      .filter(m => m.value != null && m.value !== 0);
+      .filter(m => m.value != null);
   }, [widgetCards]);
 
   // ── KPI cards grid ────────────────────────────────────────────
   const kpiCards = useMemo(() => {
+    const statusMap = { CRITICAL: 'negative', WARNING: 'warning', NORMAL: 'positive' };
     return (data.kpis || [])
-      .filter(k => k.value != null && k.value !== 0)
+      .filter(k => k.value != null)
       .slice(0, 8)
       .map((k) => ({
-        label: k.kpi_name.replaceAll('_', ' '),
+        title: k.kpi_name.replaceAll('_', ' '),
         value: k.value,
         delta: k.dod_pct,
-        status: k.status,
+        status: statusMap[k.status] || 'neutral',
         sparklineData: series[k.kpi_name] || [],
         kpi_name: k.kpi_name,
       }));
@@ -320,7 +284,7 @@ const Dashboard = () => {
 
   // ── Sync handler with proper cleanup ──────────────────────────
   const handleSync = useCallback(() => {
-    if (syncing || !fetchDataRef.current) return;
+    if (syncing) return;
     setSyncing(true);
     setStatusMessage('Starting sync...');
     
@@ -338,7 +302,12 @@ const Dashboard = () => {
               if (s.status === 'IDLE' || s.status === 'COMPLETED' || attempts > 30) {
                 if (intervalRef.current) clearInterval(intervalRef.current);
                 intervalRef.current = null;
-                if (fetchDataRef.current) fetchDataRef.current();
+                // Refresh based on active tab
+                if (activeTab === 'overview' || activeTab === 'analytics') {
+                  fetchOverview();
+                } else if (activeTab === 'executive') {
+                  fetchExecutive();
+                }
                 setSyncing(false);
                 setStatusMessage('Done');
               } else {
@@ -355,7 +324,7 @@ const Dashboard = () => {
         }, 4000);
       })
       .catch(() => setSyncing(false));
-  }, [syncing]);
+  }, [syncing, activeTab, fetchOverview, fetchExecutive]);
 
   // ── Generate Report handler ──────────────────────────────────
   const handleGenerateReport = useCallback(() => {
@@ -365,17 +334,61 @@ const Dashboard = () => {
     
     apiFetch('/api/reports/generate', { method: 'POST' })
       .then(() => {
-        setTimeout(() => {
-          if (fetchDataRef.current) fetchDataRef.current();
-          setReporting(false);
-          setStatusMessage('Report generated');
-        }, 3000);
+        let attempts = 0;
+        intervalRef.current = setInterval(() => {
+          attempts++;
+          apiJson('/api/reports/history')
+            .then((r) => {
+              if (!mountedRef.current) {
+                if (intervalRef.current) clearInterval(intervalRef.current);
+                return;
+              }
+              const reports = r.reports || [];
+              if (reports.length > 0) {
+                const latest = new Date(reports[0].report_date);
+                const now = new Date();
+                if (now - latest < 60000 || attempts > 15) {
+                  if (intervalRef.current) clearInterval(intervalRef.current);
+                  intervalRef.current = null;
+                  if (activeTab === 'overview' || activeTab === 'analytics') {
+                    fetchOverview();
+                  } else if (activeTab === 'executive') {
+                    fetchExecutive();
+                  }
+                  setReporting(false);
+                  setStatusMessage('Report generated');
+                }
+              } else if (attempts > 15) {
+                if (intervalRef.current) clearInterval(intervalRef.current);
+                intervalRef.current = null;
+                if (activeTab === 'overview' || activeTab === 'analytics') {
+                  fetchOverview();
+                } else if (activeTab === 'executive') {
+                  fetchExecutive();
+                }
+                setReporting(false);
+                setStatusMessage('Report generation timed out');
+              }
+            })
+            .catch(() => {
+              if (attempts > 15) {
+                if (intervalRef.current) clearInterval(intervalRef.current);
+                intervalRef.current = null;
+                if (activeTab === 'overview' || activeTab === 'analytics') {
+                  fetchOverview();
+                } else if (activeTab === 'executive') {
+                  fetchExecutive();
+                }
+                setReporting(false);
+              }
+            });
+        }, 4000);
       })
       .catch((err) => {
         console.error('Report generation error:', err);
         setReporting(false);
       });
-  }, [reporting]);
+  }, [reporting, activeTab, fetchOverview, fetchExecutive]);
 
   // ── KPI drill-down handler ────────────────────────────────────
   const handleKpiClick = useCallback((kpi) => {
@@ -388,7 +401,7 @@ const Dashboard = () => {
     setDashboardLayout(layout);
     try {
       localStorage.setItem('dashboard_layout', JSON.stringify(layout));
-    } catch (e) { /* noop */ }
+    } catch { /* noop */ }
     setShowCustomizer(false);
   }, []);
 
@@ -415,7 +428,7 @@ const Dashboard = () => {
               <section style={{ marginBottom: 24 }}>
                 <h3 style={{ fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ea-text-secondary)', marginBottom: 12 }}>Key Metrics</h3>
                 <div className="ea-dashboard-grid ea-grid-kpis">
-                  {topMetrics.map((m, i) => <MetricCard key={i} {...m} onClick={() => handleKpiClick(m)} />)}
+                  {topMetrics.map((m, i) => <KpiCard key={i} title={m.title} value={m.value} delta={m.delta} status={m.status} icon={m.icon} sparklineData={m.sparklineData} onClick={() => handleKpiClick(m)} />)}
                 </div>
               </section>
             )}
@@ -423,7 +436,7 @@ const Dashboard = () => {
             {visibleSections.kpi && kpiCards.length > 0 && (
               <section style={{ marginBottom: 24 }}>
                 <div className="ea-dashboard-grid" style={{ gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
-                  {kpiCards.map((k, i) => <MetricCard key={i} {...k} onClick={() => handleKpiClick(k)} />)}
+                  {kpiCards.map((k, i) => <KpiCard key={i} title={k.title} value={k.value} delta={k.delta} status={k.status} sparklineData={k.sparklineData} onClick={() => handleKpiClick(k)} />)}
                 </div>
               </section>
             )}
@@ -460,24 +473,11 @@ const Dashboard = () => {
                     <BarChart2 size={18} color="var(--ea-primary)" /> {selectedKpi.label} - Detailed View
                   </h3>
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
-                    <div className="ea-kpi-card">
-                      <div className="ea-kpi-label">Current Value</div>
-                      <div className="ea-kpi-value">{typeof selectedKpi.value === 'number' ? selectedKpi.value.toLocaleString() : selectedKpi.value}</div>
-                    </div>
+                    <KpiCard title="Current Value" value={selectedKpi.value} format="number" />
                     {selectedKpi.delta != null && (
-                      <div className="ea-kpi-card">
-                        <div className="ea-kpi-label">Day-over-Day</div>
-                        <div className="ea-kpi-value" style={{ color: selectedKpi.delta >= 0 ? '#10b981' : '#ef4444' }}>
-                          {selectedKpi.delta >= 0 ? '+' : ''}{selectedKpi.delta.toFixed(1)}%
-                        </div>
-                      </div>
+                      <KpiCard title="Day-over-Day" value={`${selectedKpi.delta >= 0 ? '+' : ''}${selectedKpi.delta.toFixed(1)}%`} status={selectedKpi.delta >= 0 ? 'positive' : 'negative'} />
                     )}
-                    <div className="ea-kpi-card">
-                      <div className="ea-kpi-label">Status</div>
-                      <div className="ea-kpi-value" style={{ color: selectedKpi.status === 'CRITICAL' ? '#ef4444' : selectedKpi.status === 'WARNING' ? '#f59e0b' : '#10b981' }}>
-                        {selectedKpi.status}
-                      </div>
-                    </div>
+                    <KpiCard title="Status" value={selectedKpi.status} status={selectedKpi.status === 'CRITICAL' ? 'negative' : selectedKpi.status === 'WARNING' ? 'warning' : 'positive'} />
                   </div>
                   {selectedKpi.sparklineData && selectedKpi.sparklineData.length > 0 && (
                     <div style={{ marginTop: 16, height: 200 }}>
@@ -678,7 +678,7 @@ const Dashboard = () => {
   const hasData = data.kpis.length > 0 || data.narrative;
 
   return (
-    <DashboardErrorBoundary>
+    <ErrorBoundary>
       <div className="ea-content" style={{ maxWidth: 'var(--ea-content-max-width)', margin: '0 auto' }}>
         {/* Header */}
         <div style={{ marginBottom: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
@@ -737,10 +737,29 @@ const Dashboard = () => {
         </div>
 
         {/* Tabs */}
-        <div className="ea-tabs">
+        <div className="ea-tabs" role="tablist" aria-label="Dashboard sections">
           {['overview', 'analytics', 'executive'].map((tab) => (
-            <button key={tab} className={`ea-tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-              {tab === 'overview' ? '📊 Overview' : tab === 'analytics' ? '🔍 Analytics' : '📋 Executive'}
+            <button
+              key={tab}
+              role="tab"
+              aria-selected={activeTab === tab}
+              aria-controls={`panel-${tab}`}
+              id={`tab-${tab}`}
+              className={`ea-tab ${activeTab === tab ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab === 'overview' && <LayoutDashboard size={16} style={{ marginRight: 6 }} />}
+              {tab === 'overview' ? 'Overview' : tab === 'analytics' ? (
+                <>
+                  <Search size={16} style={{ marginRight: 6 }} />
+                  Analytics
+                </>
+              ) : (
+                <>
+                  <ClipboardList size={16} style={{ marginRight: 6 }} />
+                  Executive
+                </>
+              )}
             </button>
           ))}
           {isManager && (
@@ -750,7 +769,8 @@ const Dashboard = () => {
               style={{ marginLeft: 'auto' }}
               title="Customize Dashboard"
             >
-              ⚙️ Customize
+              <Activity size={16} style={{ marginRight: 6 }} />
+              Customize
             </button>
           )}
         </div>
@@ -766,7 +786,11 @@ const Dashboard = () => {
           </div>
         )}
 
-        {renderTabContent()}
+        {renderTabContent() && (
+          <div id={`panel-${activeTab}`} role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
+            {renderTabContent()}
+          </div>
+        )}
         
         {/* Onboarding Tour */}
         <OnboardingTour
@@ -781,15 +805,8 @@ const Dashboard = () => {
           onSave={handleSaveLayout}
           currentLayout={dashboardLayout}
         />
-        
-        <style>{`@keyframes ea-spin{100%{transform:rotate(360deg)}}@keyframes ea-pulse{0%,100%{opacity:1}50%{opacity:0.5}}
-          @media (max-width: 768px) {
-            .ea-dashboard-grid { grid-template-columns: 1fr !important; }
-            .ea-tabs { flex-wrap: wrap; }
-            .ea-tab { flex: 1; min-width: 80px; font-size: 0.75rem; }
-          }`}</style>
       </div>
-    </DashboardErrorBoundary>
+    </ErrorBoundary>
   );
 };
 

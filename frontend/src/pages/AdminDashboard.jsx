@@ -401,8 +401,8 @@ const AdminDashboard = () => {
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}
           onClick={() => setLineageData(null)}
         >
-          <div className="glass-panel" style={{ maxWidth: '760px', width: '92%', maxHeight: '80vh', overflow: 'auto' }} onClick={(event) => event.stopPropagation()}>
-            <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="glass-panel" style={{ maxWidth: '760px', width: '92%', maxHeight: '80vh', overflow: 'auto' }} onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="lineage-dialog-title">
+            <h3 id="lineage-dialog-title" style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Database size={18} /> Lineage: {lineageData.kpi?.kpi_name?.replaceAll('_', ' ')}
             </h3>
 

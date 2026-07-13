@@ -359,18 +359,16 @@ SQL QUERY:"""
     # Use orchestrator if available, fall back to direct Groq call
     completion = None
     try:
-        from .ai_orchestrator import AIOrchestrator
-        orchestrator = AIOrchestrator()
-        result = orchestrator.execute_sync(
+        from .ai_orchestrator import execute_llm_sync
+        completion = execute_llm_sync(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=400,
             model=get_groq_model(),
         )
-        completion = result
     except Exception as e:
         logger.debug(f"Primary completion failed, using fallback: {e}")
-        completion = execute_groq_completion(
+        completion = execute_llm_sync(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=400,
@@ -402,18 +400,16 @@ JSON:"""
 
     completion = None
     try:
-        from .ai_orchestrator import AIOrchestrator
-        orchestrator = AIOrchestrator()
-        result = orchestrator.execute_sync(
+        from .ai_orchestrator import execute_llm_sync
+        completion = execute_llm_sync(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=300,
             model=get_groq_model(),
         )
-        completion = result
     except Exception as e:
         logger.debug(f"Primary completion failed, using fallback: {e}")
-        completion = execute_groq_completion(
+        completion = execute_llm_sync(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=300,
@@ -475,6 +471,7 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
 
         # Enterprise: Load semantic layer for business-friendly schema context
         semantic_ctx = ""
+        sem = None
         try:
             from .semantic_layer import SemanticLayer
             sem = SemanticLayer(supabase, user_id)
