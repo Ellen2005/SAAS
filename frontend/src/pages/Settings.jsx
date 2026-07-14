@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLang } from '../lib/i18n';
 import { invalidateDashboardCache } from '../lib/dashboardSync';
 import { useToast } from '../components/ToastProvider';
+import useIsMobile from '../hooks/useIsMobile';
 
 const DEFAULT_CONNECTION_OPTIONS = {
   tunnel_token: '',
@@ -21,7 +22,7 @@ const Settings = () => {
   const { t, lang, setLang } = useLang();
   const navigate = useNavigate();
   const toast = useToast();
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const isMobile = useIsMobile();
   const [savingConnection, setSavingConnection] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
@@ -76,12 +77,6 @@ const Settings = () => {
       // Ignore when localStorage is unavailable.
     }
   }, [themeMode]);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   const [accountLoading, setAccountLoading] = useState(false);
   const [newPassword, setNewPassword] = useState('');
@@ -541,7 +536,7 @@ const Settings = () => {
                 key={field.id}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1.4fr 1fr auto',
+                  gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr auto',
                   gap: '12px',
                   alignItems: 'end',
                   padding: '14px',
@@ -625,7 +620,7 @@ const Settings = () => {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-primary" onClick={handleSavePreferences} disabled={savingPreferences}>
             <Save size={16} /> {savingPreferences ? 'Saving...' : 'Save Preferences'}
           </button>

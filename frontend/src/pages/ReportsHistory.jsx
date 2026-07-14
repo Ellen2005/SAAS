@@ -189,7 +189,7 @@ const ReportsHistory = () => {
       </header>
 
       {/* Tabs */}
-      <div style={{ borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '0' }}>
+      <div style={{ borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '0', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
         <button style={tabStyle(tab === 'daily')} onClick={() => setTab('daily')}>Daily Reports</button>
         <button style={tabStyle(tab === 'professional')} onClick={() => setTab('professional')}>Professional PDF Reports</button>
       </div>
@@ -209,7 +209,7 @@ const ReportsHistory = () => {
         ) : (
           <div style={{ display: 'grid', gap: '12px' }}>
             {proReports.map(r => (
-              <div key={r.report_id} className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px' }}>
+              <div key={r.report_id} className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
                   <div style={{ fontWeight: 600 }}>{r.title || 'Analysis Report'}</div>
                   <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
@@ -266,7 +266,7 @@ const ReportsHistory = () => {
                     </div>
                   </button>
 
-                  <div style={{ display: 'flex', gap: '8px', marginLeft: '16px', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', gap: '8px', marginLeft: '16px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button
                       className="btn btn-outline"
                       onClick={() => handleDownload(report.id, report.report_date)}

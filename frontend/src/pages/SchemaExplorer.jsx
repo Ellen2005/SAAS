@@ -3,6 +3,7 @@ import {
   Database, RefreshCw, Sparkles, Play, ChevronRight, ChevronDown,
   Table as TableIcon, Layers, Hash, Calendar, DollarSign, Link2, AlertCircle,
 } from 'lucide-react';
+import useIsMobile from '../hooks/useIsMobile';
 import { apiJson } from '../lib/api';
 import { invalidateDashboardCache } from '../lib/dashboardSync';
 import {
@@ -36,7 +37,7 @@ function fmtNum(n) {
 }
 
 export default function SchemaExplorer() {
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [schema, setSchema] = useState(null);
@@ -56,12 +57,6 @@ export default function SchemaExplorer() {
 
   useEffect(() => {
     apiJson('/api/settings/preferences').then(setPrefs).catch(() => setPrefs(null));
-  }, []);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const loadSchema = async (refresh = false) => {
@@ -206,7 +201,7 @@ export default function SchemaExplorer() {
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-outline" onClick={() => loadSchema(true)} disabled={loading}>
             <RefreshCw size={14} style={loading ? { animation: 'spin 1s linear infinite' } : null} /> Re-discover
           </button>
@@ -284,7 +279,8 @@ export default function SchemaExplorer() {
           {autoMapResult.warning && <div style={{ color: '#fbbf24' }}>{autoMapResult.warning}</div>}
           {autoMapResult.suggestions?.length ? (
             <>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                 <thead>
                   <tr style={{ textAlign: 'left', color: 'var(--text-secondary)' }}>
                     <th style={{ padding: 8 }}>Semantic field</th>
@@ -308,6 +304,7 @@ export default function SchemaExplorer() {
                   ))}
                 </tbody>
               </table>
+              </div>
               <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
                 {saveMessage && (
                   <span style={{ fontSize: '0.85rem', color: saveMessage.type === 'success' ? 'var(--status-normal)' : 'var(--status-critical)' }}>
@@ -554,7 +551,7 @@ function TableCard({ table, expanded, onToggle }) {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+              </table>
               </div>
             </div>
           )}

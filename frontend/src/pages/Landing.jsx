@@ -2,36 +2,40 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Shield, Database, Zap } from 'lucide-react';
 import { useLang } from '../lib/i18n.jsx';
+import useIsMobile from '../hooks/useIsMobile';
 
 const Landing = () => {
   const { t } = useLang();
+  const isMobile = useIsMobile();
   return (
     <div className="landing-container" style={{ background: 'var(--bg-color)', minHeight: '100vh', color: 'var(--text-primary)', overflowX: 'hidden' }}>
-      <section style={{ padding: '80px 20px', textAlign: 'center', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div className="pulse-circle" style={{ position: 'absolute', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)', borderRadius: '50%', top: '10%', zIndex: 0, animation: 'pulse 4s infinite alternate ease-in-out' }}></div>
+      <section style={{ padding: isMobile ? '40px 16px' : '80px 20px', textAlign: 'center', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        {!isMobile && <div className="pulse-circle" style={{ position: 'absolute', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)', borderRadius: '50%', top: '10%', zIndex: 0, animation: 'pulse 4s infinite alternate ease-in-out' }}></div>}
         <div style={{ zIndex: 1, position: 'relative', maxWidth: '900px' }}>
-          <img src="/logo.png" alt={t('app_name')} style={{ width: '120px', height: '120px', marginBottom: '32px', filter: 'drop-shadow(0 0 20px rgba(59, 130, 246, 0.5))', animation: 'float 6s infinite ease-in-out' }} />
-          <h1 style={{ fontSize: '4.5rem', marginBottom: '24px', fontWeight: '800', background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: '1.1' }}>
+          <img src="/logo.png" alt={t('app_name')} style={{ width: isMobile ? '80px' : '120px', height: isMobile ? '80px' : '120px', marginBottom: isMobile ? '20px' : '32px', filter: 'drop-shadow(0 0 20px rgba(59, 130, 246, 0.5))', animation: 'float 6s infinite ease-in-out' }} />
+          <h1 style={{ fontSize: isMobile ? 'clamp(2rem, 8vw, 3rem)' : '4.5rem', marginBottom: isMobile ? '16px' : '24px', fontWeight: '800', background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: '1.1' }}>
             {t('landing_title')}
           </h1>
-          <p style={{ fontSize: '1.4rem', color: 'var(--text-secondary)', maxWidth: '700px', margin: '0 auto 48px' }}>
+          <p style={{ fontSize: isMobile ? '1rem' : '1.4rem', color: 'var(--text-secondary)', maxWidth: '700px', margin: '0 auto 48px' }}>
             {t('landing_subtitle')}
           </p>
-          <div style={{ display: 'flex', gap: '20px', justifyContent: 'center' }}>
-            <Link to="/login" className="btn btn-primary" style={{ padding: '16px 32px', fontSize: '1.1rem', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link to="/login" className="btn btn-primary" style={{ padding: isMobile ? '12px 24px' : '16px 32px', fontSize: isMobile ? '1rem' : '1.1rem', gap: '10px' }}>
               {t('landing_enter')} <ArrowRight size={20} />
             </Link>
           </div>
         </div>
-        <div className="hero-image-container" style={{ marginTop: '60px', width: '100%', maxWidth: '900px', position: 'relative', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-color)', animation: 'slideUp 1.2s cubic-bezier(0.16, 1, 0.3, 1), floatHero 8s infinite ease-in-out', transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.5s ease, border-color 0.5s ease', cursor: 'pointer', height: '400px' }}>
-          <img src="/hero.png" alt="SaaS Dashboard Interface" style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover', objectPosition: 'top' }} />
-          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '150px', background: 'linear-gradient(to top, var(--bg-color), transparent)' }}></div>
-        </div>
+        {!isMobile && (
+          <div className="hero-image-container" style={{ marginTop: '60px', width: '100%', maxWidth: '900px', position: 'relative', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', border: '1px solid var(--border-color)', animation: 'slideUp 1.2s cubic-bezier(0.16, 1, 0.3, 1), floatHero 8s infinite ease-in-out', transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.5s ease, border-color 0.5s ease', cursor: 'pointer', height: '400px' }}>
+            <img src="/hero.png" alt="SaaS Dashboard Interface" style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover', objectPosition: 'top' }} />
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '150px', background: 'linear-gradient(to top, var(--bg-color), transparent)' }}></div>
+          </div>
+        )}
       </section>
 
-      <section style={{ padding: '100px 20px', maxWidth: '1200px', margin: '0 auto' }}>
-        <h2 style={{ textAlign: 'center', fontSize: '2.5rem', marginBottom: '64px' }}>{t('landing_powering')}</h2>
-        <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+      <section style={{ padding: isMobile ? '40px 16px' : '100px 20px', maxWidth: '1200px', margin: '0 auto' }}>
+        <h2 style={{ textAlign: 'center', fontSize: isMobile ? '1.8rem' : '2.5rem', marginBottom: isMobile ? '32px' : '64px' }}>{t('landing_powering')}</h2>
+        <div className="dashboard-grid" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${isMobile ? '250px' : '300px'}, 1fr))` }}>
           <div className="glass-panel" style={{ textAlign: 'left' }}>
             <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: '12px', borderRadius: '12px', width: 'fit-content', marginBottom: '20px' }}><Zap color="var(--primary-color)" /></div>
             <h3>{t('landing_feature1_title')}</h3>

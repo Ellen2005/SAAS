@@ -230,3 +230,26 @@ input:focus, select:focus, textarea:focus {
   from { transform: translateX(100%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
+
+@media (max-width: 768px) {
+  .navbar {
+    padding: 12px 16px !important;
+  }
+  .nav-links a {
+    padding: 8px 10px !important;
+    margin-left: 0 !important;
+    font-size: 0.85rem !important;
+  }
+  .dashboard-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .glass-panel {
+    padding: 16px !important;
+  }
+  h1 {
+    font-size: 1.4rem !important;
+  }
+  h2 {
+    font-size: 1.2rem !important;
+  }
+}

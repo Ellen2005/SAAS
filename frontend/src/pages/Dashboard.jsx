@@ -12,6 +12,7 @@ import DashboardCustomizer from '../components/DashboardCustomizer';
 import SparklineChart from '../components/SparklineChart';
 import KpiCard from '../components/KpiCard';
 import { useRealTimeData } from '../hooks/useRealTimeData';
+import useIsMobile from '../hooks/useIsMobile';
 
 // Lazy-loaded heavy components (chart renderer, map, forecast)
 const ChartRenderer = lazy(() => import('../components/ChartRenderer'));
@@ -74,7 +75,7 @@ const Dashboard = () => {
   const [executiveData, setExecutiveData] = useState(null);
   const [dateRange, setDateRange] = useState('30'); // days
   const [selectedKpi, setSelectedKpi] = useState(null);
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const isMobile = useIsMobile();
   const [showCustomizer, setShowCustomizer] = useState(false);
   const [dashboardLayout, setDashboardLayout] = useState(null);
   const [regionalData, setRegionalData] = useState([]);
@@ -83,13 +84,7 @@ const Dashboard = () => {
   const intervalRef = useRef(null);
   const mountedRef = useRef(true);
 
-  // Handle responsive layout
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-// Real-time data streaming
+  // Real-time data streaming
   useRealTimeData(user?.id, {
     onData: (data) => {
       if (data.type === 'kpi-update') {
@@ -689,7 +684,7 @@ const Dashboard = () => {
                 : 'No report generated yet'}
             </p>
           </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', overflowX: 'auto' }}>
           <div style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--ea-bg-hover)', borderRadius: 8, border: '1px solid var(--ea-border)' }}>
             {[
               { value: '7', label: '7D' },
@@ -736,7 +731,7 @@ const Dashboard = () => {
         </div>
 
         {/* Tabs */}
-        <div className="ea-tabs" role="tablist" aria-label="Dashboard sections">
+        <div className="ea-tabs" role="tablist" aria-label="Dashboard sections" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           {['overview', 'analytics', 'executive'].map((tab) => (
             <button
               key={tab}

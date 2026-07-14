@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Layers, Plus, Trash2 } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
-import { useToast } from '../components/ToastProvider';
+import useIsMobile from '../hooks/useIsMobile';
 
 const DATA_TYPES = ['currency', 'string', 'date', 'percent', 'integer', 'float'];
 
 const AdminSemantic = () => {
-  const toast = useToast();
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const isMobile = useIsMobile();
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [fields, setFields] = useState([]);
@@ -33,12 +32,6 @@ const AdminSemantic = () => {
   };
 
   useEffect(() => { fetchTemplates(); }, []);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   const handleSelectTemplate = (tpl) => {
     setSelectedTemplate(tpl);
@@ -166,7 +159,7 @@ const AdminSemantic = () => {
 
               {showCreateField && (
                 <div className="glass-panel" style={{ marginBottom: '16px', padding: '16px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                     <input placeholder="Field name (e.g. net_revenue)" value={newField.global_field_name} onChange={e => setNewField({ ...newField, global_field_name: e.target.value })} />
                     <select value={newField.data_type} onChange={e => setNewField({ ...newField, data_type: e.target.value })}>
                       {DATA_TYPES.map(dt => <option key={dt} value={dt}>{dt}</option>)}
@@ -184,7 +177,8 @@ const AdminSemantic = () => {
                 </div>
               )}
 
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '500px' }}>
                 <caption style={{ textAlign: 'left', padding: '8px', fontWeight: 600, fontSize: '0.85rem' }}>Semantic Fields</caption>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
@@ -214,6 +208,7 @@ const AdminSemantic = () => {
                 </tbody>
               </table>
               {fields.length === 0 && <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '12px' }}>No fields defined yet.</p>}
+              </div>
             </>
           ) : (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px', color: 'var(--text-secondary)' }}>

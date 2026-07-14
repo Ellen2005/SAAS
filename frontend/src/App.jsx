@@ -1,10 +1,11 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Shield, Moon, Sun } from 'lucide-react';
+import { LogOut, Shield, Moon, Sun, Menu, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { AuthProvider, useAuth } from './lib/authContext.jsx';
 import { LangProvider, useLang } from './lib/i18n.jsx';
 import { useInactivityTimeout } from './hooks/useInactivityTimeout';
+import useIsMobile from './hooks/useIsMobile';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ToastProvider } from './components/ToastProvider';
 
@@ -82,6 +83,8 @@ function AppShell() {
   const { t } = useLang();
   const navigate = useNavigate();
   useInactivityTimeout(!!user);
+  const isMobile = useIsMobile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('ea-theme');
@@ -89,13 +92,8 @@ function AppShell() {
     return true; // Default dark mode (original blue theme)
   });
 
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  // Close mobile menu on navigation
+  const closeMobileMenu = () => setMobileMenuOpen(false);
 
   // Apply theme class to root element
   useEffect(() => {
@@ -130,6 +128,27 @@ function AppShell() {
     );
   }
 
+  const navLinksContent = (
+    <>
+      {isAdmin && (
+        <NavLink to="/admin" onClick={closeMobileMenu} className={({ isActive }) => isActive ? 'active' : ''} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Shield size={14} /> {t('nav_admin')}
+        </NavLink>
+      )}
+      <NavLink to="/dashboard" onClick={closeMobileMenu} className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_dashboard')}</NavLink>
+      <NavLink to="/reports" onClick={closeMobileMenu} className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_reports')}</NavLink>
+      {isManager && (
+        <>
+          <NavLink to="/analyst" onClick={closeMobileMenu} className={({ isActive }) => isActive ? 'active' : ''}>Analyst</NavLink>
+          <NavLink to="/explorer" onClick={closeMobileMenu} className={({ isActive }) => isActive ? 'active' : ''}>Schema</NavLink>
+          <NavLink to="/query" onClick={closeMobileMenu} className={({ isActive }) => isActive ? 'active' : ''}>Ask your data</NavLink>
+          <NavLink to="/validation" onClick={closeMobileMenu} className={({ isActive }) => isActive ? 'active' : ''}>Validation</NavLink>
+          <NavLink to="/settings" onClick={closeMobileMenu} className={({ isActive }) => isActive ? 'active' : ''}>Settings</NavLink>
+        </>
+      )}
+    </>
+  );
+
   return (
     <Routes>
       <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <Landing />} />
@@ -141,54 +160,80 @@ function AppShell() {
         element={
           !user ? <Navigate to="/login" replace /> : (
             <div className="app-container">
-              <nav className="navbar">
+              <nav className="navbar" style={{ position: 'relative' }}>
                 <div className="brand" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {isMobile && (
+                    <button
+                      onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+                      aria-label="Toggle menu"
+                    >
+                      {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+                    </button>
+                  )}
                   <img src="/logo.png" alt="CNPS" style={{ width: '32px', height: '32px' }} />
                   <h2 style={{ letterSpacing: '-0.05em' }}>{t('app_name')}</h2>
-                  {departmentName && (
+                  {!isMobile && departmentName && (
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', padding: '2px 8px', background: 'rgba(255,255,255,0.05)', borderRadius: '999px' }}>
                       {departmentName}
                     </span>
                   )}
-                  {isAdmin && (
+                  {!isMobile && isAdmin && (
                     <span style={{ fontSize: '0.65rem', color: '#f59e0b', padding: '2px 6px', background: 'rgba(245,158,11,0.15)', borderRadius: '4px', fontWeight: 600 }}>
                       ADMIN
                     </span>
                   )}
                 </div>
-                <div className="nav-links" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px' }}>
-                  {isAdmin && (
-                    <NavLink to="/admin" className={({ isActive }) => isActive ? 'active' : ''} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Shield size={14} /> {t('nav_admin')}
-                    </NavLink>
-                  )}
-                  <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_dashboard')}</NavLink>
-                  <NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}>{t('nav_reports')}</NavLink>
-                  {/* Manager-only features (not shown to admins who have their own admin nav) */}
-                  {isManager && (
-                    <>
-                      <NavLink to="/analyst" className={({ isActive }) => isActive ? 'active' : ''}>
-                        Analyst
-                      </NavLink>
-                      <NavLink to="/explorer" className={({ isActive }) => isActive ? 'active' : ''}>Schema</NavLink>
-                      <NavLink to="/query" className={({ isActive }) => isActive ? 'active' : ''}>Ask your data</NavLink>
-                      <NavLink to="/validation" className={({ isActive }) => isActive ? 'active' : ''}>Validation</NavLink>
-                      <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}>Settings</NavLink>
-                    </>
-                  )}
-                  <button 
-                    onClick={() => setIsDark(!isDark)} 
-                    className="ea-btn ea-btn-ghost ea-btn-sm" 
-                    style={{ marginLeft: '12px' }}
-                    title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-                    aria-label="Toggle theme"
+                {!isMobile && (
+                  <div className="nav-links" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px' }}>
+                    {navLinksContent}
+                    <button
+                      onClick={() => setIsDark(!isDark)}
+                      className="ea-btn ea-btn-ghost ea-btn-sm"
+                      style={{ marginLeft: '12px' }}
+                      title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                      aria-label="Toggle theme"
+                    >
+                      {isDark ? <Sun size={16} /> : <Moon size={16} />}
+                    </button>
+                    <button onClick={handleLogout} className="btn btn-outline" style={{ padding: '8px 12px', marginLeft: '8px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
+                      <LogOut size={14} /> {t('nav_logout')}
+                    </button>
+                  </div>
+                )}
+
+                {/* Mobile slide-out menu */}
+                {isMobile && mobileMenuOpen && (
+                  <div
+                    style={{
+                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+                      background: 'var(--bg-color)', borderBottom: '1px solid var(--border-color)',
+                      padding: '16px', display: 'flex', flexDirection: 'column', gap: '4px',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                    }}
                   >
-                    {isDark ? <Sun size={16} /> : <Moon size={16} />}
-                  </button>
-                  <button onClick={handleLogout} className="btn btn-outline" style={{ padding: '8px 12px', marginLeft: '8px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
-                    <LogOut size={14} /> {t('nav_logout')}
-                  </button>
-                </div>
+                    {departmentName && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', padding: '4px 8px', marginBottom: '8px' }}>
+                        {departmentName} {isAdmin && <span style={{ color: '#f59e0b' }}>· ADMIN</span>}
+                      </span>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      {navLinksContent}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-color)' }}>
+                      <button
+                        onClick={() => setIsDark(!isDark)}
+                        className="ea-btn ea-btn-ghost ea-btn-sm"
+                        style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                      >
+                        {isDark ? <Sun size={16} /> : <Moon size={16} />} {isDark ? 'Light' : 'Dark'}
+                      </button>
+                      <button onClick={handleLogout} className="btn btn-outline" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 12px', fontSize: '0.85rem' }}>
+                        <LogOut size={14} /> {t('nav_logout')}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </nav>
 
               <main style={{ padding: isMobile ? '16px' : '32px', maxWidth: '1440px', margin: '0 auto' }}>

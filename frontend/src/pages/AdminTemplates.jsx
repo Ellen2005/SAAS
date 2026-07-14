@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Boxes, Plus, Save, Send } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
+import useIsMobile from '../hooks/useIsMobile';
 
 const EMPTY_TEMPLATE = {
   name: '',
@@ -17,6 +18,7 @@ const EMPTY_TEMPLATE = {
 
 const AdminTemplates = () => {
   const toast = useToast();
+  const isMobile = useIsMobile();
   const [templates, setTemplates] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
@@ -97,7 +99,7 @@ const AdminTemplates = () => {
 
       <section className="glass-panel">
         <h2 style={{ marginBottom: '16px' }}>Deploy Existing Template</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '12px', alignItems: 'end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr auto', gap: '12px', alignItems: 'end' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label>Template</label>
             <select value={selectedTemplateId} onChange={(event) => setSelectedTemplateId(event.target.value)}>
@@ -127,7 +129,7 @@ const AdminTemplates = () => {
           <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Standard Department Instance" />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
           <div className="form-group">
             <label>Default Frequency</label>
             <select

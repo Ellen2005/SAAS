@@ -65,8 +65,8 @@ const AdminUsers = () => {
         <p style={{ color: 'var(--text-secondary)' }}>Assign roles and departments to users across the system.</p>
       </header>
 
-      <div className="glass-panel">
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="glass-panel" style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
           <caption style={{ textAlign: 'left', padding: '12px', fontWeight: 600, fontSize: '0.9rem' }}>System Users</caption>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border-color)' }}>

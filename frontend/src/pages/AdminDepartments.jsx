@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Building2, Plus, Trash2, RefreshCcw, Clock, Users, Edit3, Grid3x3 } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
+import useIsMobile from '../hooks/useIsMobile';
 
 const AdminDepartments = () => {
   const toast = useToast();
+  const isMobile = useIsMobile();
   const [departments, setDepartments] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +90,7 @@ const AdminDepartments = () => {
 
   return (
     <div>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <Building2 color="var(--primary-color)" /> Department Management
@@ -104,7 +106,7 @@ const AdminDepartments = () => {
       {showCreate && (
         <div className="glass-panel" style={{ marginBottom: '24px' }}>
           <h3 style={{ marginBottom: '16px' }}>Create Department</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
             <div className="form-group">
               <label>Name</label>
               <input value={newDept.name} onChange={e => setNewDept({ ...newDept, name: e.target.value })} placeholder="e.g. Sales" />
@@ -179,7 +181,7 @@ const AdminDepartments = () => {
       {/* Department Table */}
       <div style={{ display: 'grid', gap: '16px' }}>
         {departments.map(dept => (
-          <div key={dept.id} className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div key={dept.id} className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
             <div>
               <h3 style={{ fontSize: '1rem', marginBottom: '4px' }}>{dept.name}</h3>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{dept.description || 'No description'}</p>
@@ -203,7 +205,7 @@ const AdminDepartments = () => {
                 )}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button className="btn btn-outline" onClick={() => { setShowEdit(dept.id); setEditDept({ template_id: dept.template_id || '' }); }} style={{ padding: '8px', fontSize: '0.8rem' }} title="Assign Semantic Template">
                 <Grid3x3 size={16} />
               </button>

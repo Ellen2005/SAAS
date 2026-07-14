@@ -81,8 +81,8 @@ export default function AssistantBot() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  const width = expanded ? 480 : 360;
-  const height = expanded ? 600 : 440;
+  const width = Math.min(expanded ? 480 : 360, typeof window !== 'undefined' ? window.innerWidth - 40 : 360);
+  const height = Math.min(expanded ? 600 : 440, typeof window !== 'undefined' ? window.innerHeight - 120 : 440);
 
   return (
     <>
