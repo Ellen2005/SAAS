@@ -132,6 +132,12 @@ ANOMALIES:
 REPORT STRUCTURE:
 {structure_instruction}
 
+METHODOLOGY & FORMULAS:
+For each KPI discussed in the report, include the calculation methodology:
+- Show the formula used (e.g., "Total Contributions = SUM(contribution_amount) WHERE period = 'current'")
+- Explain how percentage changes are calculated (DoD = (current - previous) / previous × 100)
+- Describe how anomaly detection status thresholds are determined (NORMAL: within 1.5 std dev, WARNING: z-score > 1.5, CRITICAL: z-score > 2.5)
+
 CRITICAL RULES:
 - Use actual numbers from the data above. Do not use placeholders.
 - Do not use asterisks, bold markers, or any markdown formatting.

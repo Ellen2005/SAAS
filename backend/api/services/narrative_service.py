@@ -113,7 +113,13 @@ Generate a PROFESSIONAL STRUCTURED REPORT with ALL of the following sections in 
    - Describe trends, compare to previous period where possible
    - Highlight any KPI that is above or below target
 
-4. ANOMALIES & ALERTS
+5. METHODOLOGY & FORMULAS
+   For each KPI mentioned above, include the calculation methodology:
+   - Show the formula used (e.g., "Total Contributions = SUM(contribution_amount) WHERE period = 'current'")
+   - Explain what DoD and WoW percentages measure
+   - Describe how anomaly detection status thresholds are determined (NORMAL: within 1.5 std dev, WARNING: z-score > 1.5, CRITICAL: z-score > 2.5)
+
+6. ANOMALIES & ALERTS
 {anomaly_text}
    - Explain the business implication of each anomaly
    - Suggest investigation steps
