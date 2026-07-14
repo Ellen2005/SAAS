@@ -408,18 +408,22 @@ def send_automated_briefing(
             print(f"[{datetime.now().isoformat()}] Email failed for {email}: {e}")
             results.append({"email": email, "type": "digest", "status": "failed", "error": str(e)})
 
+    from html import escape as _html_escape
     for anomaly in critical_anomalies:
         for email in recipients:
             sc = "#ef4444"
+            kpi_name = _html_escape(anomaly.get('kpi_name', '').replace('_', ' ').title())
+            reason = _html_escape(anomaly.get('context', {}).get('reason', 'Requires immediate investigation.'))
+            deviation = anomaly.get('deviation', 0)
             alert_html = f"""<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;background:#f3f4f6;padding:20px;">
             <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
               <div style="background:{sc};padding:24px 32px;">
                 <h1 style="margin:0;color:#fff;font-size:1.2rem;">&#128680; CRITICAL Anomaly Alert{dept_subject}</h1>
               </div>
               <div style="padding:24px 32px;">
-                <p><strong>{anomaly.get('kpi_name','').replace('_',' ').title()}</strong> has triggered a critical anomaly.</p>
-                <p style="color:#6b7280;">{anomaly.get('context',{}).get('reason','Requires immediate investigation.')}</p>
-                <p>Deviation: <strong>{anomaly.get('deviation',0):.1f}&#963;</strong></p>
+                <p><strong>{kpi_name}</strong> has triggered a critical anomaly.</p>
+                <p style="color:#6b7280;">{reason}</p>
+                <p>Deviation: <strong>{deviation:.1f}&#963;</strong></p>
                 <a href="{FRONTEND_URL}/dashboard" style="display:inline-block;background:{sc};color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:12px;">View Dashboard &#8594;</a>
               </div>
               <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:0.75rem;color:#9ca3af;">
