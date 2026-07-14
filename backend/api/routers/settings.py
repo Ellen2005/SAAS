@@ -111,9 +111,9 @@ def test_db_connection(connection_data: dict, context: dict = Depends(require_ro
     except Exception as e:
         import traceback
         err_msg = str(e)
+        err_lower = err_msg.lower()
         logger.error("test-connection failed", exc_info=True)
-        # Sanitize error message to prevent leaking sensitive details
-        safe_err = "Database connection failed. Please check your connection details."
+        # Provide specific, actionable error messages
         if "ORA-01109" in err_msg:
             safe_err = (
                 "Connection failed: Oracle PDB is not OPEN. "
@@ -121,6 +121,26 @@ def test_db_connection(connection_data: dict, context: dict = Depends(require_ro
                 "  ALTER PLUGGABLE DATABASE ORCLPDB OPEN;\n"
                 "  ALTER PLUGGABLE DATABASE ORCLPDB SAVE STATE;"
             )
+        elif any(kw in err_lower for kw in ("connection refused", "errno 111", "dpy-6005")):
+            host = enriched.get("host", "unknown")
+            safe_err = (
+                f"Connection refused by {host}. The database server is not reachable from the cloud. "
+                f"Possible fixes:\n"
+                f"  1. Ensure the database is running and listening on port {enriched.get('port', 'default')}\n"
+                f"  2. Check firewall rules — the server must accept connections from external IPs\n"
+                f"  3. If this is a local database, use an SSH tunnel or connect to a cloud database instead"
+            )
+        elif any(kw in err_lower for kw in ("timeout", "timed out", "connect timeout")):
+            safe_err = (
+                "Connection timed out. The database server took too long to respond. "
+                "Check that the host and port are correct, and that no firewall is blocking the connection."
+            )
+        elif "authentication failed" in err_lower or "password authentication" in err_lower or "invalid credentials" in err_lower:
+            safe_err = "Authentication failed. Please check your username and password."
+        elif "does not exist" in err_lower and "database" in err_lower:
+            safe_err = f"Database '{enriched.get('db_name', 'unknown')}' does not exist on the server."
+        else:
+            safe_err = f"Database connection failed: {err_msg[:200]}"
         return {"status": "error", "message": safe_err}
     finally:
         if engine is not None:
