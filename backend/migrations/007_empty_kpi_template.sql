@@ -1,6 +1,9 @@
 -- Empty default KPI template: admin defines metrics in Semantic Layer.
 -- Auto-discovery runs when no admin KPI fields exist.
 
+-- Ensure industry column exists (needed by statements below)
+ALTER TABLE public.semantic_templates ADD COLUMN IF NOT EXISTS industry TEXT DEFAULT 'general';
+
 DELETE FROM public.field_mappings
 WHERE template_field_id IN (
   SELECT id FROM public.semantic_fields

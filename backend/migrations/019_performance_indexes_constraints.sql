@@ -1,25 +1,17 @@
 -- Migration 019: Performance indexes and constraints
 -- Adds missing indexes, unique constraints, and performance optimizations
-BEGIN;
 
 -- 1. Add unique constraint on daily_reports (user_id, report_date) to prevent duplicates
 ALTER TABLE daily_reports
     ADD CONSTRAINT unique_daily_report_user_date UNIQUE (user_id, report_date);
 
 -- 2. Add indexes on high-cardinality query columns
--- kpi_results: main dashboard queries filter by user_id + recorded_at
 CREATE INDEX IF NOT EXISTS idx_kpi_results_user_recorded ON kpi_results (user_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_kpi_results_dept_recorded ON kpi_results (department_id, recorded_at DESC);
-
--- anomaly_records: dashboard queries filter by user_id + detected_at
 CREATE INDEX IF NOT EXISTS idx_anomaly_records_user_detected ON anomaly_records (user_id, detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_anomaly_records_dept_detected ON anomaly_records (department_id, detected_at DESC);
-
--- validation_logs: queries filter by user_id + created_at
 CREATE INDEX IF NOT EXISTS idx_validation_logs_user_created ON validation_logs (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_validation_logs_dept_created ON validation_logs (department_id, created_at DESC);
-
--- source_lineage_records: lineage queries by batch_source_id + kpi_name
 CREATE INDEX IF NOT EXISTS idx_source_lineage_batch_kpi ON source_lineage_records (batch_source_id, kpi_name);
 CREATE INDEX IF NOT EXISTS idx_source_lineage_user_kpi ON source_lineage_records (user_id, kpi_name);
 
@@ -29,7 +21,7 @@ ALTER TABLE user_roles
     ADD CONSTRAINT user_roles_department_id_fkey
         FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL;
 
--- 4. Fix RLS on kpi_results - allow users to see own records OR records in their department
+-- 4. Fix RLS on kpi_results
 DROP POLICY IF EXISTS kpi_results_dept_select ON public.kpi_results;
 DROP POLICY IF EXISTS kpi_results_dept_insert ON public.kpi_results;
 
@@ -77,7 +69,7 @@ CREATE POLICY daily_reports_dept_insert ON public.daily_reports
         OR department_id IN (SELECT department_id FROM public.user_roles WHERE user_id = auth.uid())
     );
 
--- 5. Add RLS to combined_reports (was missing)
+-- 5. Add RLS to combined_reports
 ALTER TABLE combined_reports ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY combined_reports_admin ON public.combined_reports
@@ -96,5 +88,3 @@ CREATE INDEX IF NOT EXISTS idx_kpi_forecasts_user_date ON kpi_forecasts (user_id
 
 -- 9. Add index on analysis_runs for history queries
 CREATE INDEX IF NOT EXISTS idx_analysis_runs_user_created ON analysis_runs (user_id, created_at DESC);
-
-COMMIT;
