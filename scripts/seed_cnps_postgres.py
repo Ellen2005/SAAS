@@ -343,6 +343,10 @@ def generate_data(conn, months=MONTHS):
                    ["employee_id", "first_name", "last_name", "employer_id", "hire_date", "status", "gender", "birth_date"],
                    workers)
 
+    # Fetch back the integer PKs assigned to each worker
+    cur.execute("SELECT id, employee_id FROM insured_workers")
+    worker_pk_map = {row[1]: row[0] for row in cur.fetchall()}
+
     print("Generating 1200 beneficiaries...")
     active_workers = [w for w in workers if w[5] == "active"]
     beneficiaries = []
@@ -351,7 +355,9 @@ def generate_data(conn, months=MONTHS):
         ben_id = f"BEN-{5000 + i}"
         relationship = random.choice(["spouse", "survivor", "retiree", "child", "disabled"])
         pstart = rand_date(start, today)
-        beneficiaries.append((ben_id, w[0], relationship, pstart, "active"))
+        worker_pk = worker_pk_map.get(w[0])
+        if worker_pk:
+            beneficiaries.append((ben_id, worker_pk, relationship, pstart, "active"))
 
     chunked_insert(cur, "beneficiaries",
                    ["beneficiary_id", "insured_worker_id", "relationship", "pension_start_date", "status"],
