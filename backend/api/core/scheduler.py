@@ -1,12 +1,10 @@
+import os
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+from apscheduler.jobstores.memory import MemoryJobStore
 from ..services.etl_service import run_user_etl_pipeline
 
 logger = logging.getLogger(__name__)
-
-# Global scheduler instance
-scheduler = BackgroundScheduler()
 
 # Track recently triggered users to avoid duplicate ETL runs within a short window
 _recently_triggered: dict[str, float] = {}  # user_id -> timestamp of last trigger
@@ -133,6 +131,43 @@ def process_scheduled_etl():
                                 logger.error(f"Dept heartbeat ETL fail for {uid}: {e}")
     except Exception as e:
         logger.warning(f"Department heartbeat check failed: {e}")
+
+
+def _create_scheduler() -> BackgroundScheduler:
+    """Create scheduler with Redis job store if available, otherwise in-memory."""
+    redis_url = os.getenv("REDIS_URL")
+    jobstores = {}
+    executors = {"default": {"type": "threadpool", "max_workers": 1}}
+
+    if redis_url:
+        try:
+            from urllib.parse import urlparse
+            from apscheduler.jobstores.redis import RedisJobStore
+            parsed = urlparse(redis_url)
+            redis_kwargs = {
+                "host": parsed.hostname or "localhost",
+                "port": parsed.port or 6379,
+                "db": int(parsed.path.lstrip("/") or "0"),
+            }
+            if parsed.password:
+                redis_kwargs["password"] = parsed.password
+            jobstores["default"] = RedisJobStore(**redis_kwargs)
+            logger.info("Scheduler using Redis job store for multi-worker safety.")
+        except ImportError:
+            logger.warning("apscheduler[redis] not installed, using in-memory job store.")
+            jobstores["default"] = MemoryJobStore()
+        except Exception as e:
+            logger.warning(f"Redis job store failed ({e}), falling back to in-memory.")
+            jobstores["default"] = MemoryJobStore()
+    else:
+        jobstores["default"] = MemoryJobStore()
+        logger.info("Scheduler using in-memory job store (single-worker mode).")
+
+    return BackgroundScheduler(jobstores=jobstores, executors=executors)
+
+
+# Global scheduler instance
+scheduler = _create_scheduler()
 
 
 def start_scheduler():

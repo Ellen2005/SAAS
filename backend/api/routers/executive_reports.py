@@ -8,6 +8,8 @@ Enterprise-grade reports for CNPS leadership:
 """
 
 import logging
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -72,24 +74,48 @@ def _build_anomaly_data(user_id: str, supabase, limit: int = 20) -> list:
     ]
 
 
-def _build_regional_data(supabase) -> list:
-    """Build regional performance data using real validation pass rates."""
-    depts = safe_data(
-        supabase.table("departments").select("*").order("created_at").execute()
-    )
-    regions = []
-    for dept in depts:
-        dept_id = dept["id"]
+def _build_regional_data(supabase, *, departments=None, kpi_rows=None, validation_rows=None) -> list:
+    """Build regional performance data using real validation pass rates.
 
-        kpis = safe_data(
+    Accepts optional pre-fetched data to avoid redundant queries when called
+    alongside ``_build_department_performance``.
+    """
+    if departments is None:
+        departments = safe_data(
+            supabase.table("departments").select("*").order("created_at").execute()
+        )
+    if kpi_rows is None:
+        kpi_rows = safe_data(
             supabase.table("kpi_results")
-            .select("kpi_name, value")
-            .eq("department_id", dept_id)
+            .select("kpi_name, value, department_id")
             .order("recorded_at", desc=True)
-            .limit(20)
+            .execute()
+        )
+    if validation_rows is None:
+        validation_rows = safe_data(
+            supabase.table("validation_logs")
+            .select("status, department_id")
+            .order("created_at", desc=True)
             .execute()
         )
 
+    dept_kpis = defaultdict(list)
+    for r in kpi_rows:
+        did = r.get("department_id")
+        if len(dept_kpis[did]) < 20:
+            dept_kpis[did].append(r)
+
+    dept_validations = defaultdict(list)
+    for r in validation_rows:
+        did = r.get("department_id")
+        if len(dept_validations[did]) < 30:
+            dept_validations[did].append(r)
+
+    regions = []
+    for dept in departments:
+        dept_id = dept["id"]
+
+        kpis = dept_kpis.get(dept_id, [])
         contributions = 0.0
         pensions = 0.0
         claims = 0
@@ -103,15 +129,7 @@ def _build_regional_data(supabase) -> list:
             elif "claim" in name or "accident" in name or "at/mp" in name or "sinistre" in name:
                 claims += int(val)
 
-        # Collection rate = validation pass rate for this department (real data)
-        val_logs = safe_data(
-            supabase.table("validation_logs")
-            .select("status")
-            .eq("department_id", dept_id)
-            .order("created_at", desc=True)
-            .limit(30)
-            .execute()
-        )
+        val_logs = dept_validations.get(dept_id, [])
         total_checks = len(val_logs)
         passed_checks = sum(1 for v in val_logs if v.get("status") == "pass")
         collection_rate = round(passed_checks / total_checks * 100, 1) if total_checks > 0 else 0.0
@@ -135,35 +153,53 @@ def _build_regional_data(supabase) -> list:
     return regions
 
 
-def _build_department_performance(supabase) -> list:
-    """KPI score = % of KPIs with NORMAL status. Validation rate = pass rate from logs."""
-    depts = safe_data(
-        supabase.table("departments").select("*").order("created_at").execute()
-    )
-    performance = []
-    for dept in depts:
-        dept_id = dept["id"]
+def _build_department_performance(supabase, *, departments=None, kpi_rows=None, validation_rows=None) -> list:
+    """KPI score = % of KPIs with NORMAL status. Validation rate = pass rate from logs.
 
-        val_logs = safe_data(
-            supabase.table("validation_logs")
-            .select("status")
-            .eq("department_id", dept_id)
-            .order("created_at", desc=True)
-            .limit(20)
+    Accepts optional pre-fetched data to avoid redundant queries when called
+    alongside ``_build_regional_data``.
+    """
+    if departments is None:
+        departments = safe_data(
+            supabase.table("departments").select("*").order("created_at").execute()
+        )
+    if kpi_rows is None:
+        kpi_rows = safe_data(
+            supabase.table("kpi_results")
+            .select("status, recorded_at, department_id")
+            .order("recorded_at", desc=True)
             .execute()
         )
+    if validation_rows is None:
+        validation_rows = safe_data(
+            supabase.table("validation_logs")
+            .select("status, department_id")
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+    dept_kpis = defaultdict(list)
+    for r in kpi_rows:
+        did = r.get("department_id")
+        if len(dept_kpis[did]) < 20:
+            dept_kpis[did].append(r)
+
+    dept_validations = defaultdict(list)
+    for r in validation_rows:
+        did = r.get("department_id")
+        if len(dept_validations[did]) < 20:
+            dept_validations[did].append(r)
+
+    performance = []
+    for dept in departments:
+        dept_id = dept["id"]
+
+        val_logs = dept_validations.get(dept_id, [])
         total_val = len(val_logs)
         passes = sum(1 for v in val_logs if v.get("status") == "pass")
         validation_rate = round(passes / total_val * 100, 1) if total_val > 0 else 0.0
 
-        kpis = safe_data(
-            supabase.table("kpi_results")
-            .select("status, recorded_at")
-            .eq("department_id", dept_id)
-            .order("recorded_at", desc=True)
-            .limit(20)
-            .execute()
-        )
+        kpis = dept_kpis.get(dept_id, [])
         total_kpis = len(kpis)
         normal_kpis = sum(1 for k in kpis if k.get("status") == "NORMAL")
         kpi_score = round(normal_kpis / total_kpis * 100, 1) if total_kpis > 0 else 0.0
@@ -313,8 +349,34 @@ def get_dg_report(
 
     kpis = _build_kpi_data(user_id, supabase)
     anomalies = _build_anomaly_data(user_id, supabase)
-    regional_data = _build_regional_data(supabase)
-    dept_performance = _build_department_performance(supabase)
+
+    def _fetch_depts():
+        return safe_data(supabase.table("departments").select("*").order("created_at").execute())
+
+    def _fetch_kpis():
+        return safe_data(
+            supabase.table("kpi_results")
+            .select("kpi_name, value, status, recorded_at, department_id")
+            .order("recorded_at", desc=True)
+            .execute()
+        )
+
+    def _fetch_validations():
+        return safe_data(
+            supabase.table("validation_logs")
+            .select("status, department_id")
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        departments, all_kpi_rows, all_val_rows = list(pool.map(lambda fn: fn(), [_fetch_depts, _fetch_kpis, _fetch_validations]))
+
+    regional_kpis = [{"kpi_name": r.get("kpi_name"), "value": r.get("value"), "department_id": r.get("department_id")} for r in all_kpi_rows]
+    dept_kpis = [{"status": r.get("status"), "recorded_at": r.get("recorded_at"), "department_id": r.get("department_id")} for r in all_kpi_rows]
+
+    regional_data = _build_regional_data(supabase, departments=departments, kpi_rows=regional_kpis, validation_rows=all_val_rows)
+    dept_performance = _build_department_performance(supabase, departments=departments, kpi_rows=dept_kpis, validation_rows=all_val_rows)
     recommendations = _build_recommendations(kpis, anomalies)
     risks = _build_risks(anomalies)
     executive_summary = _generate_executive_summary(user_id, supabase, kpis, anomalies)

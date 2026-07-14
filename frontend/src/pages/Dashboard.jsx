@@ -80,7 +80,6 @@ const Dashboard = () => {
   const [regionalData, setRegionalData] = useState([]);
   
   // Refs for cleanup and closure safety
-  const fetchDataRef = useRef(null);
   const intervalRef = useRef(null);
   const mountedRef = useRef(true);
 
@@ -328,7 +327,7 @@ const Dashboard = () => {
 
   // ── Generate Report handler ──────────────────────────────────
   const handleGenerateReport = useCallback(() => {
-    if (reporting || !fetchDataRef.current) return;
+    if (reporting) return;
     setReporting(true);
     setStatusMessage('Generating report...');
     

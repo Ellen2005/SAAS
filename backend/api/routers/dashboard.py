@@ -7,6 +7,7 @@ from ..services.cache_service import get_cached, set_cached
 from ..core.constants import LEGACY_DEMO_KPI_NAMES, is_legacy_demo_kpi as _is_legacy_demo_kpi, is_legacy_demo_report as _is_legacy_demo_report
 import os
 import logging
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
@@ -230,23 +231,81 @@ def get_dashboard_widgets(user_id: str = Depends(resolve_user_id)):
 
 @router.get("/dashboard/regional")
 def get_regional_data(user_id: str = Depends(resolve_user_id)):
-    """Return per-region KPI values derived from kpi_results.
-    Looks for KPI names that contain known CNPS region keywords, or falls back
-    to grouping the latest KPI values by name and assigning them to regions."""
-    REGION_KEYWORDS = {
-        "douala": "Douala",
-        "yaounde": "Yaoundé",
-        "yaounde": "Yaoundé",
-        "bafoussam": "Bafoussam",
-        "garoua": "Garoua",
-        "maroua": "Maroua",
-        "bamenda": "Bamenda",
-        "ebolowa": "Ebolowa",
-        "bertoua": "Bertoua",
-        "nanga": "Nanga-Eboko",
-        "buea": "Buea",
+    """Return per-region KPI values.
+
+    Strategy:
+    1. Try querying the user's source database directly for regional breakdowns
+       (contribution_amount SUM grouped by regional_code).
+    2. Fall back to kpi_results if source query fails or has no regional data.
+    3. Fall back to proxy mapping only as a last resort.
+    """
+    REGION_LABELS = {
+        "DLA": "Douala", "douala": "Douala",
+        "YDE": "Yaoundé", "yaounde": "Yaoundé", "yaoundé": "Yaoundé",
+        "BFS": "Bafoussam", "bafoussam": "Bafoussam",
+        "GAR": "Garoua", "garoua": "Garoua",
+        "MRT": "Maroua", "maroua": "Maroua",
+        "BAM": "Bamenda", "bamenda": "Bamenda",
+        "EBO": "Ebolowa", "ebolowa": "Ebolowa",
+        "BTA": "Bertoua", "bertoua": "Bertoua",
+        "NEB": "Nanga-Eboko", "nanga": "Nanga-Eboko", "nanga-eboko": "Nanga-Eboko",
+        "BUE": "Buea", "buea": "Buea",
     }
     supabase = get_supabase()
+
+    # ── Strategy 1: query source database for regional breakdown ──
+    try:
+        from ..services.connection_crypto import maybe_decrypt_connection_row
+        from ..services.connection_utils import normalize_credentials, sqlalchemy_engine_kwargs, detect_db_type
+        from sqlalchemy import create_engine, text as _sql_text
+        import pandas as pd
+
+        conn_resp = supabase.table("database_connections").select("*").eq("user_id", user_id).limit(1).execute()
+        conn_rows = conn_resp.data if hasattr(conn_resp, "data") and conn_resp.data else []
+        if conn_rows:
+            conn_info = maybe_decrypt_connection_row(conn_rows[0])
+            db_url = conn_info.get("credentials")
+            if db_url:
+                db_type = (conn_info.get("db_type") or detect_db_type(db_url)).lower()
+                engine = create_engine(
+                    normalize_credentials(db_url, db_type),
+                    **sqlalchemy_engine_kwargs(db_url, db_type),
+                )
+                # Try contributions table first, then workplace_accidents
+                regional_queries = [
+                    (
+                        "SELECT regional_code AS region_id, SUM(contribution_amount) AS value "
+                        "FROM contributions GROUP BY regional_code ORDER BY value DESC LIMIT 20"
+                    ),
+                    (
+                        "SELECT regional_code AS region_id, COUNT(*) AS value "
+                        "FROM workplace_accidents GROUP BY regional_code ORDER BY value DESC LIMIT 20"
+                    ),
+                ]
+                for sql in regional_queries:
+                    try:
+                        with engine.connect() as conn:
+                            df = pd.read_sql(_sql_text(sql), conn)
+                        if not df.empty and "region_id" in df.columns:
+                            regions = []
+                            for _, row in df.iterrows():
+                                rid = str(row.get("region_id") or "").strip()
+                                if not rid:
+                                    continue
+                                regions.append({
+                                    "region_id": rid,
+                                    "region_name": REGION_LABELS.get(rid, rid.title()),
+                                    "value": float(row.get("value") or 0),
+                                    "kpi_name": "regional_breakdown",
+                                })
+                            if regions:
+                                return {"regions": regions, "source": "database"}
+                    except Exception:
+                        continue
+    except Exception as e:
+        logger.debug(f"Source DB regional query failed, falling back to kpi_results: {e}")
+
+    # ── Strategy 2: derive from kpi_results with region keywords ──
     try:
         rows = safe_data(
             supabase.table("kpi_results")
@@ -256,12 +315,11 @@ def get_regional_data(user_id: str = Depends(resolve_user_id)):
             .limit(200)
             .execute()
         )
-        # First pass: look for KPI names that contain region keywords
         region_map = {}
         for row in rows:
             name_lower = (row.get("kpi_name") or "").lower()
-            for keyword, label in REGION_KEYWORDS.items():
-                if keyword in name_lower and keyword not in region_map:
+            for keyword, label in REGION_LABELS.items():
+                if len(keyword) >= 3 and keyword in name_lower and keyword not in region_map:
                     region_map[keyword] = {
                         "region_id": keyword,
                         "region_name": label,
@@ -269,53 +327,43 @@ def get_regional_data(user_id: str = Depends(resolve_user_id)):
                         "kpi_name": row.get("kpi_name"),
                     }
                     break
+        if region_map:
+            return {"regions": list(region_map.values()), "source": "kpi_results"}
+    except Exception as e:
+        logger.debug(f"kpi_results regional fallback failed: {e}")
 
-        # Second pass: if no region-named KPIs found, use latest unique KPIs
-        # and assign them to regions by index (labelled clearly)
-        if not region_map:
-            seen = {}
-            for row in rows:
-                name = row.get("kpi_name") or ""
-                if _is_legacy_demo_kpi(row) or name in seen:
-                    continue
-                seen[name] = float(row.get("value") or 0)
-
-            region_ids = list(REGION_KEYWORDS.keys())
-            region_labels = list(REGION_KEYWORDS.values())
-            for i, (name, value) in enumerate(list(seen.items())[:10]):
-                rid = region_ids[i % len(region_ids)]
-                region_map[f"{rid}_{i}"] = {
-                    "region_id": rid,
-                    "region_name": region_labels[i % len(region_labels)],
-                    "value": value,
-                    "kpi_name": name,
-                    "is_kpi_proxy": True,
-                }
-
-        return {"regions": list(region_map.values()), "source": "kpi_results"}
-    except Exception:
-        logger.error("Regional data error", exc_info=True)
-        return {"regions": [], "error": "Failed to fetch regional data."}
+    return {"regions": [], "source": "none"}
 
 
 @router.get("/forecasts")
-def get_forecasts(user_id: str = Depends(resolve_user_id), days: int = None):
+def get_forecasts(user_id: str = Depends(resolve_user_id)):
+    """Return latest forecasts for the user. Only show forecasts generated
+    within the last 7 days (fresher data)."""
     supabase = get_supabase()
     try:
-        query = (
+        cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+        rows = (
             supabase.table("kpi_forecasts")
             .select("*")
             .eq("user_id", user_id)
+            .gte("generated_at", cutoff)
             .order("forecast_date")
+            .execute()
         )
-        
-        if days and days > 0:
-            from datetime import datetime, timedelta
-            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
-            query = query.gte("forecast_date", cutoff_date)
-        
-        rows = query.execute()
         raw = rows.data if hasattr(rows, "data") and rows.data else []
+
+        # If no recent forecasts, try showing all (user may not have run ETL recently)
+        if not raw:
+            rows = (
+                supabase.table("kpi_forecasts")
+                .select("*")
+                .eq("user_id", user_id)
+                .order("forecast_date")
+                .limit(50)
+                .execute()
+            )
+            raw = rows.data if hasattr(rows, "data") and rows.data else []
+
         filtered = [
             r
             for r in raw
@@ -327,12 +375,12 @@ def get_forecasts(user_id: str = Depends(resolve_user_id), days: int = None):
         for f in filtered:
             forecasts.append(
                 {
-                    **f,
                     "kpi_name": f.get("kpi_name"),
                     "forecast_date": f.get("forecast_date"),
                     "predicted_value": f.get("predicted_value"),
                     "lower_bound": f.get("lower_bound"),
                     "upper_bound": f.get("upper_bound"),
+                    "generated_at": f.get("generated_at"),
                 }
             )
 

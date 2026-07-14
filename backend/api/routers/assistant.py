@@ -135,7 +135,7 @@ def assistant_chat(
             reply = result.choices[0].message.content
         except Exception as e:
             logger.debug(f"AIOrchestrator failed, falling back to direct Groq: {e}")
-            completion = execute_llm_sync(
+            completion = execute_groq_completion(
                 messages=messages,
                 temperature=0.4,
                 max_tokens=400,
