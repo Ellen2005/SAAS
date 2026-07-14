@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from ..core.auth import require_role
+from ..core.auth import require_role, resolve_user_id
 from ..core.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
@@ -215,13 +215,11 @@ async def rollback_prompt(
 @router.post("/feedback")
 async def submit_feedback(
     body: FeedbackSubmit,
-    request: Request,
+    user_id: str = Depends(resolve_user_id),
 ):
     """Submit feedback on an AI response (any authenticated user)."""
     from ..services.ai_feedback import AIFeedbackLoop
-    from ..core.auth import resolve_user_id
     db = _get_db()
-    user_id = resolve_user_id(request)
     fb = AIFeedbackLoop(db)
     result = await fb.submit_feedback(
         request_id=body.request_id,

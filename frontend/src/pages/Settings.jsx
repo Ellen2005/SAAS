@@ -93,32 +93,23 @@ const Settings = () => {
       if (!user) return;
 
       try {
-        // Batch all database queries in parallel instead of sequential
-        const [connResp, recResp, preferenceData, semanticData, mappingValidation] = await Promise.all([
-          supabase.from('database_connections').select('*').eq('user_id', user.id).maybeSingle(),
-          supabase.from('notification_recipients').select('email').eq('user_id', user.id),
+        // Batch all database queries in parallel via backend API
+        const [connData, recData, preferenceData, semanticData, mappingValidation] = await Promise.all([
+          apiJson('/api/settings/connection'),
+          apiJson('/api/settings/recipients'),
           apiJson('/api/settings/preferences'),
           apiJson('/api/semantic/my-template'),
           apiJson('/api/semantic/mappings/validate'),
         ]);
 
-        const connectionData = connResp.data;
-        const recipientData = recResp.data;
-
-        if (connectionData) {
-          setDbType(connectionData.db_type || 'postgresql');
-          setHost(connectionData.host || '');
-          setPort(String(connectionData.port || '5432'));
-          setDbName(connectionData.db_name || '');
-          setDirectUri(connectionData.credentials || '');
-          setConnectionMethod(connectionData.connection_method || 'direct');
-          setConnectionOptions({ ...DEFAULT_CONNECTION_OPTIONS, ...(connectionData.connection_options || {}) });
-          if (connectionData.db_user) {
-            setDbUser(connectionData.db_user);
-          }
-          if (connectionData.db_password) {
-            setDbPass(connectionData.db_password);
-          }
+        if (connData.connected) {
+          setDbType(connData.db_type || 'postgresql');
+          setHost(connData.host || '');
+          setPort(String(connData.port || '5432'));
+          setDbName(connData.db_name || '');
+          setDirectUri(connData.credentials || '');
+          setConnectionMethod(connData.connection_method || 'direct');
+          setConnectionOptions({ ...DEFAULT_CONNECTION_OPTIONS, ...(connData.connection_options || {}) });
         }
 
         setAiTone(preferenceData.ai_tone || 'insight-driven');
@@ -126,7 +117,7 @@ const Settings = () => {
         setSyncFreq(preferenceData.sync_frequency || 'weekly');
         setYearlyDate(preferenceData.yearly_date || '01-01');
         setAnalysisInstruction(preferenceData.analysis_instruction || '');
-        setRecipients((recipientData || []).map((row) => row.email).join('\n'));
+        setRecipients((recData.recipients || []).join('\n'));
         setTemplateData(semanticData);
         setMappingStatus(mappingValidation);
 
@@ -248,17 +239,15 @@ const Settings = () => {
         }),
       });
 
-      await supabase.from('notification_recipients').delete().eq('user_id', user.id);
       const emails = recipients
         .split('\n')
         .map((email) => email.trim())
         .filter((email) => email.includes('@'));
 
-      if (emails.length > 0) {
-        await supabase.from('notification_recipients').insert(
-          emails.map((email) => ({ user_id: user.id, email }))
-        );
-      }
+      await apiFetch('/api/settings/recipients', {
+        method: 'POST',
+        body: JSON.stringify({ recipients: emails }),
+      });
 
       toast.success('Governed preferences updated.');
     } catch (error) {

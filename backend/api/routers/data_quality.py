@@ -55,6 +55,7 @@ def get_data_quality_score(user_id: str = Depends(resolve_user_id)):
         # 2. Freshness check (data recency)
         max_score += 25
         dates = [r.get("recorded_at") for r in raw if r.get("recorded_at")]
+        days_old = None
         if dates:
             latest = max(dates)
             try:
@@ -71,7 +72,7 @@ def get_data_quality_score(user_id: str = Depends(resolve_user_id)):
             "score": round(freshness, 1),
             "max_score": 25,
             "status": "pass" if freshness >= 80 else "warning" if freshness >= 50 else "fail",
-            "message": f"Latest data is {days_old if dates else 'N/A'} days old",
+            "message": f"Latest data is {days_old if days_old is not None else 'N/A'} days old",
         })
         total_score += (freshness / 100) * 25
 

@@ -79,6 +79,19 @@ def _rag_badge(kpis: list) -> tuple:
     return "#10b981", "GREEN — Performing Well"
 
 
+def _kpi_summary_stats(kpis: list) -> dict:
+    """Compute quick summary stats from KPI list for the report header."""
+    total = len(kpis)
+    warnings = sum(1 for k in kpis if k.get("status") == "WARNING")
+    criticals = sum(1 for k in kpis if k.get("status") == "CRITICAL")
+    normals = total - warnings - criticals
+    avg_dod = 0
+    dod_vals = [k.get("dod_pct", 0) for k in kpis if k.get("dod_pct") is not None]
+    if dod_vals:
+        avg_dod = sum(dod_vals) / len(dod_vals)
+    return {"total": total, "normals": normals, "warnings": warnings, "criticals": criticals, "avg_dod": avg_dod}
+
+
 def generate_professional_html_email(
     kpis: list,
     narrative_text: str,
@@ -101,7 +114,9 @@ def generate_professional_html_email(
     dashboard_url = f"{FRONTEND_URL}/reports"
     unsubscribe = _unsubscribe_url(recipient_email) if recipient_email else "#"
     rag_emoji = "🔴" if "RED" in rag_label else "🟡" if "AMBER" in rag_label else "🟢"
+    stats = _kpi_summary_stats(kpis)
 
+    # ── KPI table rows ──
     kpi_rows = ""
     for k in kpis:
         name = escape(str(k.get("kpi_name", "")).replace("_", " ").title())
@@ -112,19 +127,24 @@ def generate_professional_html_email(
         dod_color = "#10b981" if dod >= 0 else "#ef4444"
         wow_color = "#10b981" if wow >= 0 else "#ef4444"
         status_color = "#10b981" if status == "NORMAL" else "#f59e0b" if status == "WARNING" else "#ef4444"
+        trend_arrow = "&#9650;" if dod > 0 else "&#9660;" if dod < 0 else "&#8212;"
+        trend_color = "#10b981" if dod > 0 else "#ef4444" if dod < 0 else "#6b7280"
         kpi_rows += f"""
-        <tr style="border-bottom:1px solid #f3f4f6;">
-          <td style="padding:10px 12px;font-weight:600;color:#111827;">{name}</td>
-          <td style="padding:10px 12px;font-size:1.05rem;font-weight:700;color:#111827;">{val}</td>
-          <td style="padding:10px 12px;color:{dod_color};font-weight:600;">{dod:+.1f}%</td>
-          <td style="padding:10px 12px;color:{wow_color};font-weight:600;">{wow:+.1f}%</td>
-          <td style="padding:10px 12px;">
-            <span style="background:{status_color}22;color:{status_color};padding:3px 10px;border-radius:999px;font-size:0.75rem;font-weight:700;">{status}</span>
+        <tr style="border-bottom:1px solid #f0f0f0;">
+          <td style="padding:12px 14px;font-weight:600;color:#1a1a2e;font-size:0.9rem;">{name}</td>
+          <td style="padding:12px 14px;font-size:1.05rem;font-weight:700;color:#1a1a2e;text-align:right;">{val}</td>
+          <td style="padding:12px 14px;color:{dod_color};font-weight:600;text-align:right;">{dod:+.1f}% <span style="font-size:0.7rem;">{trend_arrow}</span></td>
+          <td style="padding:12px 14px;color:{wow_color};font-weight:600;text-align:right;">{wow:+.1f}%</td>
+          <td style="padding:12px 14px;text-align:center;">
+            <span style="background:{status_color}18;color:{status_color};padding:4px 12px;border-radius:999px;font-size:0.72rem;font-weight:700;letter-spacing:0.03em;">{status}</span>
           </td>
         </tr>"""
 
+    # ── Anomaly rows ──
     anomaly_rows = ""
+    anomaly_count = 0
     if anomalies:
+        anomaly_count = len(anomalies)
         for a in anomalies:
             name = escape(str(a.get("kpi_name", "")).replace("_", " ").title())
             sev = escape(str(a.get("severity", "WARNING")))
@@ -132,66 +152,122 @@ def generate_professional_html_email(
             dev = a.get("deviation", 0)
             sc = "#ef4444" if sev == "CRITICAL" else "#f59e0b"
             anomaly_rows += f"""
-            <tr style="border-bottom:1px solid #f3f4f6;">
+            <tr style="border-bottom:1px solid #f0f0f0;">
               <td style="padding:10px 12px;">
-                <span style="background:{sc}22;color:{sc};padding:3px 10px;border-radius:999px;font-size:0.75rem;font-weight:700;">{sev}</span>
+                <span style="background:{sc}18;color:{sc};padding:4px 12px;border-radius:999px;font-size:0.72rem;font-weight:700;">{sev}</span>
               </td>
-              <td style="padding:10px 12px;font-weight:600;color:#111827;">{name}</td>
-              <td style="padding:10px 12px;color:#6b7280;font-size:0.9rem;">{reason}</td>
-              <td style="padding:10px 12px;color:#374151;font-weight:600;">{dev:.1f}&#963;</td>
+              <td style="padding:10px 12px;font-weight:600;color:#1a1a2e;">{name}</td>
+              <td style="padding:10px 12px;color:#555;font-size:0.88rem;">{reason}</td>
+              <td style="padding:10px 12px;color:#1a1a2e;font-weight:600;text-align:right;">{dev:.1f}&#963;</td>
             </tr>"""
     else:
-        anomaly_rows = '<tr><td colspan="4" style="padding:16px;color:#6b7280;text-align:center;">No anomalies detected in this period.</td></tr>'
+        anomaly_rows = '<tr><td colspan="4" style="padding:20px;color:#6b7280;text-align:center;font-style:italic;">No anomalies detected this period. All metrics within expected ranges.</td></tr>'
 
-    narrative_html = "".join(
-        f'<p style="margin:0 0 12px 0;line-height:1.7;color:#374151;">{escape(p.strip())}</p>'
-        for p in (narrative_text or "").split("\n") if p.strip()
-    )
+    # ── Narrative paragraphs ──
+    narrative_html = ""
+    for p in (narrative_text or "").split("\n"):
+        p = p.strip()
+        if not p:
+            continue
+        safe_p = escape(p)
+        # Make lines starting with ** bold
+        if p.startswith("**") and p.endswith("**"):
+            narrative_html += f'<p style="margin:0 0 8px 0;line-height:1.7;color:#1a1a2e;font-weight:600;">{escape(p[2:-2])}</p>'
+        else:
+            narrative_html += f'<p style="margin:0 0 12px 0;line-height:1.7;color:#374151;">{safe_p}</p>'
 
+    # ── Chart section ──
     chart_section = ""
     if chart_url:
         chart_section = f"""
-    <div style="margin-bottom:32px;">
-      <h2 style="margin:0 0 16px 0;font-size:1rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;border-bottom:2px solid #f3f4f6;padding-bottom:8px;">Performance Trend</h2>
-      <img src="{chart_url}" alt="KPI Trend Chart" style="width:100%;height:auto;border-radius:8px;border:1px solid #e5e7eb;"/>
+    <div style="margin-bottom:36px;">
+      <h2 style="margin:0 0 16px 0;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.1em;color:#6b7280;border-bottom:2px solid #f0f0f0;padding-bottom:8px;">Trend Analysis</h2>
+      <div style="background:#fafafa;border-radius:10px;padding:16px;border:1px solid #e5e7eb;">
+        <img src="{chart_url}" alt="KPI Trend Chart" style="width:100%;height:auto;border-radius:6px;"/>
+      </div>
+    </div>"""
+
+    # ── Forecast summary (extract from narrative if present) ──
+    forecast_section = ""
+    if narrative_text and ("forecast" in narrative_text.lower() or "projection" in narrative_text.lower() or "trend" in narrative_text.lower()):
+        forecast_section = f"""
+    <div style="margin-bottom:36px;">
+      <h2 style="margin:0 0 16px 0;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.1em;color:#6b7280;border-bottom:2px solid #f0f0f0;padding-bottom:8px;">Forward-Looking Indicators</h2>
+      <div style="background:linear-gradient(135deg,#eff6ff,#f0fdf4);border-radius:10px;padding:20px;border:1px solid #dbeafe;">
+        <p style="margin:0;color:#1e40af;font-size:0.88rem;line-height:1.6;">
+          Based on historical trend analysis, projections are embedded within the AI narrative above.
+          Review the dashboard for interactive forecast charts with confidence intervals.
+        </p>
+      </div>
     </div>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>{safe_report_type} Report</title></head>
-<body style="margin:0;padding:20px 0;background:#f3f4f6;font-family:Helvetica,Arial,sans-serif;">
-<div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+<title>{safe_report_type} Statistical Report — {INSTITUTION}</title></head>
+<body style="margin:0;padding:0;background:#eef2f7;font-family:Georgia,'Times New Roman',serif;">
+<div style="max-width:700px;margin:0 auto;background:#ffffff;box-shadow:0 2px 20px rgba(0,0,0,0.06);">
 
-  <div style="background:linear-gradient(135deg,#4f46e5,#3b82f6);padding:32px 40px;">
-    <div style="color:rgba(255,255,255,0.7);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Smart Automated Analytics System</div>
-    <h1 style="margin:0;color:#ffffff;font-size:1.5rem;font-weight:700;">{safe_report_type} Performance Report{dept_label}</h1>
-    <div style="margin-top:12px;color:rgba(255,255,255,0.85);font-size:0.85rem;">
-      &#128197; Period: {safe_report_period} &nbsp;&nbsp; &#128228; Submitted: {today}
+  <!-- Header Band -->
+  <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 50%,#1e40af 100%);padding:36px 44px 28px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <div style="color:rgba(255,255,255,0.6);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:6px;font-family:Helvetica,Arial,sans-serif;">{INSTITUTION}</div>
+        <h1 style="margin:0;color:#ffffff;font-size:1.6rem;font-weight:700;font-family:Georgia,serif;line-height:1.3;">Statistical {safe_report_type} Report{dept_label}</h1>
+        <div style="margin-top:10px;color:rgba(255,255,255,0.75);font-size:0.82rem;font-family:Helvetica,Arial,sans-serif;">
+          Reporting Period: <strong>{safe_report_period}</strong>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="background:{rag_color};color:#fff;padding:6px 16px;border-radius:6px;font-size:0.75rem;font-weight:700;font-family:Helvetica,Arial,sans-serif;letter-spacing:0.05em;">{rag_emoji} {rag_label}</div>
+        <div style="color:rgba(255,255,255,0.5);font-size:0.7rem;margin-top:8px;font-family:Helvetica,Arial,sans-serif;">Generated: {today}</div>
+      </div>
     </div>
   </div>
 
-  <div style="padding:32px 40px;">
+  <!-- Summary Stats Bar -->
+  <div style="background:#f8fafc;border-bottom:1px solid #e2e8f0;padding:16px 44px;display:flex;gap:24px;font-family:Helvetica,Arial,sans-serif;">
+    <div style="flex:1;text-align:center;">
+      <div style="font-size:1.4rem;font-weight:700;color:#1e3a5f;">{stats['total']}</div>
+      <div style="font-size:0.7rem;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">KPIs Tracked</div>
+    </div>
+    <div style="flex:1;text-align:center;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+      <div style="font-size:1.4rem;font-weight:700;color:#10b981;">{stats['normals']}</div>
+      <div style="font-size:0.7rem;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">On Track</div>
+    </div>
+    <div style="flex:1;text-align:center;border-right:1px solid #e2e8f0;">
+      <div style="font-size:1.4rem;font-weight:700;color:#f59e0b;">{stats['warnings']}</div>
+      <div style="font-size:0.7rem;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">Warnings</div>
+    </div>
+    <div style="flex:1;text-align:center;">
+      <div style="font-size:1.4rem;font-weight:700;color:#ef4444;">{stats['criticals']}</div>
+      <div style="font-size:0.7rem;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">Critical</div>
+    </div>
+    <div style="flex:1;text-align:center;border-left:1px solid #e2e8f0;">
+      <div style="font-size:1.4rem;font-weight:700;color:{'#10b981' if stats['avg_dod'] >= 0 else '#ef4444'};">{stats['avg_dod']:+.1f}%</div>
+      <div style="font-size:0.7rem;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;">Avg DoD</div>
+    </div>
+  </div>
 
-    <div style="margin-bottom:32px;">
-      <h2 style="margin:0 0 16px 0;font-size:1rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;border-bottom:2px solid #f3f4f6;padding-bottom:8px;">Executive Summary</h2>
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px 16px;border-radius:8px;background:{rag_color}18;border-left:4px solid {rag_color};">
-        <span style="font-size:1.1rem;">{rag_emoji}</span>
-        <span style="font-weight:700;color:{rag_color};">Overall Status: {rag_label}</span>
-      </div>
+  <div style="padding:36px 44px;">
+
+    <!-- 1. Executive Summary -->
+    <div style="margin-bottom:36px;">
+      <h2 style="margin:0 0 16px 0;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.1em;color:#6b7280;border-bottom:2px solid #f0f0f0;padding-bottom:8px;font-family:Helvetica,Arial,sans-serif;">1. Executive Summary</h2>
       {narrative_html}
     </div>
 
-    <div style="margin-bottom:32px;">
-      <h2 style="margin:0 0 16px 0;font-size:1rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;border-bottom:2px solid #f3f4f6;padding-bottom:8px;">Key Performance Indicators</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+    <!-- 2. Key Performance Indicators -->
+    <div style="margin-bottom:36px;">
+      <h2 style="margin:0 0 16px 0;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.1em;color:#6b7280;border-bottom:2px solid #f0f0f0;padding-bottom:8px;font-family:Helvetica,Arial,sans-serif;">2. Key Performance Indicators</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:0.88rem;font-family:Helvetica,Arial,sans-serif;">
         <thead>
-          <tr style="background:#f9fafb;">
-            <th style="padding:10px 12px;text-align:left;color:#6b7280;font-weight:600;font-size:0.8rem;">Metric</th>
-            <th style="padding:10px 12px;text-align:left;color:#6b7280;font-weight:600;font-size:0.8rem;">Value</th>
-            <th style="padding:10px 12px;text-align:left;color:#6b7280;font-weight:600;font-size:0.8rem;">DoD %</th>
-            <th style="padding:10px 12px;text-align:left;color:#6b7280;font-weight:600;font-size:0.8rem;">WoW %</th>
-            <th style="padding:10px 12px;text-align:left;color:#6b7280;font-weight:600;font-size:0.8rem;">Status</th>
+          <tr style="background:#f1f5f9;">
+            <th style="padding:10px 14px;text-align:left;color:#475569;font-weight:700;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Indicator</th>
+            <th style="padding:10px 14px;text-align:right;color:#475569;font-weight:700;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Value</th>
+            <th style="padding:10px 14px;text-align:right;color:#475569;font-weight:700;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">DoD</th>
+            <th style="padding:10px 14px;text-align:right;color:#475569;font-weight:700;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">WoW</th>
+            <th style="padding:10px 14px;text-align:center;color:#475569;font-weight:700;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Status</th>
           </tr>
         </thead>
         <tbody>{kpi_rows}</tbody>
@@ -200,33 +276,65 @@ def generate_professional_html_email(
 
     {chart_section}
 
-    <div style="margin-bottom:32px;">
-      <h2 style="margin:0 0 16px 0;font-size:1rem;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;border-bottom:2px solid #f3f4f6;padding-bottom:8px;">Anomalies &amp; Alerts</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+    <!-- 3. Anomaly Analysis -->
+    <div style="margin-bottom:36px;">
+      <h2 style="margin:0 0 16px 0;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.1em;color:#6b7280;border-bottom:2px solid #f0f0f0;padding-bottom:8px;font-family:Helvetica,Arial,sans-serif;">3. Anomaly Analysis {f'({anomaly_count} detected)' if anomaly_count else ''}</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:0.88rem;font-family:Helvetica,Arial,sans-serif;">
         <thead>
-          <tr style="background:#f9fafb;">
-            <th style="padding:10px 12px;text-align:left;color:#6b7280;font-weight:600;font-size:0.8rem;">Severity</th>
-            <th style="padding:10px 12px;text-align:left;color:#6b7280;font-weight:600;font-size:0.8rem;">Metric</th>
-            <th style="padding:10px 12px;text-align:left;color:#6b7280;font-weight:600;font-size:0.8rem;">Finding</th>
-            <th style="padding:10px 12px;text-align:left;color:#6b7280;font-weight:600;font-size:0.8rem;">Deviation</th>
+          <tr style="background:#f1f5f9;">
+            <th style="padding:10px 14px;text-align:left;color:#475569;font-weight:700;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Severity</th>
+            <th style="padding:10px 14px;text-align:left;color:#475569;font-weight:700;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Indicator</th>
+            <th style="padding:10px 14px;text-align:left;color:#475569;font-weight:700;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Finding</th>
+            <th style="padding:10px 14px;text-align:right;color:#475569;font-weight:700;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;">Deviation</th>
           </tr>
         </thead>
         <tbody>{anomaly_rows}</tbody>
       </table>
     </div>
 
-    <div style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:24px;text-align:center;">
-      <p style="margin:0 0 12px 0;color:#6b7280;font-size:0.9rem;">Full data, historical trends, and interactive charts are available in your dashboard.</p>
-      <a href="{dashboard_url}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#3b82f6);color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.9rem;">View Full Report in Dashboard &#8594;</a>
+    {forecast_section}
+
+    <!-- 4. Data Quality Notes -->
+    <div style="margin-bottom:36px;">
+      <h2 style="margin:0 0 16px 0;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.1em;color:#6b7280;border-bottom:2px solid #f0f0f0;padding-bottom:8px;font-family:Helvetica,Arial,sans-serif;">4. Methodology &amp; Data Quality</h2>
+      <div style="background:#f8fafc;border-radius:10px;padding:20px;border:1px solid #e2e8f0;font-family:Helvetica,Arial,sans-serif;">
+        <p style="margin:0 0 10px 0;color:#475569;font-size:0.85rem;line-height:1.6;">
+          This report is generated from automated data extraction, transformation, and analysis (ETL) of your connected institutional database.
+          All KPIs are computed from raw source data using validated statistical methods.
+        </p>
+        <p style="margin:0 0 10px 0;color:#475569;font-size:0.85rem;line-height:1.6;">
+          Anomalies are detected using standard deviation thresholds (configurable).
+          Day-over-day (DoD) and week-over-week (WoW) comparisons use the most recent available data points.
+        </p>
+        <p style="margin:0;color:#475569;font-size:0.85rem;line-height:1.6;">
+          AI-generated narrative insights are produced using large language models and should be interpreted alongside the quantitative data.
+        </p>
+      </div>
+    </div>
+
+    <!-- Dashboard CTA -->
+    <div style="background:linear-gradient(135deg,#eff6ff,#f0f9ff);border-radius:10px;padding:24px;margin-bottom:24px;text-align:center;border:1px solid #dbeafe;">
+      <p style="margin:0 0 14px 0;color:#1e40af;font-size:0.9rem;font-weight:600;">Access Interactive Dashboard</p>
+      <p style="margin:0 0 16px 0;color:#475569;font-size:0.85rem;">View historical trends, drill down into regional performance, and explore forecast projections.</p>
+      <a href="{dashboard_url}" style="display:inline-block;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.88rem;font-family:Helvetica,Arial,sans-serif;box-shadow:0 2px 8px rgba(37,99,235,0.3);">Open Dashboard &#8594;</a>
     </div>
 
   </div>
 
-  <div style="background:#f9fafb;padding:20px 40px;border-top:1px solid #e5e7eb;text-align:center;">
-    <p style="margin:0 0 6px 0;font-size:0.75rem;color:#9ca3af;">This report was automatically generated by the Smart Automated Analytics System.</p>
-    <p style="margin:0;font-size:0.75rem;color:#9ca3af;">
-      <a href="{unsubscribe}" style="color:#9ca3af;text-decoration:underline;">Unsubscribe from these reports</a>
-    </p>
+  <!-- Footer -->
+  <div style="background:#f1f5f9;padding:20px 44px;border-top:1px solid #e2e8f0;font-family:Helvetica,Arial,sans-serif;">
+    <table style="width:100%;border-collapse:collapse;">
+      <tr>
+        <td style="padding:0;font-size:0.72rem;color:#94a3b8;line-height:1.6;">
+          <strong style="color:#64748b;">{INSTITUTION}</strong> &mdash; Automated Statistical Reporting<br/>
+          Report Type: {safe_report_type} &nbsp;|&nbsp; Period: {safe_report_period} &nbsp;|&nbsp; Generated: {today}<br/>
+          <a href="{unsubscribe}" style="color:#94a3b8;text-decoration:underline;">Unsubscribe from automated reports</a>
+        </td>
+        <td style="padding:0;text-align:right;vertical-align:bottom;">
+          <div style="font-size:0.65rem;color:#cbd5e1;">Powered by Smart Analytics Platform</div>
+        </td>
+      </tr>
+    </table>
   </div>
 
 </div>

@@ -41,6 +41,7 @@ export default function SchemaExplorer() {
   const [error, setError] = useState(null);
   const [schema, setSchema] = useState(null);
   const [analyses, setAnalyses] = useState([]);
+  const [applicablePresets, setApplicablePresets] = useState([]);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [runningId, setRunningId] = useState(null);
   const [expandedTable, setExpandedTable] = useState(null);
@@ -74,6 +75,24 @@ export default function SchemaExplorer() {
       setSchema(data);
       const a = await apiJson('/api/introspect/analyses', { method: 'POST' });
       setAnalyses(a.analyses || []);
+
+      const discoveredDomains = new Set();
+      (data.tables || []).forEach((t) => {
+        (t.classifications || []).forEach((c) => discoveredDomains.add(c));
+      });
+
+      try {
+        const presetsResp = await apiJson('/api/analysis/presets');
+        const allPresets = presetsResp.presets || [];
+        const filtered = allPresets.filter((p) => {
+          const required = p.required_domains || [];
+          if (required.length === 0) return true;
+          return required.every((d) => discoveredDomains.has(d));
+        });
+        setApplicablePresets(filtered);
+      } catch {
+        setApplicablePresets([]);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -329,6 +348,50 @@ export default function SchemaExplorer() {
                   style={{ fontSize: '0.85rem' }}
                 >
                   <Play size={12} /> {runningId === a.id ? 'Running…' : 'Run'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {schema && applicablePresets.length > 0 && (
+        <section style={card}>
+          <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Sparkles size={18} /> Applicable CNPS presets ({applicablePresets.length})
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+            {applicablePresets.map((p) => (
+              <div key={p.slug} style={{ background: 'rgba(255,255,255,0.02)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                  <strong style={{ fontSize: '0.95rem' }}>{p.title_en || p.title}</strong>
+                  <span style={pill()}>{p.category}</span>
+                </div>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '6px 0 10px' }}>
+                  {p.default_goal_text}
+                </p>
+                {p.required_domains?.length > 0 && (
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+                    {p.required_domains.map((d) => (
+                      <span key={d} style={pill('#06b6d4')}>{d}</span>
+                    ))}
+                  </div>
+                )}
+                <button
+                  className="btn btn-outline"
+                  onClick={() => runAnalysis({
+                    id: p.slug,
+                    title: p.title_en || p.title,
+                    category: p.category,
+                    kind: 'preset',
+                    description: p.default_goal_text,
+                    preset_slug: p.slug,
+                    suggested_formula: p.suggested_formula,
+                  })}
+                  disabled={runningId === p.slug}
+                  style={{ fontSize: '0.85rem' }}
+                >
+                  <Play size={12} /> {runningId === p.slug ? 'Running…' : 'Run'}
                 </button>
               </div>
             ))}

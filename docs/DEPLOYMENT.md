@@ -109,7 +109,7 @@ request. Perfect for this app.
 ### Free-tier ping (avoid cold starts)
 
 Add a free **cron-job.org** (or UptimeRobot) job that hits
-`https://saas-analytics-api.onrender.com/api/ping` every 10 minutes. The
+`https://saas-analytics-api.onrender.com/api/health` every 10 minutes. The
 endpoint is already implemented in `backend/api/main.py`.
 
 ### Alternatives
@@ -175,7 +175,7 @@ env var (step 5) **and/or** add a `vercel.json` rewrite:
 
 1. https://supabase.com → **New project** (free plan, ~500 MB).
 2. **SQL Editor** → paste `backend/supabase_schema.sql` → Run.
-3. Then run each file in `backend/migrations/` in numeric order.
+3. Then run each file in `backend/migrations/` in numeric order (001 through 020). You can also enable `AUTO_MIGRATE=true` in your environment variables to have migrations applied automatically on startup.
 4. **Auth → Providers** → enable Email + any social you want.
 5. **Project Settings → API**:
    * Copy `URL` → `SUPABASE_URL`

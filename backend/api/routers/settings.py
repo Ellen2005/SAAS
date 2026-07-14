@@ -140,6 +140,69 @@ def test_db_connection(connection_data: dict, context: dict = Depends(require_ro
                     logger.debug(f"Tunnel kill also failed (non-critical): {e2}")
 
 
+@router.get("/settings/connection")
+def get_db_connection(user_id: str = Depends(resolve_user_id)):
+    """Return the user's database connection details (credentials masked)."""
+    supabase = get_supabase()
+    try:
+        resp = supabase.table("database_connections").select("*").eq("user_id", user_id).limit(1).execute()
+        rows = getattr(resp, "data", []) or []
+        if not rows:
+            return {"connected": False}
+        conn = rows[0]
+        from ..services.connection_crypto import maybe_decrypt_connection_row
+        decrypted = maybe_decrypt_connection_row(conn)
+        return {
+            "connected": True,
+            "db_type": decrypted.get("db_type", "postgresql"),
+            "host": decrypted.get("host", ""),
+            "port": decrypted.get("port", 0),
+            "db_name": decrypted.get("db_name", ""),
+            "credentials": decrypted.get("credentials", ""),
+            "connection_method": decrypted.get("connection_method", "direct"),
+            "connection_options": decrypted.get("connection_options") or {},
+        }
+    except Exception as e:
+        logger.warning(f"Failed to fetch connection: {e}")
+        return {"connected": False}
+
+
+@router.get("/settings/recipients")
+def get_email_recipients(user_id: str = Depends(resolve_user_id)):
+    """Return the user's email notification recipients."""
+    supabase = get_supabase()
+    try:
+        resp = supabase.table("notification_recipients").select("email").eq("user_id", user_id).execute()
+        rows = getattr(resp, "data", []) or []
+        return {"recipients": [r["email"] for r in rows if r.get("email")]}
+    except Exception as e:
+        logger.warning(f"Failed to fetch recipients: {e}")
+        return {"recipients": []}
+
+
+@router.post("/settings/recipients")
+def save_email_recipients(body: dict, user_id: str = Depends(resolve_user_id)):
+    """Replace all email recipients for the user."""
+    supabase = get_supabase()
+    emails = body.get("recipients", [])
+    from .email_test import normalize_recipient_email
+    normalized = []
+    for e in emails:
+        n = normalize_recipient_email(e)
+        if n:
+            normalized.append(n)
+    try:
+        supabase.table("notification_recipients").delete().eq("user_id", user_id).execute()
+        if normalized:
+            inserts = [{"user_id": user_id, "email": e} for e in normalized]
+            supabase.table("notification_recipients").insert(inserts).execute()
+        log_config_change(supabase, user_id, "update", "recipients", {"count": len(normalized)})
+        return {"status": "success", "recipients": normalized}
+    except Exception as e:
+        logger.error(f"Failed to save recipients: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save recipients.")
+
+
 @router.post("/settings/connection")
 def save_db_connection(conn_data: dict, context: dict = Depends(require_role(["manager", "admin"]))):
     user_id = context["user_id"]
