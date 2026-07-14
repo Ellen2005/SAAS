@@ -209,7 +209,7 @@ const ReportsHistory = () => {
         ) : (
           <div style={{ display: 'grid', gap: '12px' }}>
             {proReports.map(r => (
-              <div key={r.report_id} className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', flexWrap: 'wrap', gap: '12px' }}>
+              <div key={r.id || r.report_id} className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
                   <div style={{ fontWeight: 600 }}>{r.title || 'Analysis Report'}</div>
                   <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
@@ -217,13 +217,13 @@ const ReportsHistory = () => {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-outline" onClick={() => handleDownloadPro(r.report_id, 'pdf')} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
+                  <button className="btn btn-outline" onClick={() => handleDownloadPro(r.id || r.report_id, 'pdf')} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
                     <Download size={14} /> PDF
                   </button>
-                  <button className="btn btn-outline" onClick={() => handleDownloadPro(r.report_id, 'excel')} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
+                  <button className="btn btn-outline" onClick={() => handleDownloadPro(r.id || r.report_id, 'excel')} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px' }}>
                     <FileSpreadsheet size={14} /> Excel
                   </button>
-                  <button className="btn btn-outline" onClick={() => handleDeletePro(r.report_id)} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px', color: 'var(--status-critical)' }}>
+                  <button className="btn btn-outline" onClick={() => handleDeletePro(r.id || r.report_id)} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', gap: '6px', color: 'var(--status-critical)' }}>
                     <Trash2 size={14} />
                   </button>
                 </div>

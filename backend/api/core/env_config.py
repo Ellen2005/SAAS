@@ -99,14 +99,7 @@ def configure_cors_origins() -> list:
     if cors_env:
         return [origin.strip() for origin in cors_env.split(",")]
     
-    # Defaults based on environment
-    env = os.getenv("ENVIRONMENT", "development").lower()
-    if env == "production":
-        frontend_url = os.getenv("FRONTEND_URL")
-        return [frontend_url] if frontend_url else ["https://yourdomain.com"]
-    
-    # Development defaults
-    return [
+    origins = [
         "http://localhost:5000",
         "http://localhost:5173",
         "http://localhost:5174",
@@ -116,3 +109,10 @@ def configure_cors_origins() -> list:
         "http://127.0.0.1:5174",
         "http://127.0.0.1:4173",
     ]
+
+    # Add production frontend URL
+    frontend_url = os.getenv("FRONTEND_URL")
+    if frontend_url:
+        origins.append(frontend_url)
+
+    return origins
