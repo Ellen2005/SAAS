@@ -142,6 +142,7 @@ def _create_scheduler() -> BackgroundScheduler:
     if redis_url:
         try:
             from urllib.parse import urlparse
+            import redis as redis_lib
             from apscheduler.jobstores.redis import RedisJobStore
             parsed = urlparse(redis_url)
             redis_kwargs = {
@@ -151,6 +152,10 @@ def _create_scheduler() -> BackgroundScheduler:
             }
             if parsed.password:
                 redis_kwargs["password"] = parsed.password
+            # Verify Redis is reachable before committing to it
+            r = redis_lib.Redis(**redis_kwargs, socket_connect_timeout=3)
+            r.ping()
+            r.close()
             jobstores["default"] = RedisJobStore(**redis_kwargs)
             logger.info("Scheduler using Redis job store for multi-worker safety.")
         except ImportError:
