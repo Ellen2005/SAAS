@@ -32,6 +32,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.limits = limits or {
             "/api/auth/": (10, 60),
+            "/api/nlq": (20, 60),
+            "/api/charts/custom": (20, 60),
+            "/api/assistant/": (30, 60),
+            "/api/analyst/": (30, 60),
             "/api/admin/": (100, 60),
             "/api/": (300, 60),
         }

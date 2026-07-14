@@ -5,6 +5,7 @@ import { useAuth } from '../lib/authContext';
 import { apiFetch, apiJson } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { invalidateDashboardCache } from '../lib/dashboardSync';
+import { readCache, writeCache, DASHBOARD_CACHE_KEY, METRICS_CACHE_KEY } from '../lib/cacheHelpers';
 import ValidationWarnings from '../components/ValidationWarnings';
 import ErrorBoundary from '../components/ErrorBoundary';
 import OnboardingTour from '../components/OnboardingTour';
@@ -18,20 +19,6 @@ import useIsMobile from '../hooks/useIsMobile';
 const ChartRenderer = lazy(() => import('../components/ChartRenderer'));
 const MapVisualization = lazy(() => import('../components/MapVisualization'));
 const ForecastChart = lazy(() => import('../components/ForecastChart'));
-
-const DASHBOARD_CACHE_KEY = 'saas.dashboard.lastSummary.v2';
-const METRICS_CACHE_KEY = 'saas.dashboard.metricsCache.v1';
-
-const readCache = (key) => {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-};
-
-const writeCache = (key, payload) => {
-  try { localStorage.setItem(key, JSON.stringify(payload)); } catch { /* noop */ }
-};
 
 const EMPTY_DATA = { kpis: [], anomalies: [], narrative: '', last_refreshed: '', validation: [] };
 

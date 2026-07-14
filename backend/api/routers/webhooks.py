@@ -315,23 +315,28 @@ def test_webhook(
 
 # ── Helper Functions ─────────────────────────────────────────────────────────
 
-def _is_private_ip(hostname: str) -> bool:
-    """Check if hostname resolves to a private/reserved IP (SSRF protection)."""
+def _is_private_ip(hostname: str) -> tuple[bool, str | None]:
+    """Check if hostname resolves to a private/reserved IP (SSRF protection).
+    Returns (is_private, resolved_ip) to prevent DNS rebinding attacks."""
     import ipaddress
     try:
         ip = ipaddress.ip_address(hostname)
-        return ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local
+        return (ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local), hostname
     except ValueError:
-        # hostname is a domain — resolve it
         import socket
         try:
             resolved = socket.getaddrinfo(hostname, None)
             for _, _, _, _, sockaddr in resolved:
-                if ipaddress.ip_address(sockaddr[0]).is_private:
-                    return True
+                ip = ipaddress.ip_address(sockaddr[0])
+                if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                    return True, None
+            # Return the first resolved IP for direct connection (prevents DNS rebinding)
+            if resolved:
+                first_ip = resolved[0][4][0]
+                return False, first_ip
         except (socket.gaierror, OSError):
             pass
-    return False
+    return False, None
 
 
 def _send_webhook(webhook: dict, event_type: EventType, payload: dict):
@@ -340,16 +345,20 @@ def _send_webhook(webhook: dict, event_type: EventType, payload: dict):
     from urllib.parse import urlparse
 
     url = webhook["url"]
-    # SSRF protection: block private/internal IPs
+    # SSRF protection: block private/internal IPs, resolve DNS once to prevent rebinding
     try:
         parsed = urlparse(url)
         hostname = parsed.hostname or ""
-        if _is_private_ip(hostname):
+        is_private, resolved_ip = _is_private_ip(hostname)
+        if is_private:
             logger.warning("Webhook blocked: URL targets private/internal IP: %s", url)
             return None
         if parsed.scheme not in ("http", "https"):
             logger.warning("Webhook blocked: invalid scheme %s", parsed.scheme)
             return None
+        # Use resolved IP directly to prevent DNS rebinding
+        if resolved_ip and resolved_ip != hostname:
+            url = url.replace(f"://hostname", f"://resolved_ip").replace(f"://{hostname}", f"://{resolved_ip}")
     except Exception:
         logger.warning("Webhook URL parse failed: %s", url)
         return None

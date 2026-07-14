@@ -1,41 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { apiJson } from '../lib/api';
+import { readCache, writeCache, VALIDATION_CACHE_KEY } from '../lib/cacheHelpers';
+import useIsMobile from '../hooks/useIsMobile';
 
 const ValidationHistory = () => {
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const isMobile = useIsMobile();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  const VALIDATION_CACHE_KEY = 'saas.validation.lastLogs.v1';
-
-  const readValidationCache = () => {
-    try {
-      const raw = localStorage.getItem(VALIDATION_CACHE_KEY);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  };
-
-  const writeValidationCache = (payload) => {
-    try {
-      localStorage.setItem(VALIDATION_CACHE_KEY, JSON.stringify(payload));
-    } catch {
-      // Ignore when storage is unavailable.
-    }
-  };
 
   useEffect(() => {
     const loadLogs = async () => {
       try {
         const data = await apiJson('/api/validation/logs?limit=100');
         setLogs(data.logs || []);
-        writeValidationCache(data.logs || []);
+        writeCache(VALIDATION_CACHE_KEY, data.logs || []);
       } catch (error) {
         console.error('Failed to load validation logs', error);
-        const cached = readValidationCache();
+        const cached = readCache(VALIDATION_CACHE_KEY);
         if (cached) setLogs(cached);
       } finally {
         setLoading(false);
@@ -43,12 +25,6 @@ const ValidationHistory = () => {
     };
 
     loadLogs();
-  }, []);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   if (loading) {

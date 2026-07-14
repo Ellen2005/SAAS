@@ -37,7 +37,8 @@ def _get_db_schema_hint(engine) -> str:
 
 
 def _sanitize_identifier(name: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_.]", "", name)
+    """Sanitize identifier to prevent SQL injection. Only allows safe chars."""
+    return re.sub(r"[^a-zA-Z0-9_]", "", name)
 
 
 def _fallback_sql_for_question(question: str, engine) -> tuple[str | None, str]:
@@ -521,21 +522,10 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
             }
 
         def _execute_readonly(query: str):
-            sql_upper = query.strip().upper()
-            allowed_starts = ("SELECT", "WITH", "PRAGMA")
-            if not sql_upper.startswith(allowed_starts):
-                raise ValueError("Only read-only SELECT or PRAGMA queries are permitted.")
-            # Strip SQL comments and string literals before checking for forbidden keywords
-            # to prevent bypass via /*INSERT*/ or 'DELETE'
-            import re as _re
-            stripped = _re.sub(r'--.*$', '', sql_upper, flags=_re.MULTILINE)
-            stripped = _re.sub(r'/\*.*?\*/', '', stripped, flags=_re.DOTALL)
-            stripped = _re.sub(r"'[^']*'", '', stripped)
-            forbidden = ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE", "GRANT", "REVOKE")
-            # Use word boundary matching to prevent false positives on column aliases like "status"
-            for tok in forbidden:
-                if _re.search(rf'\b{tok}\b', stripped):
-                    raise ValueError(f"Query contains forbidden keyword: {tok}")
+            from ..main import validate_sql_read_only
+            is_safe, error = validate_sql_read_only(query)
+            if not is_safe:
+                raise ValueError(error)
             with engine.connect() as conn:
                 result = conn.execute(text(query))
                 cols = list(result.keys())

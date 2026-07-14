@@ -150,7 +150,8 @@ export function AuthProvider({ children }) {
               return;
             }
           }
-          // fetchUserRole called by onAuthStateChange for SIGNED_IN; skip duplicate here
+          // Ensure role is loaded even if onAuthStateChange hasn't fired yet (race on cold refresh)
+          fetchUserRole(session.user).catch(() => {});
         } else {
           resetAuthState();
         }

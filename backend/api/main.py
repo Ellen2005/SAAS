@@ -315,6 +315,17 @@ class HealthResponse(BaseModel):
     components: List[HealthComponent]
 
 
+class PingResponse(BaseModel):
+    ok: bool = True
+    timestamp: str
+
+
+@app.get("/api/ping", response_model=PingResponse, include_in_schema=False)
+async def ping():
+    """Lightweight liveness probe for Render keep-alive, Docker health checks, and frontend wake-up."""
+    return PingResponse(timestamp=datetime.now(timezone.utc).isoformat())
+
+
 @app.get("/api/health", response_model=HealthResponse, include_in_schema=False)
 async def health_check():
     """Comprehensive health check for all system dependencies."""

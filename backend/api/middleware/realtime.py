@@ -11,7 +11,7 @@ Features:
 """
 
 import logging
-from typing import Dict, Set
+from typing import Dict, Optional, Set
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
