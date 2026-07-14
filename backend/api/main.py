@@ -483,13 +483,21 @@ def _verify_supabase_token(token: str) -> dict:
 @app.get("/api/realtime/stream")
 async def realtime_stream(
     authorization: Optional[str] = Header(None),
+    token: Optional[str] = Query(None),
 ):
-    """Server-Sent Events stream (heartbeat only). Auth via Authorization header only."""
+    """Server-Sent Events stream (heartbeat only).
+
+    Auth via Authorization header (preferred) or ?token= query parameter.
+    The query-param fallback is required because the browser EventSource API
+    does not support setting custom HTTP headers.
+    """
     from fastapi.responses import StreamingResponse
     import asyncio
     import json
 
-    auth_token = (authorization or "").replace("Bearer ", "")
+    auth_token = (authorization or "").replace("Bearer ", "").strip()
+    if not auth_token:
+        auth_token = (token or "").strip()
     if not auth_token:
         raise HTTPException(status_code=401, detail="Missing authentication")
     

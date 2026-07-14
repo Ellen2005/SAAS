@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { FileText, Sparkles, Save, Check, Plus, Trash2, ChevronDown, ChevronUp, LayoutTemplate } from 'lucide-react';
 import { apiFetch, apiJson } from '../lib/api';
 import { useAuth } from '../lib/authContext';
+import useIsMobile from '../hooks/useIsMobile';
 
 const CONTENT_TYPES = [
   { value: 'narrative', label: 'Narrative paragraphs' },
@@ -25,6 +26,7 @@ const emptySection = () => ({ title: '', description: '', content_type: 'narrati
 
 const CustomReportPage = () => {
   const { isAdmin } = useAuth();
+  const isMobile = useIsMobile();
 
   const [instruction, setInstruction] = useState('');
   const [scope, setScope] = useState('my_department');
@@ -123,7 +125,7 @@ const CustomReportPage = () => {
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
           <div className="form-group">
             <label>Data scope</label>
             <select value={scope} onChange={e => setScope(e.target.value)}>
@@ -202,7 +204,7 @@ const CustomReportPage = () => {
                     </div>
 
                     <div style={{ flex: 1, display: 'grid', gap: '8px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: '8px' }}>
                         <input
                           value={sec.title}
                           onChange={e => updateSection(sec._id, 'title', e.target.value)}

@@ -518,12 +518,13 @@ def run_analysis(
         if hasattr(preset_resp, "data") and preset_resp.data:
             run_row["preset_id"] = preset_resp.data[0]["id"]
 
-    insert_resp = supabase.table("analysis_runs").insert(run_row).execute()
-    if not (hasattr(insert_resp, "data") and insert_resp.data):
-        raise RuntimeError("Failed to create analysis run record")
-    run_id = insert_resp.data[0]["id"]
-
+    run_id = None
     try:
+        insert_resp = supabase.table("analysis_runs").insert(run_row).execute()
+        if not (hasattr(insert_resp, "data") and insert_resp.data):
+            raise RuntimeError("Failed to create analysis run record")
+        run_id = insert_resp.data[0]["id"]
+
         supabase.table("analysis_runs").update({"status": "running"}).eq("id", run_id).execute()
 
         # Try NLQ path as fallback execution
