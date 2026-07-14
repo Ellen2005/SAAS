@@ -298,10 +298,10 @@ CREATE INDEX idx_expected_period ON employer_expected_contributions(period_month
 
 # ── Data Generation ────────────────────────────────────────────────────────
 
-def generate_data(conn):
+def generate_data(conn, months=MONTHS):
     cur = conn.cursor()
     today = date.today()
-    start = today - timedelta(days=30 * MONTHS)
+    start = today - timedelta(days=30 * months)
     random.seed(42)
 
     print("Inserting regional offices...")
@@ -364,7 +364,7 @@ def generate_data(conn):
     dup_emp_id = workers[0][2]
     dup_period = today.strftime("%Y-%m")
 
-    for m in range(MONTHS):
+    for m in range(months):
         month_date = start + timedelta(days=28 * m)
         year = month_date.year
         month = month_date.month
@@ -385,7 +385,7 @@ def generate_data(conn):
             is_delinquent = emp_code in DELINQUENT_CODES
 
             # Skip some Tambacounda data in recent months (sparse anomaly)
-            if region == "TG" and m >= MONTHS - 3:
+            if region == "TG" and m >= months - 3:
                 if random.random() < 0.7:
                     continue
 
@@ -471,7 +471,7 @@ def generate_data(conn):
     for emp_code, eid in employer_ids.items():
         region = employer_regions[emp_code]
         base = random.uniform(1_200_000, 8_000_000)
-        for m in range(MONTHS):
+        for m in range(months):
             month_date = start + timedelta(days=28 * m)
             period = f"{month_date.year}-{month_date.month:02d}"
             expected_rows.append((eid, period, round(base, 2), region))
@@ -535,8 +535,7 @@ def main():
         print("  python scripts/seed_cnps_postgres.py")
         sys.exit(1)
 
-    global MONTHS
-    MONTHS = args.months
+    months = args.months
 
     print(f"Connecting to database...")
     try:
@@ -552,7 +551,7 @@ def main():
         cur.execute(SCHEMA_SQL)
         conn.commit()
 
-        generate_data(conn)
+        generate_data(conn, months=months)
 
         # Print summary
         cur = conn.cursor()
