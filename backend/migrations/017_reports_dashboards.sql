@@ -1,5 +1,4 @@
 -- Migration 017: Create reports and dashboards tables
-BEGIN;
 
 -- Reports table
 CREATE TABLE IF NOT EXISTS reports (
@@ -33,37 +32,32 @@ CREATE TRIGGER update_reports_updated_at
 
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "Users can read own reports"
-    ON reports FOR SELECT
-    TO authenticated
-    USING (user_id = auth.uid());
+DO $$ BEGIN
+    CREATE POLICY "Users can read own reports"
+        ON reports FOR SELECT TO authenticated USING (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY IF NOT EXISTS "Users can insert own reports"
-    ON reports FOR INSERT
-    TO authenticated
-    WITH CHECK (user_id = auth.uid());
+DO $$ BEGIN
+    CREATE POLICY "Users can insert own reports"
+        ON reports FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY IF NOT EXISTS "Users can update own reports"
-    ON reports FOR UPDATE
-    TO authenticated
-    USING (user_id = auth.uid())
-    WITH CHECK (user_id = auth.uid());
+DO $$ BEGIN
+    CREATE POLICY "Users can update own reports"
+        ON reports FOR UPDATE TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY IF NOT EXISTS "Users can delete own reports"
-    ON reports FOR DELETE
-    TO authenticated
-    USING (user_id = auth.uid());
+DO $$ BEGIN
+    CREATE POLICY "Users can delete own reports"
+        ON reports FOR DELETE TO authenticated USING (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY IF NOT EXISTS "Admins can read all reports"
-    ON reports FOR SELECT
-    TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM user_roles
-            WHERE user_roles.user_id = auth.uid()
-            AND user_roles.role = 'admin'
-        )
-    );
+DO $$ BEGIN
+    CREATE POLICY "Admins can read all reports"
+        ON reports FOR SELECT TO authenticated USING (
+            EXISTS (SELECT 1 FROM user_roles WHERE user_roles.user_id = auth.uid() AND user_roles.role = 'admin')
+        );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Dashboards table
 CREATE TABLE IF NOT EXISTS dashboards (
@@ -86,35 +80,32 @@ CREATE INDEX IF NOT EXISTS idx_dashboards_public ON dashboards(is_public) WHERE 
 
 ALTER TABLE dashboards ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "Users can read own dashboards"
-    ON dashboards FOR SELECT
-    TO authenticated
-    USING (user_id = auth.uid());
+DO $$ BEGIN
+    CREATE POLICY "Users can read own dashboards"
+        ON dashboards FOR SELECT TO authenticated USING (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY IF NOT EXISTS "Users can read public dashboards"
-    ON dashboards FOR SELECT
-    TO authenticated
-    USING (is_public = TRUE);
+DO $$ BEGIN
+    CREATE POLICY "Users can read public dashboards"
+        ON dashboards FOR SELECT TO authenticated USING (is_public = TRUE);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY IF NOT EXISTS "Users can read shared dashboards"
-    ON dashboards FOR SELECT
-    TO authenticated
-    USING (auth.uid() = ANY(shared_with));
+DO $$ BEGIN
+    CREATE POLICY "Users can read shared dashboards"
+        ON dashboards FOR SELECT TO authenticated USING (auth.uid() = ANY(shared_with));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY IF NOT EXISTS "Users can insert own dashboards"
-    ON dashboards FOR INSERT
-    TO authenticated
-    WITH CHECK (user_id = auth.uid());
+DO $$ BEGIN
+    CREATE POLICY "Users can insert own dashboards"
+        ON dashboards FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY IF NOT EXISTS "Users can update own dashboards"
-    ON dashboards FOR UPDATE
-    TO authenticated
-    USING (user_id = auth.uid())
-    WITH CHECK (user_id = auth.uid());
+DO $$ BEGIN
+    CREATE POLICY "Users can update own dashboards"
+        ON dashboards FOR UPDATE TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY IF NOT EXISTS "Users can delete own dashboards"
-    ON dashboards FOR DELETE
-    TO authenticated
-    USING (user_id = auth.uid());
-
-COMMIT;
+DO $$ BEGIN
+    CREATE POLICY "Users can delete own dashboards"
+        ON dashboards FOR DELETE TO authenticated USING (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
