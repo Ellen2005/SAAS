@@ -412,7 +412,7 @@ def _execute_sql(user_id: str, sql: str, supabase) -> tuple[list[str], list[dict
 
     conn_resp = supabase.table("database_connections").select("*").eq("user_id", user_id).limit(1).execute()
     if not (hasattr(conn_resp, "data") and conn_resp.data):
-        raise ValueError("No database connection configured.")
+        raise ValueError("No database connection configured. Go to Settings > Database Connection to add one.")
     if len(conn_resp.data) == 0:
         raise ValueError("No database connection found for user.")
 
@@ -423,7 +423,7 @@ def _execute_sql(user_id: str, sql: str, supabase) -> tuple[list[str], list[dict
     connection_options = conn_info.get("connection_options") or {}
 
     if db_type == "mongodb":
-        raise ValueError("Goal-driven SQL analysis requires a SQL database.")
+        raise ValueError("Goal-driven SQL analysis requires a SQL database (not MongoDB).")
 
     tunnel_proc = None
     try:
@@ -462,6 +462,20 @@ def _execute_sql(user_id: str, sql: str, supabase) -> tuple[list[str], list[dict
                         record[col] = val
                 rows.append(record)
             return cols, rows
+    except ValueError:
+        raise
+    except Exception as e:
+        err_str = str(e).lower()
+        if any(kw in err_str for kw in ("connection refused", "connect", "timeout", "network", "errno 111", "dpy-6005", "ora-125", "could not connect")):
+            host = conn_info.get("host", "unknown")
+            raise ValueError(
+                f"Cannot connect to your {db_type.upper()} database at {host}. "
+                f"Please verify: (1) the database server is running, "
+                f"(2) it accepts remote connections from cloud servers, "
+                f"(3) firewall rules allow Render's IP range. "
+                f"Original error: {e}"
+            )
+        raise
     finally:
         if tunnel_proc is not None:
             try:
@@ -619,13 +633,21 @@ def run_analysis(
         }
     except Exception as exc:
         logger.exception("Analysis run failed")
+        err_str = str(exc).lower()
+        # Provide user-friendly messages for common connection errors
+        if any(kw in err_str for kw in ("no database connection", "cannot connect", "connection refused", "timeout")):
+            error_msg = str(exc)
+        elif "no database connection configured" in err_str:
+            error_msg = "No database connection configured. Go to Settings > Database Connection to add one."
+        else:
+            error_msg = f"Analysis failed: {str(exc)[:300]}"
         if run_id:
             supabase.table("analysis_runs").update({
                 "status": "failed",
-                "error_message": str(exc)[:500],
+                "error_message": error_msg[:500],
                 "completed_at": datetime.now(UTC).isoformat(),
             }).eq("id", run_id).execute()
-        return {"run_id": run_id, "status": "failed", "error": str(exc)}
+        return {"run_id": run_id, "status": "failed", "error": error_msg}
 
 
 def list_presets(supabase, lang: str = "en") -> list[dict]:
