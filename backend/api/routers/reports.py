@@ -391,47 +391,73 @@ def download_professional_report(
     format: str = "pdf",
     context: dict = Depends(require_role(["manager", "admin"]))
 ):
-    from fastapi.responses import FileResponse
-    import tempfile
-    
+    from fastapi.responses import HTMLResponse
+    from ..services.email_service import generate_professional_html_email
+
     supabase = get_supabase()
     user_id = context["user_id"]
-    
+
     report = _find_report(supabase, report_id, user_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    
-    if format == "excel":
-        file_path = report.get("excel_path") or report.get("file_path", "").replace(".pdf", ".xlsx")
-        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        filename = f"report_{report_id}.xlsx"
-    else:
-        file_path = report.get("file_path")
-        media_type = "application/pdf"
-        filename = f"report_{report_id}.pdf"
-    
-    if not file_path:
-        raise HTTPException(status_code=404, detail="Report file path not found")
-    
+
+    # Fetch KPIs and anomalies for this report
+    kpis = report.get("kpis") or []
+    anomalies = report.get("anomalies") or []
+    narrative = report.get("narrative", "")
+    report_type = report.get("report_type", "Daily")
+    report_period = report.get("report_period", "")
+    dept = report.get("department_name", "")
+
+    # If KPIs/anomalies aren't embedded in the report record, fetch from DB
+    if not kpis:
+        try:
+            resp = supabase.table("kpi_results").select("*").eq("user_id", user_id).order("recorded_at", desc=True).limit(20).execute()
+            if hasattr(resp, "data") and resp.data:
+                kpis = resp.data
+        except Exception:
+            pass
+
+    if not anomalies:
+        try:
+            resp = supabase.table("anomaly_records").select("*").eq("user_id", user_id).order("detected_at", desc=True).limit(10).execute()
+            if hasattr(resp, "data") and resp.data:
+                anomalies = resp.data
+        except Exception:
+            pass
+
+    # Generate HTML report on-the-fly (no file on disk needed)
     try:
-        file_path = os.path.normpath(file_path)
-        allowed_dir = os.path.normpath(tempfile.gettempdir())
-        real_path = os.path.realpath(file_path)
-        real_allowed = os.path.realpath(allowed_dir)
-        if not real_path.startswith(real_allowed + os.sep) and real_path != real_allowed:
-            logger.warning(f"Attempted path traversal attack: {file_path} from user {user_id}")
-            raise HTTPException(status_code=403, detail="Access denied")
+        html = generate_professional_html_email(
+            kpis=kpis,
+            narrative_text=narrative,
+            chart_url="",
+            anomalies=anomalies,
+            department_name=dept,
+            report_type=report_type,
+            report_period=report_period,
+        )
     except Exception as e:
-        logger.error(f"Path validation error: {e}")
-        raise HTTPException(status_code=400, detail="Invalid file path")
-    
-    if not os.path.exists(file_path) or not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="Report file not found")
-    
-    return FileResponse(
-        path=file_path,
-        media_type=media_type,
-        filename=filename
+        logger.error(f"Failed to generate HTML for report {report_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate report")
+
+    if format == "excel":
+        # Generate a simple CSV-style Excel fallback
+        from fastapi.responses import PlainTextResponse
+        csv_lines = ["KPI,Value,DoD %,WoW %,Status"]
+        for k in kpis:
+            csv_lines.append(
+                f"{k.get('kpi_name', '')},{k.get('value', 0)},{k.get('dod_pct', 0)},{k.get('wow_pct', 0)},{k.get('status', '')}"
+            )
+        return PlainTextResponse(
+            content="\n".join(csv_lines),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="report_{report_id}.csv"'}
+        )
+
+    return HTMLResponse(
+        content=html,
+        headers={"Content-Disposition": f'attachment; filename="report_{report_id}.html"'}
     )
 
 

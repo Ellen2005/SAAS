@@ -3,6 +3,7 @@ import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X,
 import { apiJson, apiFetch, API_URL } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 import { useToast } from '../components/ToastProvider';
+import NarrativeRenderer from '../components/NarrativeRenderer';
 
 const REPORTS_CACHE_KEY = 'saas.reports.cache.v1';
 
@@ -339,9 +340,7 @@ const ReportsHistory = () => {
                         />
                       </>
                     ) : (
-                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8', color: 'var(--text-primary)', fontSize: '0.95rem' }}>
-                        {report.narrative || 'No narrative was generated for this report.'}
-                      </div>
+                      <NarrativeRenderer text={report.narrative || 'No narrative was generated for this report.'} />
                     )}
                   </div>
                 )}

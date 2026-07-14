@@ -12,6 +12,7 @@ import OnboardingTour from '../components/OnboardingTour';
 import DashboardCustomizer from '../components/DashboardCustomizer';
 import SparklineChart from '../components/SparklineChart';
 import KpiCard from '../components/KpiCard';
+import NarrativeRenderer from '../components/NarrativeRenderer';
 import { useRealTimeData } from '../hooks/useRealTimeData';
 import useIsMobile from '../hooks/useIsMobile';
 
@@ -478,20 +479,14 @@ const Dashboard = () => {
               </section>
             )}
 
-            {/* AI Narrative - Clean without asterisks */}
+            {/* AI Narrative - Styled with tables */}
             {data.narrative && (
               <section className="ea-card" style={{ marginBottom: 24, borderLeft: '4px solid var(--ea-primary)' }}>
                 <div className="ea-card-body">
                   <h3 style={{ fontSize: '1.1rem', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Sparkles size={18} color="var(--ea-primary)" /> AI Narrative
                   </h3>
-                  <div style={{ fontSize: '1rem', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-                    {data.narrative
-                      .replace(/\*\*(.*?)\*\*/g, '$1')
-                      .replace(/\*(.*?)\*/g, '$1')
-                      .replace(/__(.*?)__/g, '$1')
-                    }
-                  </div>
+                  <NarrativeRenderer text={data.narrative} />
                 </div>
               </section>
             )}
