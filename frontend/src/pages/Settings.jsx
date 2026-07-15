@@ -8,6 +8,17 @@ import { useLang } from '../lib/i18n';
 import { invalidateDashboardCache } from '../lib/dashboardSync';
 import { useToast } from '../components/ToastProvider';
 import useIsMobile from '../hooks/useIsMobile';
+import { readCache, writeCache } from '../lib/cacheHelpers';
+
+const SETTINGS_CACHE_KEY = 'saas.settings.cache.v1';
+
+function loadSettingsCache() {
+  return readCache(SETTINGS_CACHE_KEY);
+}
+
+function saveSettingsCache(data) {
+  writeCache(SETTINGS_CACHE_KEY, data);
+}
 
 const DEFAULT_CONNECTION_OPTIONS = {
   tunnel_token: '',
@@ -84,11 +95,15 @@ const Settings = () => {
   const [accountMessage, setAccountMessage] = useState(null);
 
   useEffect(() => {
+    const cached = loadSettingsCache();
+    if (cached) {
+      applySettingsData(cached);
+    }
+
     const loadSettings = async () => {
       if (!user) return;
 
       try {
-        // Batch all database queries in parallel via backend API
         const [connData, recData, preferenceData, semanticData, mappingValidation] = await Promise.all([
           apiJson('/api/settings/connection'),
           apiJson('/api/settings/recipients'),
@@ -97,36 +112,42 @@ const Settings = () => {
           apiJson('/api/semantic/mappings/validate'),
         ]);
 
-        if (connData.connected) {
-          setDbType(connData.db_type || 'postgresql');
-          setHost(connData.host || '');
-          setPort(String(connData.port || '5432'));
-          setDbName(connData.db_name || '');
-          setDirectUri(connData.credentials || '');
-          setConnectionMethod(connData.connection_method || 'direct');
-          setConnectionOptions({ ...DEFAULT_CONNECTION_OPTIONS, ...(connData.connection_options || {}) });
-        }
-
-        setAiTone(preferenceData.ai_tone || 'insight-driven');
-        setSyncTime(preferenceData.sync_time || '06:00');
-        setSyncFreq(preferenceData.sync_frequency || 'weekly');
-        setYearlyDate(preferenceData.yearly_date || '01-01');
-        setAnalysisInstruction(preferenceData.analysis_instruction || '');
-        setRecipients((recData.recipients || []).join('\n'));
-        setTemplateData(semanticData);
-        setMappingStatus(mappingValidation);
-
-        const nextInputs = {};
-        (semanticData.fields || []).forEach((field) => {
-          const currentMapping = (semanticData.mappings || []).find((mapping) => mapping.template_field_id === field.id);
-          nextInputs[field.id] = currentMapping?.local_column_name || '';
-        });
-        setMappingInputs(nextInputs);
+        const result = { connData, recData, preferenceData, semanticData, mappingValidation };
+        saveSettingsCache(result);
+        applySettingsData(result);
 
       } catch (error) {
         console.error('Failed to load settings', error);
       }
     };
+
+    function applySettingsData({ connData, recData, preferenceData, semanticData, mappingValidation }) {
+      if (connData?.connected) {
+        setDbType(connData.db_type || 'postgresql');
+        setHost(connData.host || '');
+        setPort(String(connData.port || '5432'));
+        setDbName(connData.db_name || '');
+        setDirectUri(connData.credentials || '');
+        setConnectionMethod(connData.connection_method || 'direct');
+        setConnectionOptions({ ...DEFAULT_CONNECTION_OPTIONS, ...(connData.connection_options || {}) });
+      }
+
+      setAiTone(preferenceData?.ai_tone || 'insight-driven');
+      setSyncTime(preferenceData?.sync_time || '06:00');
+      setSyncFreq(preferenceData?.sync_frequency || 'weekly');
+      setYearlyDate(preferenceData?.yearly_date || '01-01');
+      setAnalysisInstruction(preferenceData?.analysis_instruction || '');
+      setRecipients((recData?.recipients || []).join('\n'));
+      setTemplateData(semanticData || {});
+      setMappingStatus(mappingValidation || {});
+
+      const nextInputs = {};
+      (semanticData?.fields || []).forEach((field) => {
+        const currentMapping = (semanticData.mappings || []).find((mapping) => mapping.template_field_id === field.id);
+        nextInputs[field.id] = currentMapping?.local_column_name || '';
+      });
+      setMappingInputs(nextInputs);
+    }
 
     loadSettings();
   // eslint-disable-next-line react-hooks/exhaustive-deps
