@@ -23,7 +23,7 @@ export function useRealTimeData(userId, options = {}) {
     onErrorRef.current = onError;
     onConnectRef.current = onConnect;
     onDisconnectRef.current = onDisconnect;
-  });
+  }, [onData, onError, onConnect, onDisconnect]);
 
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
@@ -89,7 +89,7 @@ export function useRealTimeData(userId, options = {}) {
 
   useEffect(() => {
     connectWithTokenRef.current = connectWithToken;
-  });
+  }, [connectWithToken]);
 
   useEffect(() => {
     if (userId) {
@@ -151,7 +151,7 @@ export function useWebSocket(url, options = {}) {
     onErrorRef.current = onError;
     onConnectRef.current = onConnect;
     onDisconnectRef.current = onDisconnect;
-  });
+  }, [onMessage, onError, onConnect, onDisconnect]);
 
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState(null);
@@ -211,7 +211,7 @@ export function useWebSocket(url, options = {}) {
 
   useEffect(() => {
     connectRef.current = connect;
-  });
+  }, [connect]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

@@ -46,7 +46,8 @@ const ReportsHistory = () => {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchProReports = useCallback(async () => {
     if (!user) return;
@@ -57,9 +58,10 @@ const ReportsHistory = () => {
     } catch { /* non-critical */ } finally {
       setProLoading(false);
     }
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  useEffect(() => { fetchReports(); fetchProReports(); }, [fetchReports, fetchProReports]);
+  useEffect(() => { fetchReports(); fetchProReports(); }, []);
 
   const handleDeletePro = async (reportId) => {
     setConfirmDelete(reportId);

@@ -129,7 +129,8 @@ const Settings = () => {
     };
 
     loadSettings();
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const buildCredentialString = () => {
     // Use Direct URI if provided - ALWAYS takes priority

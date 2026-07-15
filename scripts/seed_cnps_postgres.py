@@ -141,6 +141,9 @@ DELINQUENT_CODES = {"EMP-4016", "EMP-4017", "EMP-4018"}
 # Months of data
 MONTHS = 24
 
+# Global connection string for reconnection
+conn_str = ""
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def rand_date(start: date, end: date) -> date:
@@ -157,14 +160,37 @@ def rand_date_in_month(year: int, month: int) -> date:
     return rand_date(first, last)
 
 
-def chunked_insert(cursor, table: str, columns: list[str], rows: list[tuple], batch_size: int = 2000):
-    """Insert rows in batches for performance."""
+def chunked_insert(cursor, table: str, columns: list[str], rows: list[tuple], batch_size: int = 100):
+    """Insert rows in batches with reconnection for Supabase pooler."""
     placeholders = ", ".join(["%s"] * len(columns))
     col_str = ", ".join(columns)
     sql = f"INSERT INTO {table} ({col_str}) VALUES ({placeholders})"
-    for i in range(0, len(rows), batch_size):
+    total = len(rows)
+    i = 0
+    while i < total:
         batch = rows[i:i + batch_size]
-        cursor.executemany(sql, batch)
+        try:
+            cursor.executemany(sql, batch)
+            cursor.connection.commit()
+        except Exception as e:
+            try:
+                cursor.connection.rollback()
+            except Exception:
+                pass
+            if "server closed the connection" in str(e) or "connection already closed" in str(e):
+                print(f"  Reconnecting after {i} rows...")
+                import time
+                time.sleep(1)
+                new_conn = psycopg2.connect(conn_str)
+                new_conn.autocommit = True
+                cursor = new_conn.cursor()
+            else:
+                raise
+        else:
+            i += batch_size
+            if (i // batch_size) % 20 == 0:
+                print(f"  {min(i, total):,}/{total:,} rows...")
+    return cursor
 
 
 # ── Schema ─────────────────────────────────────────────────────────────────
@@ -326,31 +352,34 @@ def generate_data(conn, months=MONTHS):
         employer_regions[code] = region
         employer_sector[code] = sector
 
-    print("Generating 5000 insured workers...")
+    print("Generating 1000 insured workers...")
     workers = []
-    for i in range(5000):
+    for i in range(1000):
         emp_code = EMPLOYERS[i % len(EMPLOYERS)][0]
         eid = employer_ids[emp_code]
+        region = employer_regions[emp_code]
         worker_id = f"INS-{30000 + i}"
         hire = rand_date(start, today - timedelta(days=30))
         status = random.choices(["active", "terminated"], weights=[92, 8])[0]
         gender = random.choice(["M", "F"])
         bday = rand_date(date(1960, 1, 1), date(2002, 12, 31))
+        # Store: employee_id, first_name, last_name, eid, emp_code, region, hire, status, gender, bday
         workers.append((worker_id, random.choice(FIRST_NAMES).strip(), random.choice(LAST_NAMES).strip(),
-                        eid, hire, status, gender, bday))
+                        eid, emp_code, region, hire, status, gender, bday))
 
-    chunked_insert(cur, "insured_workers",
+    db_workers = [(w[0], w[1], w[2], w[3], w[6], w[7], w[8], w[9]) for w in workers]
+    cur = chunked_insert(cur, "insured_workers",
                    ["employee_id", "first_name", "last_name", "employer_id", "hire_date", "status", "gender", "birth_date"],
-                   workers)
+                   db_workers)
 
     # Fetch back the integer PKs assigned to each worker
     cur.execute("SELECT id, employee_id FROM insured_workers")
     worker_pk_map = {row[1]: row[0] for row in cur.fetchall()}
 
-    print("Generating 1200 beneficiaries...")
-    active_workers = [w for w in workers if w[5] == "active"]
+    print("Generating 300 beneficiaries...")
+    active_workers = [w for w in workers if w[7] == "active"]
     beneficiaries = []
-    for i in range(1200):
+    for i in range(300):
         w = random.choice(active_workers)
         ben_id = f"BEN-{5000 + i}"
         relationship = random.choice(["spouse", "survivor", "retiree", "child", "disabled"])
@@ -359,15 +388,13 @@ def generate_data(conn, months=MONTHS):
         if worker_pk:
             beneficiaries.append((ben_id, worker_pk, relationship, pstart, "active"))
 
-    chunked_insert(cur, "beneficiaries",
+    cur = chunked_insert(cur, "beneficiaries",
                    ["beneficiary_id", "insured_worker_id", "relationship", "pension_start_date", "status"],
                    beneficiaries)
 
     # ── Contributions ──────────────────────────────────────────────────────
-    print("Generating 120,000+ contributions (this takes a minute)...")
+    print("Generating contributions (this takes a minute)...")
     contrib_rows = []
-    dup_worker = workers[0][0]
-    dup_emp_id = workers[0][2]
     dup_period = today.strftime("%Y-%m")
 
     for m in range(months):
@@ -386,8 +413,8 @@ def generate_data(conn, months=MONTHS):
             seasonal = 0.9
 
         for w in workers:
-            emp_code = next(c for c, eid in employer_ids.items() if eid == w[2])
-            region = employer_regions[emp_code]
+            emp_code = w[4]
+            region = w[5]
             is_delinquent = emp_code in DELINQUENT_CODES
 
             # Skip some Tambacounda data in recent months (sparse anomaly)
@@ -407,14 +434,16 @@ def generate_data(conn, months=MONTHS):
             else:
                 status = random.choices(["paid", "paid", "paid", "pending", "overdue"], weights=[70, 15, 5, 5, 5])[0]
 
-            contrib_rows.append((contrib_date, amount, w[0], w[2], region, status, period))
+            contrib_rows.append((contrib_date, amount, w[0], w[3], region, status, period))
 
     # Intentional duplicates for validation testing
+    dup_worker = workers[0][0]
+    dup_emp_id = workers[0][3]
     for _ in range(3):
         dup_date = today - timedelta(days=random.randint(1, 15))
         contrib_rows.append((dup_date, 99999.99, dup_worker, dup_emp_id, "DK", "paid", dup_period))
 
-    chunked_insert(cur, "contributions",
+    cur = chunked_insert(cur, "contributions",
                    ["contribution_date", "contribution_amount", "employee_id", "employer_id",
                     "regional_code", "payment_status", "period_month"],
                    contrib_rows)
@@ -431,7 +460,7 @@ def generate_data(conn, months=MONTHS):
         amount = round(random.uniform(55_000, 280_000), 2)
         pension_rows.append((pay_date, amount, ben_id, region, "paid"))
 
-    chunked_insert(cur, "pension_payments",
+    cur = chunked_insert(cur, "pension_payments",
                    ["payment_date", "pension_amount", "beneficiary_id", "regional_code", "payment_status"],
                    pension_rows)
 
@@ -441,16 +470,14 @@ def generate_data(conn, months=MONTHS):
     for _ in range(500):
         w = random.choice(workers)
         claim_date = rand_date(start, today)
-        region = employer_regions.get(
-            next((c for c, eid in employer_ids.items() if eid == w[2]), None), "DK"
-        )
+        region = w[5]
         status = random.choice(["open", "closed", "under_review", "settled"])
         severity = random.choices(["minor", "moderate", "severe"], weights=[50, 35, 15])[0]
         days_lost = random.randint(0, 180) if severity != "minor" else random.randint(0, 15)
         amount = round(random.uniform(75_000, 3_500_000), 2)
-        claim_rows.append((claim_date, status, w[2], w[0], region, severity, days_lost, amount))
+        claim_rows.append((claim_date, status, w[3], w[0], region, severity, days_lost, amount))
 
-    chunked_insert(cur, "at_mp_claims",
+    cur = chunked_insert(cur, "at_mp_claims",
                    ["claim_date", "claim_status", "employer_id", "employee_id",
                     "regional_code", "severity", "days_lost", "claim_amount"],
                    claim_rows)
@@ -467,7 +494,7 @@ def generate_data(conn, months=MONTHS):
         region = random.choice(REGIONS)[0]
         benefit_rows.append((pay_date, amount, btype, ben, region))
 
-    chunked_insert(cur, "social_benefit_payments",
+    cur = chunked_insert(cur, "social_benefit_payments",
                    ["payment_date", "benefit_amount", "benefit_type", "beneficiary_id", "regional_code"],
                    benefit_rows)
 
@@ -482,7 +509,7 @@ def generate_data(conn, months=MONTHS):
             period = f"{month_date.year}-{month_date.month:02d}"
             expected_rows.append((eid, period, round(base, 2), region))
 
-    chunked_insert(cur, "employer_expected_contributions",
+    cur = chunked_insert(cur, "employer_expected_contributions",
                    ["employer_id", "period_month", "expected_amount", "regional_code"],
                    expected_rows)
 
@@ -544,9 +571,11 @@ def main():
     months = args.months
 
     print(f"Connecting to database...")
+    global conn_str
+    conn_str = args.db_url
     try:
         conn = psycopg2.connect(args.db_url)
-        conn.autocommit = False
+        conn.autocommit = True
     except Exception as e:
         print(f"ERROR: Cannot connect to database: {e}")
         sys.exit(1)
@@ -554,8 +583,16 @@ def main():
     try:
         print("Creating schema...")
         cur = conn.cursor()
-        cur.execute(SCHEMA_SQL)
-        conn.commit()
+        # Split schema into individual statements to avoid Supabase statement timeout
+        statements = [s.strip() for s in SCHEMA_SQL.split(";") if s.strip()]
+        for stmt in statements:
+            try:
+                cur.execute(stmt)
+            except Exception as e:
+                if "does not exist" in str(e):
+                    continue
+                raise
+        print("  Schema created.")
 
         generate_data(conn, months=months)
 

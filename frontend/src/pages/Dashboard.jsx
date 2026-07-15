@@ -122,7 +122,8 @@ const Dashboard = () => {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [user, dateRange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange]);
 
   const fetchExecutive = useCallback(async () => {
     try {
@@ -138,7 +139,8 @@ const Dashboard = () => {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Refs to current fetch functions for real-time updates
   const fetchOverviewRef = useRef(fetchOverview);
@@ -152,20 +154,26 @@ const Dashboard = () => {
     fetchExecutiveRef.current = fetchExecutive;
   }, [fetchExecutive]);
 
-  // Main data fetch effect - only fetches for active tab
+  // Main data fetch effect - only fetches for active tab, runs once on mount + tab/dateRange changes
+  const didInitRef = useRef(false);
   useEffect(() => {
-    if (user) {
-      const timer = setTimeout(() => {
-        if (activeTab === 'overview' || activeTab === 'analytics') {
-          fetchOverview();
-        } else if (activeTab === 'executive') {
-          fetchExecutive();
-        }
-      }, 100);
+    if (!user) return;
+    const run = () => {
+      if (activeTab === 'overview' || activeTab === 'analytics') {
+        fetchOverview();
+      } else if (activeTab === 'executive') {
+        fetchExecutive();
+      }
+    };
+    if (!didInitRef.current) {
+      didInitRef.current = true;
+      const timer = setTimeout(run, 100);
       return () => clearTimeout(timer);
+    } else {
+      run();
     }
-    return () => { mountedRef.current = false; };
-  }, [user, activeTab, fetchOverview, fetchExecutive, dateRange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, dateRange]);
   
   useEffect(() => {
     document.title = 'Dashboard - Enterprise Analytics Platform';
