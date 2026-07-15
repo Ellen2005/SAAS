@@ -110,6 +110,9 @@ def post_run(
     )
     if result.get("status") == "failed":
         error_msg = result.get("error", "Analysis failed")
+        # Return 400 for expected errors (no DB) instead of 500
+        if any(kw in error_msg.lower() for kw in ("no database connection", "could not generate", "could not generate analysis query")):
+            raise HTTPException(status_code=400, detail=error_msg)
         raise HTTPException(status_code=500, detail=f"Analysis failed: {error_msg}")
     # Auto-generate report in background after successful analysis
     analysis_id = result.get("id") or result.get("run_id") or ""
