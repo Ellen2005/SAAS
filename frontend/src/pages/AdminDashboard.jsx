@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { AlertTriangle, BarChart3, ChevronDown, ChevronRight, Database, RefreshCcw, Users, Activity, Brain, Shield } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { apiFetch, apiJson } from '../lib/api';
+import { readCache, writeCache } from '../lib/cacheHelpers';
+
+const ADMIN_CACHE_KEY = 'saas.admin.cache.v1';
 
 const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
@@ -18,9 +21,16 @@ const AdminDashboard = () => {
   const [showAiPanel, setShowAiPanel] = useState(false);
 
   useEffect(() => {
+    const cached = readCache(ADMIN_CACHE_KEY);
+    if (cached) {
+      setScorecard(cached.scorecard || []);
+      setData(cached.data);
+      if (cached.selectedPeriod) setSelectedPeriod(cached.selectedPeriod);
+      setLoading(false);
+    }
+
     const loadData = async () => {
       try {
-        // Load validation first (faster), then summary
         const [validation, summary] = await Promise.all([
           apiJson('/api/admin/validation/scorecard'),
           apiJson('/api/admin/summary'),
@@ -28,12 +38,10 @@ const AdminDashboard = () => {
 
         setScorecard(validation.scorecard || []);
         setData(summary);
+        const period = summary.timeline?.length ? summary.timeline[summary.timeline.length - 1] : null;
+        setSelectedPeriod(period);
+        writeCache(ADMIN_CACHE_KEY, { scorecard: validation.scorecard, data: summary, selectedPeriod: period });
 
-        if (summary.timeline?.length) {
-          setSelectedPeriod(summary.timeline[summary.timeline.length - 1]);
-        }
-
-        // Load AI governance + monitoring (non-blocking)
         Promise.all([
           apiJson('/api/admin/ai/governance?days=7').catch(() => null),
           apiJson('/api/admin/ai/monitoring?days=7').catch(() => null),

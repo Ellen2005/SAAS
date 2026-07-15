@@ -11,6 +11,9 @@ import { useAuth } from '../lib/authContext';
 import { useLang } from '../lib/i18n';
 import ChartRenderer from '../components/ChartRenderer';
 import { useToast } from '../components/ToastProvider';
+import { readCache, writeCache } from '../lib/cacheHelpers';
+
+const ANALYST_CACHE_KEY = 'saas.analyst.cache.v1';
 
 const card = {
   background: 'var(--ea-bg-card)',
@@ -106,6 +109,8 @@ export default function AIAnalystPage() {
         apiJson('/api/analyst/explain/all'),
         apiJson('/api/analyst/snapshots'),
       ]);
+      const result = { ins, gov, xai, snaps: snaps.snapshots || [] };
+      writeCache(ANALYST_CACHE_KEY, result);
       setInsights(ins);
       setGovernance(gov);
       setExplanations(xai);
@@ -130,8 +135,16 @@ export default function AIAnalystPage() {
     }
   }, [lang]);
 
-  useEffect(() => { 
-    loadInsights(); 
+  useEffect(() => {
+    const cached = readCache(ANALYST_CACHE_KEY);
+    if (cached) {
+      setInsights(cached.ins);
+      setGovernance(cached.gov);
+      setExplanations(cached.xai);
+      setSnapshots(cached.snaps);
+      setLoading(false);
+    }
+    loadInsights();
     loadAnalysisMeta();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
