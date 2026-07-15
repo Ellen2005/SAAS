@@ -1,5 +1,5 @@
 /* eslint react-refresh/only-export-components: off */
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from './supabaseClient';
 import { apiJson } from './api';
 
@@ -168,7 +168,11 @@ export function AuthProvider({ children }) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const value = {
+  const refreshRole = useCallback(() => {
+    if (user) return fetchUserRole(user);
+  }, [user, fetchUserRole]);
+
+  const value = useMemo(() => ({
     user,
     role,
     departmentId,
@@ -178,8 +182,8 @@ export function AuthProvider({ children }) {
     isManager: role === 'manager',
     isViewer: role === 'viewer',
     isManagerOrAbove: role === 'admin' || role === 'manager',
-    refreshRole: () => user && fetchUserRole(user),
-  };
+    refreshRole,
+  }), [user, role, departmentId, departmentName, loading, refreshRole]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

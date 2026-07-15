@@ -133,7 +133,8 @@ export default function AIAnalystPage() {
   useEffect(() => { 
     loadInsights(); 
     loadAnalysisMeta();
-  }, [loadInsights, loadAnalysisMeta]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runFullAnalysis = async () => {
     setRunningFull(true);
