@@ -552,9 +552,16 @@ def run_analysis(
 
             conn_resp = supabase.table("database_connections").select("*").eq("user_id", user_id).limit(1).execute()
             if not (hasattr(conn_resp, "data") and conn_resp.data):
-                raise ValueError("No database connection configured.")
+                raise ValueError(
+                    "No database connection configured. "
+                    "Go to Settings > Database Connection and connect your database first. "
+                    "Analysis requires a live database to query."
+                )
             if len(conn_resp.data) == 0:
-                raise ValueError("No database connection found for user.")
+                raise ValueError(
+                    "No database connection found for your account. "
+                    "Go to Settings > Database Connection to add one."
+                )
             conn_info = maybe_decrypt_connection_row(conn_resp.data[0])
             db_type = (conn_info.get("db_type") or "sqlite").lower()
             db_url = conn_info.get("credentials", "")

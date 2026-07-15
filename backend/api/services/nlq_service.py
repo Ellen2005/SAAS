@@ -432,7 +432,7 @@ def run_nlq(user_id: str, question: str, supabase) -> dict:
     # 1. Get user's DB connection
     conn_resp = supabase.table("database_connections").select("*").eq("user_id", user_id).limit(1).execute()
     if not (hasattr(conn_resp, "data") and conn_resp.data):
-        return {"error": "No database connection configured. Please set up your connection in Settings.", "rows": [], "sql": None}
+        return {"error": "No database connection configured. Go to Settings > Database Connection and connect your database first.", "rows": [], "sql": None}
 
     from .connection_crypto import maybe_decrypt_connection_row
     conn_info = maybe_decrypt_connection_row(conn_resp.data[0])
