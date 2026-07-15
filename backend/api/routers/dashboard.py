@@ -17,6 +17,67 @@ INSTITUTION_NAME = os.getenv("INSTITUTION_NAME", "Smart Analytics")
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
 
+@router.get("/dashboard/all")
+def get_dashboard_all(user_id: str = Depends(resolve_user_id)):
+    """Single combined endpoint: returns summary + forecasts + widgets + series + regional."""
+    cache_key_str = f"v1:dashboard_all:{user_id}"
+    cached = get_cached(cache_key_str)
+    if cached:
+        return cached
+
+    supabase = get_supabase()
+    result = {}
+
+    def fetch_summary():
+        try:
+            return get_dashboard_summary(user_id)
+        except Exception:
+            return {"kpis": [], "anomalies": [], "narrative": "", "last_refreshed": ""}
+
+    def fetch_forecasts():
+        try:
+            return get_forecasts(user_id)
+        except Exception:
+            return {"forecasts": []}
+
+    def fetch_widgets():
+        try:
+            return get_dashboard_widgets(user_id)
+        except Exception:
+            return {"widgets": []}
+
+    def fetch_series():
+        try:
+            return get_kpi_series(user_id, limit=30, days=30)
+        except Exception:
+            return {"series": {}}
+
+    def fetch_regional():
+        try:
+            return get_regional_data(user_id)
+        except Exception:
+            return {"regions": []}
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {
+            pool.submit(fetch_summary): "summary",
+            pool.submit(fetch_forecasts): "forecasts",
+            pool.submit(fetch_widgets): "widgets",
+            pool.submit(fetch_series): "series",
+            pool.submit(fetch_regional): "regional",
+        }
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                result[key] = future.result()
+            except Exception as e:
+                logger.warning(f"dashboard/all {key} failed: {e}")
+                result[key] = {}
+
+    set_cached(cache_key_str, result, ttl=60)
+    return result
+
+
 @router.get("/summary")
 def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
     cache_key_str = f"v1:summary:{user_id}"
@@ -154,7 +215,7 @@ def get_dashboard_summary(user_id: str = Depends(resolve_user_id)):
         except Exception:
             summary_dict["kpi_mode"] = {"mode": "auto"}
             summary_dict["snapshot_chart"] = None
-        set_cached(cache_key_str, summary_dict, ttl=60)
+        set_cached(cache_key_str, summary_dict, ttl=120)
         return summary_dict
     except Exception as e:
         logger.error(f"Summary Fetch Error: {e}", exc_info=True)
@@ -204,7 +265,7 @@ def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120, da
         for key in list(series.keys()):
             series[key] = list(reversed(series[key]))
         
-        set_cached(cache_key_str, {"series": series}, ttl=60)
+        set_cached(cache_key_str, {"series": series}, ttl=120)
         return {"series": series}
     except Exception:
         logger.error("KPI series error", exc_info=True)
@@ -213,6 +274,10 @@ def get_kpi_series(user_id: str = Depends(resolve_user_id), limit: int = 120, da
 
 @router.get("/dashboard/widgets")
 def get_dashboard_widgets(user_id: str = Depends(resolve_user_id)):
+    cache_key_str = f"v1:widgets:{user_id}"
+    cached = get_cached(cache_key_str)
+    if cached:
+        return cached
     supabase = get_supabase()
     try:
         defs = supabase.table("kpi_definitions").select("*").order("sort_order").execute()
@@ -226,19 +291,18 @@ def get_dashboard_widgets(user_id: str = Depends(resolve_user_id)):
             {"name": "workplace_accident_frequency", "display_name_en": "AT/MP Frequency", "widget_type": "line"},
             {"name": "regional_contribution_share", "display_name_en": "Contributions by Region", "widget_type": "bar"},
         ]
-    return {"widgets": widgets, "institution": INSTITUTION_NAME}
+    result = {"widgets": widgets, "institution": INSTITUTION_NAME}
+    set_cached(cache_key_str, result, ttl=120)
+    return result
 
 
 @router.get("/dashboard/regional")
 def get_regional_data(user_id: str = Depends(resolve_user_id)):
-    """Return per-region KPI values.
+    cache_key_str = f"v1:regional:{user_id}"
+    cached = get_cached(cache_key_str)
+    if cached:
+        return cached
 
-    Strategy:
-    1. Try querying the user's source database directly for regional breakdowns
-       (contribution_amount SUM grouped by regional_code).
-    2. Fall back to kpi_results if source query fails or has no regional data.
-    3. Fall back to proxy mapping only as a last resort.
-    """
     REGION_LABELS = {
         "DLA": "Douala", "douala": "Douala",
         "YDE": "Yaoundé", "yaounde": "Yaoundé", "yaoundé": "Yaoundé",
@@ -270,6 +334,7 @@ def get_regional_data(user_id: str = Depends(resolve_user_id)):
                 engine = create_engine(
                     normalize_credentials(db_url, db_type),
                     **sqlalchemy_engine_kwargs(db_url, db_type),
+                    connect_args={"connect_timeout": 5},
                 )
                 # Try contributions table first, then workplace_accidents
                 regional_queries = [
@@ -299,6 +364,7 @@ def get_regional_data(user_id: str = Depends(resolve_user_id)):
                                     "kpi_name": "regional_breakdown",
                                 })
                             if regions:
+                                set_cached(cache_key_str, {"regions": regions, "source": "database"}, ttl=120)
                                 return {"regions": regions, "source": "database"}
                     except Exception:
                         continue
@@ -328,10 +394,12 @@ def get_regional_data(user_id: str = Depends(resolve_user_id)):
                     }
                     break
         if region_map:
+            set_cached(cache_key_str, {"regions": list(region_map.values()), "source": "kpi_results"}, ttl=120)
             return {"regions": list(region_map.values()), "source": "kpi_results"}
     except Exception as e:
         logger.debug(f"kpi_results regional fallback failed: {e}")
 
+    set_cached(cache_key_str, {"regions": [], "source": "none"}, ttl=120)
     return {"regions": [], "source": "none"}
 
 
@@ -339,6 +407,10 @@ def get_regional_data(user_id: str = Depends(resolve_user_id)):
 def get_forecasts(user_id: str = Depends(resolve_user_id)):
     """Return latest forecasts for the user. Only show forecasts generated
     within the last 7 days (fresher data)."""
+    cache_key_str = f"v1:forecasts:{user_id}"
+    cached = get_cached(cache_key_str)
+    if cached:
+        return cached
     supabase = get_supabase()
     try:
         cutoff = (datetime.now() - timedelta(days=7)).isoformat()
@@ -384,7 +456,9 @@ def get_forecasts(user_id: str = Depends(resolve_user_id)):
                 }
             )
 
-        return {"forecasts": forecasts}
+        result = {"forecasts": forecasts}
+        set_cached(cache_key_str, result, ttl=120)
+        return result
     except Exception:
         logger.error("Forecasts error", exc_info=True)
         return {"forecasts": [], "error": "Failed to fetch forecasts."}

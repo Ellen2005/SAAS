@@ -96,23 +96,14 @@ const Dashboard = () => {
     try {
       if (!user) return;
       setLoading(true);
-      const [result, forecastResult, widgetResult] = await Promise.all([
-        apiJson('/api/summary'),
-        apiJson(`/api/forecasts?days=${dateRange}`),
-        apiJson('/api/dashboard/widgets').catch(() => ({ widgets: [] })),
-      ]);
+      const all = await apiJson('/api/dashboard/all');
       if (!mountedRef.current) return;
-      setData(result);
-      writeCache(DASHBOARD_CACHE_KEY, result);
-      setForecasts(forecastResult.forecasts || []);
-      setWidgets(widgetResult.widgets || []);
-      const [seriesResult, regionalResult] = await Promise.all([
-        apiJson(`/api/kpis/series?limit=30&days=${dateRange}`).catch(() => ({ series: {} })),
-        apiJson('/api/dashboard/regional').catch(() => ({ regions: [] })),
-      ]);
-      if (!mountedRef.current) return;
-      setSeries(seriesResult.series || {});
-      setRegionalData(regionalResult.regions || []);
+      setData(all.summary || {});
+      writeCache(DASHBOARD_CACHE_KEY, all.summary || {});
+      setForecasts((all.forecasts || {}).forecasts || []);
+      setWidgets((all.widgets || {}).widgets || []);
+      setSeries((all.series || {}).series || {});
+      setRegionalData((all.regional || {}).regions || []);
     } catch (err) {
       console.error('Error fetching overview data:', err);
       if (!mountedRef.current) return;
