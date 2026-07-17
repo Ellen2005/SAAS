@@ -3,6 +3,7 @@ import uuid
 import socket
 import subprocess
 import time
+import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -11,6 +12,15 @@ import pandas as pd
 from sqlalchemy import create_engine
 
 from .connection_utils import normalize_credentials, sqlalchemy_engine_kwargs, detect_db_type
+
+
+_IDENT_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+def _safe_identifier(name: str) -> str:
+    """Validate that a name is a safe SQL identifier (alphanumeric + underscore)."""
+    if not name or not _IDENT_RE.match(name):
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return name
 
 
 def _get_free_local_port() -> int:
@@ -171,6 +181,12 @@ def extract_from_mapped_tables(user_id: str, db_connection_info: dict, supabase)
             amt = (tbl.get("amount_columns") or [None])[0]
             dt = (tbl.get("date_columns") or [None])[0]
             if not amt or not dt:
+                continue
+            try:
+                _safe_identifier(amt)
+                _safe_identifier(dt)
+                _safe_identifier(tbl["name"])
+            except ValueError:
                 continue
             label = (tbl.get("classifications") or [tbl["name"]])[0].title()
             safe_label = label.replace("'", "''")

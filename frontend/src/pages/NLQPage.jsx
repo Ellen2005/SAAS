@@ -107,7 +107,7 @@ const AssistantMessage = ({ message }) => {
 const NLQPage = () => {
   const { t } = useLang();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [sidebarOpen, setSidebarOpen] = useState(!window.innerWidth < 768);
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 768);
   const [conversations, setConversations] = useState(readConversations);
   const [activeId, setActiveId] = useState(() => conversations[0]?.id);
   const [question, setQuestion] = useState('');
@@ -166,7 +166,8 @@ const NLQPage = () => {
         method: 'POST',
         body: JSON.stringify({ question: prompt }),
       });
-      const data = await resp.json();
+      let data;
+      try { data = await resp.json(); } catch { data = { error: `Server returned non-JSON (HTTP ${resp.status})`, rows: [] }; }
       updateActive((item) => ({
         ...item,
         messages: [...item.messages, { id: `${Date.now()}-assistant`, role: 'assistant', result: data }],
@@ -198,7 +199,8 @@ const NLQPage = () => {
         method: 'POST',
         body: JSON.stringify({ instruction: prompt, chart_type: chartType }),
       });
-      const data = await resp.json();
+      let data;
+      try { data = await resp.json(); } catch { data = { error: `Server returned non-JSON (HTTP ${resp.status})` }; }
       setCustomChart(data);
     } catch (err) {
       setCustomChart({ error: err.message });

@@ -17,7 +17,11 @@ function loadSettingsCache() {
 }
 
 function saveSettingsCache(data) {
-  writeCache(SETTINGS_CACHE_KEY, data);
+  const safe = { ...data };
+  if (safe.connData?.credentials) {
+    safe.connData = { ...safe.connData, credentials: '***' };
+  }
+  writeCache(SETTINGS_CACHE_KEY, safe);
 }
 
 const DEFAULT_CONNECTION_OPTIONS = {

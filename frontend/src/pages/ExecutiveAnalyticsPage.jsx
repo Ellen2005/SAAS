@@ -7,7 +7,6 @@ import { apiJson } from '../lib/api';
 export default function ExecutiveAnalyticsPage() {
   const [overview, setOverview] = useState(null);
   const [insights, setInsights] = useState(null);
-  const [_briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -15,14 +14,12 @@ export default function ExecutiveAnalyticsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ov, ins, br] = await Promise.all([
+      const [ov, ins] = await Promise.all([
         apiJson('/api/executive/overview'),
         apiJson('/api/executive/insights'),
-        apiJson('/api/executive/briefing'),
       ]);
       setOverview(ov);
       setInsights(ins);
-      setBriefing(br);
     } catch (e) {
       setError(e.message);
     } finally {

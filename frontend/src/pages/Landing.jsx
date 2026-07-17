@@ -59,7 +59,7 @@ const Landing = () => {
           <img src="/logo.png" alt={t('app_name')} style={{ width: '32px', height: '32px' }} />
           <h2 style={{ margin: 0, letterSpacing: '-0.05em' }}>{t('app_name')}</h2>
         </div>
-        <p>© 2026 {t('app_full_name')}. {t('institution_name')}.</p>
+        <p>© {new Date().getFullYear()} {t('app_full_name')}. {t('institution_name')}.</p>
       </footer>
 
       <style>{`

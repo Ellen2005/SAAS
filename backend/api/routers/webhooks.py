@@ -358,7 +358,7 @@ def _send_webhook(webhook: dict, event_type: EventType, payload: dict):
             return None
         # Use resolved IP directly to prevent DNS rebinding
         if resolved_ip and resolved_ip != hostname:
-            url = url.replace(f"://hostname", f"://resolved_ip").replace(f"://{hostname}", f"://{resolved_ip}")
+            url = url.replace(f"://{hostname}", f"://{resolved_ip}", 1)
     except Exception:
         logger.warning("Webhook URL parse failed: %s", url)
         return None
