@@ -153,4 +153,4 @@ def sqlalchemy_engine_kwargs(credentials: str, db_type: str) -> dict:
             },
             "pool_pre_ping": True,
         }
-    return {"connect_args": {"connect_timeout": 10}, "pool_pre_ping": True}
+    return {"connect_args": {"connect_timeout": 10}, "pool_pre_ping": True, "pool_recycle": 180}

@@ -17,20 +17,51 @@ logger = logging.getLogger(__name__)
 
 
 def _get_db_schema_hint(engine) -> str:
-    """Extract table/column names from the connected DB for context."""
+    """Extract table/column names from the connected DB for context.
+    
+    Uses a single fast SQL query instead of the slow SQLAlchemy inspector
+    to avoid Supabase pooler connection timeouts.
+    """
     try:
-        from sqlalchemy import inspect, text
-        inspector = inspect(engine)
-        tables = inspector.get_table_names()
-        schema_lines = []
-        for table in tables[:20]:  # limit to 20 tables
-            try:
-                cols = [c["name"] for c in inspector.get_columns(table)]
-                schema_lines.append(f"  {table}({', '.join(cols[:15])})")
-            except Exception as e:
-                logger.debug(f"Failed to get columns for {table}: {e}")
-                schema_lines.append(f"  {table}(...)")
-        return "\n".join(schema_lines)
+        from sqlalchemy import text
+        dialect = engine.dialect.name
+        if dialect == "postgresql":
+            sql = text("""
+                SELECT table_name, string_agg(column_name, ', ' ORDER BY ordinal_position) AS cols
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                GROUP BY table_name
+                ORDER BY table_name
+                LIMIT 40
+            """)
+        elif dialect == "mysql":
+            sql = text("""
+                SELECT table_name, GROUP_CONCAT(column_name ORDER BY ordinal_position) AS cols
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                GROUP BY table_name
+                ORDER BY table_name
+                LIMIT 40
+            """)
+        else:
+            from sqlalchemy import inspect
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            schema_lines = []
+            for table in tables[:20]:
+                try:
+                    cols = [c["name"] for c in inspector.get_columns(table)]
+                    schema_lines.append(f"  {table}({', '.join(cols[:15])})")
+                except Exception:
+                    schema_lines.append(f"  {table}(...)")
+            return "\n".join(schema_lines)
+
+        with engine.connect() as conn:
+            result = conn.execute(sql)
+            schema_lines = []
+            for row in result:
+                schema_lines.append(f"  {row[0]}({row[1]})")
+            return "\n".join(schema_lines) if schema_lines else "(schema unavailable)"
     except Exception as e:
         logger.debug(f"Schema introspection failed: {e}")
         return "(schema unavailable)"
