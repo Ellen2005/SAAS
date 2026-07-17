@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Header, Query
+from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -327,11 +327,29 @@ async def ping():
 
 
 @app.get("/api/health", response_model=HealthResponse, include_in_schema=False)
-async def health_check():
-    """Comprehensive health check for all system dependencies."""
+async def health_check(request: Request):
+    """Comprehensive health check. Returns limited info for unauthenticated requests."""
+    import jwt as _pyjwt
+    auth_header = request.headers.get("Authorization", "")
+    is_authenticated = False
+    if auth_header.startswith("Bearer "):
+        try:
+            _pyjwt.decode(auth_header[7:], os.environ.get("SUPABASE_JWT_SECRET", ""), algorithms=["HS256"])
+            is_authenticated = True
+        except Exception:
+            pass
+
     start_time = time.perf_counter()
     components = []
     overall_status = "healthy"
+
+    if not is_authenticated:
+        return HealthResponse(
+            status="healthy",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            version=os.getenv("APP_VERSION", "1.0.0"),
+            components=[HealthComponent(name="api", status="healthy", details="OK")],
+        )
     
     # 1. Supabase / Database connectivity
     supabase_start = time.perf_counter()
@@ -382,7 +400,7 @@ async def health_check():
             components.append(HealthComponent(
                 name="redis",
                 status="degraded",
-                details=f"Connection failed: {str(e)[:100]}",
+            details="Connection failed",
                 latency_ms=latency
             ))
             if overall_status == "healthy":
@@ -432,7 +450,7 @@ async def health_check():
         components.append(HealthComponent(
             name="scheduler",
             status="unhealthy",
-            details=f"Error: {str(e)[:100]}"
+            details="Scheduler check failed"
         ))
         overall_status = "unhealthy"
     

@@ -6,7 +6,6 @@ import KpiCard from '../components/KpiCard';
 export default function DataQualityPage() {
   const [score, setScore] = useState(null);
   const [issues, setIssues] = useState(null);
-  const [_report, setReport] = useState(null);
   const [aiFeedback, setAiFeedback] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -15,14 +14,12 @@ export default function DataQualityPage() {
     setLoading(true);
     setError(null);
     try {
-      const [scRes, isRes, rpRes] = await Promise.all([
+      const [scRes, isRes] = await Promise.all([
         apiJson('/api/data-quality/score'),
         apiJson('/api/data-quality/issues'),
-        apiJson('/api/data-quality/report'),
       ]);
       setScore(scRes);
       setIssues(isRes);
-      setReport(rpRes);
 
       // Load AI feedback summary (non-blocking, admin-only)
       apiJson('/api/admin/ai/feedback/summary?days=30').then(setAiFeedback).catch(() => {});
@@ -250,9 +247,9 @@ export default function DataQualityPage() {
                 <h4 style={{ fontSize: '0.85rem', marginBottom: '8px', color: 'var(--ea-text-secondary)' }}>Recent Feedback</h4>
                 <div style={{ display: 'grid', gap: '8px' }}>
                   {aiFeedback.recent_comments.slice(0, 5).map((fb, i) => (
-                    <div key={i} style={{ padding: '10px', background: 'var(--ea-bg)', borderRadius: 'var(--ea-radius-md)', borderLeft: `3px solid ${fb.rating >= 4 ? 'var(--ea-success)' : fb.rating <= 2 ? 'var(--ea-danger)' : 'var(--ea-warning)'}` }}>
+                    <div key={i} style={{ padding: '10px', background: 'var(--ea-bg)', borderRadius: 'var(--ea-radius-md)', borderLeft: `3px solid ${(fb.rating || 0) >= 4 ? 'var(--ea-success)' : (fb.rating || 0) <= 2 ? 'var(--ea-danger)' : 'var(--ea-warning)'}` }}>
                       <div style={{ fontSize: '0.75rem', color: 'var(--ea-text-secondary)' }}>
-                        {'⭐'.repeat(fb.rating)} {fb.category && `• ${fb.category}`}
+                        {'⭐'.repeat(fb.rating || 0)} {fb.category && `• ${fb.category}`}
                       </div>
                       <div style={{ fontSize: '0.8rem', marginTop: '4px' }}>{fb.comment}</div>
                     </div>

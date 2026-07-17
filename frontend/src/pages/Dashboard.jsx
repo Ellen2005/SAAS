@@ -69,7 +69,8 @@ const Dashboard = () => {
   const [regionalData, setRegionalData] = useState([]);
   
   // Refs for cleanup and closure safety
-  const intervalRef = useRef(null);
+  const syncIntervalRef = useRef(null);
+  const reportIntervalRef = useRef(null);
   const mountedRef = useRef(true);
 
   // Real-time data streaming
@@ -185,12 +186,16 @@ const Dashboard = () => {
     return () => window.removeEventListener('dashboard:refresh', handleExternalRefresh);
   }, [activeTab]);
 
-  // Cleanup interval on unmount
+  // Cleanup intervals on unmount
   useEffect(() => {
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+      if (reportIntervalRef.current) {
+        clearInterval(reportIntervalRef.current);
+        reportIntervalRef.current = null;
       }
     };
   }, []);
@@ -254,7 +259,7 @@ const Dashboard = () => {
       .filter(k => k.value != null)
       .slice(0, 8)
       .map((k) => ({
-        title: k.kpi_name.replaceAll('_', ' '),
+        title: (k.kpi_name || '').replaceAll('_', ' '),
         value: k.value,
         delta: k.dod_pct,
         status: statusMap[k.status] || 'neutral',
@@ -272,18 +277,17 @@ const Dashboard = () => {
     apiFetch('/api/etl/trigger', { method: 'POST' })
       .then(() => {
         let attempts = 0;
-        intervalRef.current = setInterval(() => {
+        syncIntervalRef.current = setInterval(() => {
           attempts++;
           apiJson('/api/etl/status')
             .then((s) => {
               if (!mountedRef.current) {
-                if (intervalRef.current) clearInterval(intervalRef.current);
+                if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
                 return;
               }
               if (s.status === 'IDLE' || s.status === 'COMPLETED' || attempts > 30) {
-                if (intervalRef.current) clearInterval(intervalRef.current);
-                intervalRef.current = null;
-                // Refresh based on active tab
+                if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
+                syncIntervalRef.current = null;
                 if (activeTab === 'overview' || activeTab === 'analytics') {
                   fetchOverview();
                 } else if (activeTab === 'executive') {
@@ -297,8 +301,8 @@ const Dashboard = () => {
             })
             .catch(() => {
               if (attempts > 30) {
-                if (intervalRef.current) clearInterval(intervalRef.current);
-                intervalRef.current = null;
+                if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
+                syncIntervalRef.current = null;
                 setSyncing(false);
               }
             });
@@ -316,12 +320,12 @@ const Dashboard = () => {
     apiFetch('/api/reports/generate', { method: 'POST' })
       .then(() => {
         let attempts = 0;
-        intervalRef.current = setInterval(() => {
+        reportIntervalRef.current = setInterval(() => {
           attempts++;
           apiJson('/api/reports/history')
             .then((r) => {
               if (!mountedRef.current) {
-                if (intervalRef.current) clearInterval(intervalRef.current);
+                if (reportIntervalRef.current) clearInterval(reportIntervalRef.current);
                 return;
               }
               const reports = r.reports || [];
@@ -329,8 +333,8 @@ const Dashboard = () => {
                 const latest = new Date(reports[0].report_date);
                 const now = new Date();
                 if (now - latest < 60000 || attempts > 15) {
-                  if (intervalRef.current) clearInterval(intervalRef.current);
-                  intervalRef.current = null;
+                  if (reportIntervalRef.current) clearInterval(reportIntervalRef.current);
+                  reportIntervalRef.current = null;
                   if (activeTab === 'overview' || activeTab === 'analytics') {
                     fetchOverview();
                   } else if (activeTab === 'executive') {
@@ -340,8 +344,8 @@ const Dashboard = () => {
                   setStatusMessage('Report generated');
                 }
               } else if (attempts > 15) {
-                if (intervalRef.current) clearInterval(intervalRef.current);
-                intervalRef.current = null;
+                if (reportIntervalRef.current) clearInterval(reportIntervalRef.current);
+                reportIntervalRef.current = null;
                 if (activeTab === 'overview' || activeTab === 'analytics') {
                   fetchOverview();
                 } else if (activeTab === 'executive') {
@@ -353,8 +357,8 @@ const Dashboard = () => {
             })
             .catch(() => {
               if (attempts > 15) {
-                if (intervalRef.current) clearInterval(intervalRef.current);
-                intervalRef.current = null;
+                if (reportIntervalRef.current) clearInterval(reportIntervalRef.current);
+                reportIntervalRef.current = null;
                 if (activeTab === 'overview' || activeTab === 'analytics') {
                   fetchOverview();
                 } else if (activeTab === 'executive') {
@@ -499,6 +503,7 @@ const Dashboard = () => {
                   ? 'KPI values mapped to regions — connect a database with regional data for accurate geographic breakdown'
                   : 'Geographic distribution of contribution metrics by CNPS region'}
               </p>
+              <Suspense fallback={<div style={{ height: 350, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>Loading map...</div>}>
               <MapVisualization
                 data={regionalData}
                 onRegionClick={(region) => {
@@ -506,6 +511,7 @@ const Dashboard = () => {
                 }}
                 height={350}
               />
+              </Suspense>
             </section>
             )}
 
@@ -523,18 +529,18 @@ const Dashboard = () => {
             )}
 
             {/* Anomalies */}
-            {data.anomalies.length > 0 && (
+            {(data.anomalies || []).length > 0 && (
               <section className="ea-card" style={{ borderLeft: '4px solid var(--ea-danger)', marginBottom: 24 }}>
                 <div className="ea-card-body">
                   <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--ea-danger)', marginBottom: 16, fontSize: '1.05rem' }}>
                     <AlertCircle size={18} /> Anomalies Detected
                   </h3>
                   <div style={{ display: 'grid', gap: 10 }}>
-                    {data.anomalies.slice(0, 5).map((a) => (
+                    {(data.anomalies || []).slice(0, 5).map((a) => (
                       <div key={a.id} className="ea-alert ea-alert-danger" style={{ margin: 0 }}>
-                        <h4 style={{ margin: 0, fontSize: '0.9rem' }}>{a.kpi_name.replaceAll('_', ' ')}</h4>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem' }}>{(a.kpi_name || '').replaceAll('_', ' ')}</h4>
                         <p style={{ color: 'var(--ea-text-secondary)', fontSize: '0.85rem', margin: '4px 0 0' }}>
-                          {a.context?.reason} (Deviation: {a.deviation.toFixed(1)}%)
+                          {a.context?.reason} (Deviation: {(a.deviation ?? 0).toFixed(1)}%)
                         </p>
                       </div>
                     ))}
@@ -547,7 +553,7 @@ const Dashboard = () => {
             {data.validation?.length > 0 && <ValidationWarnings validations={data.validation} />}
 
             {/* Empty state */}
-            {!data.narrative && !data.anomalies.length && (
+            {!data.narrative && !(data.anomalies || []).length && (
               <div className="ea-empty-state">
                 <div className="ea-empty-state-icon"><BarChart2 size={28} /></div>
                 <h3 className="ea-empty-state-title">No Analytics Yet</h3>
@@ -721,7 +727,7 @@ const Dashboard = () => {
               aria-controls={`panel-${tab}`}
               id={`tab-${tab}`}
               className={`ea-tab ${activeTab === tab ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => { setActiveTab(tab); if (tab !== 'analytics') setSelectedKpi(null); }}
             >
               {tab === 'overview' && <LayoutDashboard size={16} style={{ marginRight: 6 }} />}
               {tab === 'overview' ? 'Overview' : tab === 'analytics' ? (
@@ -761,11 +767,14 @@ const Dashboard = () => {
           </div>
         )}
 
-        {renderTabContent() && (
-          <div id={`panel-${activeTab}`} role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
-            {renderTabContent()}
-          </div>
-        )}
+        {(() => {
+          const tabContent = renderTabContent();
+          return tabContent ? (
+            <div id={`panel-${activeTab}`} role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
+              {tabContent}
+            </div>
+          ) : null;
+        })()}
         
         {/* Onboarding Tour */}
         <OnboardingTour

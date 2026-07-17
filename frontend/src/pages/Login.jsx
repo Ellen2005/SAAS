@@ -16,6 +16,7 @@ const Login = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showLangPicker, setShowLangPicker] = useState(false);
@@ -27,7 +28,7 @@ const Login = () => {
   const [fieldErrors, setFieldErrors] = useState({});
   const [touched, setTouched] = useState({});
   const errorIdRef = useRef('login-error');
-  const emailValidRef = useRef(false);
+
 
   const getPasswordStrength = (pwd) => {
     if (!pwd) return { score: 0, label: '', color: '' };
@@ -80,7 +81,7 @@ const Login = () => {
   const handleChange = (field, value) => {
     if (field === 'email') {
       setEmail(value);
-      emailValidRef.current = validateEmail(value);
+
     } else if (field === 'password') {
       setPassword(value);
     } else if (field === 'confirmPassword') {
@@ -265,7 +266,13 @@ const Login = () => {
                 <label htmlFor="login-confirm-password" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Lock size={16} /> {t('login_confirm_password')}
                 </label>
-                <input id="login-confirm-password" name="confirmPassword" type={showPassword ? 'text' : 'password'} placeholder="••••••••" required value={confirmPassword} onChange={(e) => handleChange('confirmPassword', e.target.value)} onBlur={() => handleBlur('confirmPassword')} autoComplete="new-password" aria-invalid={touched.confirmPassword && !!fieldErrors.confirmPassword} aria-describedby={touched.confirmPassword && fieldErrors.confirmPassword ? 'confirm-error' : undefined} />
+                <div style={{ position: 'relative' }}>
+                <input id="login-confirm-password" name="confirmPassword" type={showConfirmPassword ? 'text' : 'password'} placeholder="••••••••" required value={confirmPassword} onChange={(e) => handleChange('confirmPassword', e.target.value)} onBlur={() => handleBlur('confirmPassword')} autoComplete="new-password" aria-invalid={touched.confirmPassword && !!fieldErrors.confirmPassword} aria-describedby={touched.confirmPassword && fieldErrors.confirmPassword ? 'confirm-error' : undefined} style={{ paddingRight: '45px' }} />
+                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                  {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+                </div>
                 {touched.confirmPassword && fieldErrors.confirmPassword && <p id="confirm-error" role="alert" style={{ color: 'var(--status-critical)', fontSize: '0.8rem', marginTop: '4px' }}>{fieldErrors.confirmPassword}</p>}
               </div>
             )}
@@ -277,7 +284,7 @@ const Login = () => {
 
           <p style={{ marginTop: '20px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
             {isSignUp ? t('login_has_account') : t('login_no_account')}
-            <button onClick={() => { setIsSignUp(!isSignUp); setError(null); }}
+            <button onClick={() => { setIsSignUp(!isSignUp); setError(null); setTouched({}); setFieldErrors({}); }}
               style={{ background: 'none', border: 'none', color: 'var(--primary-color)', fontWeight: '600', cursor: 'pointer', marginLeft: '8px' }}>
               {isSignUp ? t('login_btn') : t('signup_btn')}
             </button>

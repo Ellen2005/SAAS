@@ -193,7 +193,7 @@ const AdminDashboard = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   {expandedDept === department.department_id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                   <h3 style={{ fontSize: '1rem' }}>{department.department_name}</h3>
-                  {department.anomaly_count > 0 && (
+                  {(department.anomaly_count || 0) > 0 && (
                     <span style={{ background: 'rgba(239,68,68,0.15)', color: 'var(--status-critical)', padding: '2px 8px', borderRadius: '999px', fontSize: '0.75rem' }}>
                       {department.anomaly_count} anomalies
                     </span>
@@ -204,7 +204,7 @@ const AdminDashboard = () => {
 
               {expandedDept === department.department_id && (
                 <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-                  {department.kpis.length > 0 ? (
+                  {(department.kpis || []).length > 0 ? (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                       {department.kpis.map((kpi) => (
                         <div
@@ -212,7 +212,7 @@ const AdminDashboard = () => {
                           style={{ padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', cursor: 'pointer' }}
                           onClick={() => handleLineage(kpi.id)}
                         >
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{kpi.kpi_name.replaceAll('_', ' ')}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{(kpi.kpi_name || '').replaceAll('_', ' ')}</div>
                           <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{Number(kpi.value).toLocaleString()}</div>
                           <div style={{ fontSize: '0.75rem', color: (kpi.dod_pct || 0) >= 0 ? 'var(--status-normal)' : 'var(--status-critical)' }}>
                             {(kpi.dod_pct || 0) >= 0 ? '▲' : '▼'} {Math.abs(kpi.dod_pct || 0).toFixed(1)}% DoD

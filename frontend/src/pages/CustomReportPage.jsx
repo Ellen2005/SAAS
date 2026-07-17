@@ -268,9 +268,9 @@ const CustomReportPage = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h2 style={{ fontSize: '1.1rem' }}>Generated Report</h2>
                 <div style={{ display: 'flex', gap: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', alignItems: 'center' }}>
-                  <span>{result.kpi_count} KPIs</span>
+                  <span>{result.kpi_count ?? 0} KPIs</span>
                   <span>·</span>
-                  <span>{result.anomaly_count} anomalies</span>
+                  <span>{result.anomaly_count ?? 0} anomalies</span>
                   <button
                     className="btn btn-outline"
                     onClick={handleSave}

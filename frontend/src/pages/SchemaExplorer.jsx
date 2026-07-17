@@ -235,7 +235,7 @@ export default function SchemaExplorer() {
               {syncResult.kpis.map((k, i) => (
                 <div key={i} style={{ ...card, padding: 10 }}>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{k.kpi_name}</div>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 600 }}>{k.value.toLocaleString()}</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 600 }}>{(k.value ?? 0).toLocaleString()}</div>
                   <div style={{ fontSize: '0.7rem', color: k.status === 'NORMAL' ? 'var(--status-normal)' : '#fbbf24' }}>{k.status}</div>
                 </div>
               ))}
