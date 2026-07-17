@@ -160,11 +160,11 @@ def rand_date_in_month(year: int, month: int) -> date:
     return rand_date(first, last)
 
 
-def chunked_insert(cursor, table: str, columns: list[str], rows: list[tuple], batch_size: int = 100):
+def chunked_insert(cursor, table: str, columns: list[str], rows: list[tuple], batch_size: int = 50):
     """Insert rows in batches with reconnection for Supabase pooler."""
     placeholders = ", ".join(["%s"] * len(columns))
     col_str = ", ".join(columns)
-    sql = f"INSERT INTO {table} ({col_str}) VALUES ({placeholders})"
+    sql = f"INSERT INTO {table} ({col_str}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
     total = len(rows)
     i = 0
     while i < total:
@@ -172,24 +172,36 @@ def chunked_insert(cursor, table: str, columns: list[str], rows: list[tuple], ba
         try:
             cursor.executemany(sql, batch)
             cursor.connection.commit()
+            i += len(batch)
+            if i % 500 == 0 or i == total:
+                print(f"  {i:,}/{total:,} rows...")
         except Exception as e:
-            try:
-                cursor.connection.rollback()
-            except Exception:
-                pass
-            if "server closed the connection" in str(e) or "connection already closed" in str(e):
-                print(f"  Reconnecting after {i} rows...")
+            err = str(e).lower()
+            if "server closed" in err or "connection" in err or "timeout" in err or "closed" in err:
                 import time
-                time.sleep(1)
-                new_conn = psycopg2.connect(conn_str)
-                new_conn.autocommit = True
-                cursor = new_conn.cursor()
+                time.sleep(0.5)
+                try:
+                    cursor.connection.close()
+                except Exception:
+                    pass
+                for attempt in range(3):
+                    try:
+                        new_conn = psycopg2.connect(conn_str)
+                        new_conn.autocommit = True
+                        cursor = new_conn.cursor()
+                        break
+                    except Exception:
+                        time.sleep(2)
+                else:
+                    print(f"  FATAL: Cannot reconnect after 3 attempts at row {i}")
+                    break
             else:
-                raise
-        else:
-            i += batch_size
-            if (i // batch_size) % 20 == 0:
-                print(f"  {min(i, total):,}/{total:,} rows...")
+                # Skip batch on other errors (e.g. constraint violations from partial inserts)
+                try:
+                    cursor.connection.rollback()
+                except Exception:
+                    pass
+                i += len(batch)
     return cursor
 
 
