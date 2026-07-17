@@ -264,11 +264,16 @@ export default function AIAnalystPage() {
       const response = await apiFetch(`/api/reports/download/${reportId}?format=${format}`);
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `report-${reportId}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
+      if (format === 'pdf') {
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `report-${reportId}.xlsx`;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+      }
     } catch (e) {
       toast.error(`Download failed: ${e.message}`);
     }
