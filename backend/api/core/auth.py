@@ -114,10 +114,13 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
 
-async def resolve_user_id(authorization: Optional[str] = Header(None)) -> str:
-    if not authorization:
+async def resolve_user_id(authorization: Optional[str] = Header(None), token: Optional[str] = Query(None)) -> str:
+    auth_header = authorization
+    if not auth_header and token:
+        auth_header = f"Bearer {token}"
+    if not auth_header:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
-    user = await get_current_user(authorization)
+    user = await get_current_user(auth_header)
     if isinstance(user, dict):
         resolved = user.get("id") or user.get("user_id")
     else:

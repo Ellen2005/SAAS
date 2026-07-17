@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { FileText, RefreshCcw, ChevronDown, ChevronRight, Edit3, Send, Check, X, Download, FileSpreadsheet, Trash2 } from 'lucide-react';
-import { apiJson, apiFetch, API_URL } from '../lib/api';
+import { apiJson, apiFetch, API_URL, getSessionSafe } from '../lib/api';
 import { useAuth } from '../lib/authContext';
 import { useToast } from '../components/ToastProvider';
 import NarrativeRenderer from '../components/NarrativeRenderer';
@@ -79,13 +79,16 @@ const ReportsHistory = () => {
 
   const handleDownloadPro = async (reportId, format) => {
     try {
-      const response = await apiFetch(`/api/reports/download/${reportId}?format=${format}`);
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
       if (format === 'pdf') {
+        const session = await getSessionSafe();
+        const token = session?.access_token;
+        if (!token) { toast.error('Not authenticated'); return; }
+        const url = `${API_URL}/api/reports/download/${reportId}?format=pdf&token=${encodeURIComponent(token)}`;
         window.open(url, '_blank');
-        setTimeout(() => URL.revokeObjectURL(url), 30000);
       } else {
+        const response = await apiFetch(`/api/reports/download/${reportId}?format=${format}`);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = `report-${reportId}.xlsx`;
