@@ -120,11 +120,16 @@ def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
         user_report_dir = os.path.join(tempfile.gettempdir(), f"reports_{user_id}")
         os.makedirs(user_report_dir, exist_ok=True)
 
+        from ..core.auth import get_user_org_name
+        try:
+            _org_daily = get_user_org_name(user_id)
+        except Exception:
+            _org_daily = os.getenv("INSTITUTION_NAME", "CNPS")
         report_data = {
-            'title': f'CNPS Daily Report - {report["report_date"]}',
+            'title': f'{_org_daily} Daily Report - {report["report_date"]}',
             'report_id': report_id,
-            'prepared_for': os.getenv("INSTITUTION_NAME", "CNPS"),
-            'prepared_by': 'CNPS AI Analytics System',
+            'prepared_for': _org_daily,
+            'prepared_by': f'{_org_daily} Analytics System',
             'date': str(report["report_date"]),
             'version': '1.0',
             'report_type': 'Daily Report',
@@ -149,7 +154,7 @@ def download_report(report_id: str, user_id: str = Depends(resolve_user_id)):
         }
 
         pdf_path = os.path.join(user_report_dir, f"daily_{report_id}.pdf")
-        generator = ProfessionalReportGenerator(os.getenv("INSTITUTION_NAME", "CNPS"))
+        generator = ProfessionalReportGenerator(_org_daily)
         generator.generate_report(report_data, pdf_path, format="pdf")
 
         if os.path.isfile(pdf_path) and os.path.getsize(pdf_path) > 100:
@@ -366,11 +371,16 @@ def generate_professional_report(
         user_report_dir = os.path.join(tempfile.gettempdir(), f"reports_{user_id}")
         os.makedirs(user_report_dir, exist_ok=True)
         
+        from ..core.auth import get_user_org_name
+        try:
+            _org_name = get_user_org_name(user_id)
+        except Exception:
+            _org_name = os.getenv("INSTITUTION_NAME", "CNPS")
         result = generate_goal_analysis_report(
             user_id=user_id,
             analysis_result=analysis_result,
             supabase=supabase,
-            institution_name=os.getenv("INSTITUTION_NAME", "CNPS"),
+            institution_name=_org_name,
             output_dir=user_report_dir
         )
         
@@ -493,11 +503,16 @@ def download_professional_report(
         user_report_dir = os.path.join(tempfile.gettempdir(), f"reports_{user_id}")
         os.makedirs(user_report_dir, exist_ok=True)
 
+        from ..core.auth import get_user_org_name
+        try:
+            _org_name_dl = get_user_org_name(user_id)
+        except Exception:
+            _org_name_dl = os.getenv("INSTITUTION_NAME", "CNPS")
         report_data = {
-            'title': report.get("title", "CNPS Analysis Report"),
+            'title': report.get("title", f"{_org_name_dl} Analysis Report"),
             'report_id': report_id,
-            'prepared_for': os.getenv("INSTITUTION_NAME", "CNPS"),
-            'prepared_by': 'CNPS AI Analytics System',
+            'prepared_for': _org_name_dl,
+            'prepared_by': f"{_org_name_dl} Analytics System",
             'date': datetime.now().strftime('%B %d, %Y'),
             'version': '1.0',
             'report_type': report.get("report_type", "Analysis Report"),
@@ -522,7 +537,7 @@ def download_professional_report(
         }
 
         pdf_path = os.path.join(user_report_dir, f"report_{report_id}.pdf")
-        generator = ProfessionalReportGenerator(os.getenv("INSTITUTION_NAME", "CNPS"))
+        generator = ProfessionalReportGenerator(_org_name_dl)
         generator.generate_report(report_data, pdf_path, format="pdf")
 
         if os.path.isfile(pdf_path) and os.path.getsize(pdf_path) > 100:

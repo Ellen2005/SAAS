@@ -120,9 +120,9 @@ async def lifespan(app: FastAPI):
 INSTITUTION_NAME = os.getenv("INSTITUTION_NAME", "Smart Analytics")
 
 app = FastAPI(
-    title=f"{INSTITUTION_NAME} System API",
+    title="Smart Analytics System API",
     version="1.0.0",
-    description="Data Pipeline & Analytics Engine",
+    description="Data Pipeline & Analytics Engine — multi-tenant",
     lifespan=lifespan
 )
 
@@ -252,6 +252,12 @@ app.include_router(dashboard_router.router)
 app.include_router(reports_router.router)
 app.include_router(settings_router.router)
 app.include_router(etl_router.router)
+try:
+    from .routers import organizations as org_router
+    app.include_router(org_router.router)
+    logger.info("Organizations router loaded")
+except Exception as e:
+    logger.warning(f"Organizations router not loaded: {e}")
 
 
 # ── Models ────────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, NavLink, Navigate, useLocation,
 import { LogOut, Shield, Moon, Sun, Menu, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { AuthProvider, useAuth } from './lib/authContext.jsx';
+import { OrgProvider, useOrg } from './lib/orgContext.jsx';
 import { LangProvider, useLang } from './lib/i18n.jsx';
 import { useInactivityTimeout } from './hooks/useInactivityTimeout';
 import useIsMobile from './hooks/useIsMobile';
@@ -80,6 +81,7 @@ function AdminSubNav() {
 
 function AppShell() {
   const { user, departmentName, loading, isAdmin, isManager } = useAuth();
+  const { org } = useOrg();
   const { t } = useLang();
   const navigate = useNavigate();
   useInactivityTimeout(!!user);
@@ -171,8 +173,8 @@ function AppShell() {
                       {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
                     </button>
                   )}
-                  <img src="/logo.png" alt="CNPS" style={{ width: '32px', height: '32px' }} />
-                  <h2 style={{ letterSpacing: '-0.05em' }}>{t('app_name')}</h2>
+                  <img src={org?.logo_url || "/logo.png"} alt={org?.name || "Org"} style={{ width: '32px', height: '32px' }} />
+                  <h2 style={{ letterSpacing: '-0.05em' }}>{org?.name || t('app_name')}</h2>
                   {!isMobile && departmentName && (
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', padding: '2px 8px', background: 'rgba(255,255,255,0.05)', borderRadius: '999px' }}>
                       {departmentName}
@@ -302,15 +304,17 @@ function App() {
   return (
     <LangProvider>
       <AuthProvider>
-        <ToastProvider>
-          <Router>
-            <ReloadPrompt />
-            <OfflineBanner />
-            <InactivityWarning />
-            <AssistantBot />
-            <AppShell />
-          </Router>
-        </ToastProvider>
+        <OrgProvider>
+          <ToastProvider>
+            <Router>
+              <ReloadPrompt />
+              <OfflineBanner />
+              <InactivityWarning />
+              <AssistantBot />
+              <AppShell />
+            </Router>
+          </ToastProvider>
+        </OrgProvider>
       </AuthProvider>
     </LangProvider>
   );

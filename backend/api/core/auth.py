@@ -209,7 +209,7 @@ def get_user_info(user_id: str) -> dict:
         return cached
 
     supabase = get_supabase()
-    info = {"user_id": user_id, "role": None, "department_id": None, "department_name": None}
+    info = {"user_id": user_id, "role": None, "department_id": None, "department_name": None, "organization_id": None, "organization_name": None}
     try:
         resp = supabase.table("user_roles").select("role, department_id, departments(name)").eq("user_id", user_id).execute()
         if hasattr(resp, "data") and resp.data:
@@ -220,10 +220,31 @@ def get_user_info(user_id: str) -> dict:
             info["department_id"] = best.get("department_id")
             if best.get("departments"):
                 info["department_name"] = best["departments"].get("name")
-            _cache_role(user_id, info)
     except Exception:
         logger.warning("user info lookup failed for user %s", user_id, exc_info=True)
+    # Enrich with org (non-fatal if org table not yet migrated)
+    try:
+        org_resp = supabase.table("user_profiles").select("organization_id, organizations(name)").eq("id", user_id).limit(1).execute()
+        if hasattr(org_resp, "data") and org_resp.data:
+            row = org_resp.data[0]
+            info["organization_id"] = row.get("organization_id")
+            if row.get("organizations"):
+                info["organization_name"] = row["organizations"].get("name")
+    except Exception:
+        pass
+    # Fallback display name from env for pre-migration / missing org
+    if not info.get("organization_name"):
+        import os as _os
+        info["organization_name"] = _os.getenv("INSTITUTION_NAME", "CNPS")
+    _cache_role(user_id, info)
     return info
+
+
+def get_user_org_name(user_id: str) -> str:
+    """Resolve org display name with env fallback (white-label)."""
+    import os as _os
+    info = get_user_info(user_id)
+    return info.get("organization_name") or _os.getenv("INSTITUTION_NAME", "CNPS")
 
 
 def is_admin(user_id: str) -> bool:

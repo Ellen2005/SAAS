@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List
 
-from ..core.auth import require_role, resolve_user_id, get_user_info
+from ..core.auth import require_role, resolve_user_id, get_user_info, get_user_org_name
 from ..core.supabase_client import get_supabase
 from ..services.analysis_engine import run_analysis, list_presets, list_runs, validate_formula
 from ..services.export_service import export_analysis_runs_csv
@@ -31,11 +31,16 @@ def _auto_generate_report(user_id: str, analysis_id: str, goal_text: str):
         }
         user_report_dir = os.path.join(tempfile.gettempdir(), f"reports_{user_id}")
         os.makedirs(user_report_dir, exist_ok=True)
+        # Org-aware branding: user_profiles.organizations.name > env fallback
+        try:
+            _org_name = get_user_org_name(user_id)
+        except Exception:
+            _org_name = os.getenv("INSTITUTION_NAME", "CNPS")
         result = generate_goal_analysis_report(
             user_id=user_id,
             analysis_result=analysis_result,
             supabase=supabase,
-            institution_name=os.getenv("INSTITUTION_NAME", "CNPS"),
+            institution_name=_org_name,
             output_dir=user_report_dir,
         )
         report_record = {
@@ -152,21 +157,31 @@ def create_preset(
         "required_domains": body.required_domains or [],
         "suggested_formula": body.suggested_formula,
     }
-    try:
-        resp = supabase.table("cnps_analysis_presets").insert(payload).execute()
-        row = resp.data[0] if hasattr(resp, "data") and resp.data else payload
-        return {"status": "created", "preset": row}
-    except Exception as e:
-        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
-            raise HTTPException(status_code=409, detail=f"Preset slug '{slug}' already exists.")
-        logger.error("Create preset failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+    # Write to generic table (cnps view is compat)
+    for tbl in ("analysis_presets", "cnps_analysis_presets"):
+        try:
+            resp = supabase.table(tbl).insert(payload).execute()
+            row = resp.data[0] if hasattr(resp, "data") and resp.data else payload
+            return {"status": "created", "preset": row}
+        except Exception as e:
+            if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+                raise HTTPException(status_code=409, detail=f"Preset slug '{slug}' already exists.")
+            if tbl == "analysis_presets":
+                continue
+            logger.error("Create preset failed", exc_info=True)
+            raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
+    raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.delete("/admin/presets/{slug}")
 def delete_preset(slug: str, context: dict = Depends(require_role(["admin"]))):
     supabase = get_supabase()
-    supabase.table("cnps_analysis_presets").delete().eq("slug", slug).execute()
+    for tbl in ("analysis_presets", "cnps_analysis_presets"):
+        try:
+            supabase.table(tbl).delete().eq("slug", slug).execute()
+            break
+        except Exception:
+            continue
     return {"status": "deleted", "slug": slug}
 
 
