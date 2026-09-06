@@ -528,7 +528,10 @@ def run_analysis(
         "status": "planning",
     }
     if preset_slug:
-        preset_resp = supabase.table("cnps_analysis_presets").select("id").eq("slug", preset_slug).limit(1).execute()
+        try:
+            preset_resp = supabase.table("analysis_presets").select("id").eq("slug", preset_slug).limit(1).execute()
+        except Exception:
+            preset_resp = supabase.table("cnps_analysis_presets").select("id").eq("slug", preset_slug).limit(1).execute()
         if hasattr(preset_resp, "data") and preset_resp.data:
             run_row["preset_id"] = preset_resp.data[0]["id"]
 
@@ -659,7 +662,11 @@ def run_analysis(
 
 def list_presets(supabase, lang: str = "en") -> list[dict]:
     try:
-        resp = supabase.table("cnps_analysis_presets").select("*").order("category").execute()
+        # Generic table with CNPS view fallback for backward compat
+        try:
+            resp = supabase.table("analysis_presets").select("*").order("category").execute()
+        except Exception:
+            resp = supabase.table("cnps_analysis_presets").select("*").order("category").execute()
         rows = resp.data if hasattr(resp, "data") and resp.data else []
         for row in rows:
             row["title"] = row.get("title_fr" if lang == "fr" else "title_en") or row.get("title_en")
