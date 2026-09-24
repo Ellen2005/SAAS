@@ -23,6 +23,9 @@ const Landing = () => {
             <Link to="/login" className="btn btn-primary" style={{ padding: isMobile ? '12px 24px' : '16px 32px', fontSize: isMobile ? '1rem' : '1.1rem', gap: '10px' }}>
               {t('landing_enter')} <ArrowRight size={20} />
             </Link>
+            <a href="/api/demo/report" target="_blank" rel="noopener noreferrer" className="btn btn-outline" style={{ padding: isMobile ? '12px 24px' : '16px 32px', fontSize: isMobile ? '1rem' : '1.1rem', gap: '10px', textDecoration: 'none' }}>
+              Download Demo Report
+            </a>
           </div>
         </div>
         {!isMobile && (

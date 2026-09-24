@@ -431,6 +431,66 @@ class ProfessionalReportGenerator:
         
         story.append(PageBreak())
         
+        # ========== STATISTICAL ANALYSIS ==========
+        stat_analysis = report_data.get('statistical_analysis', {})
+        if stat_analysis:
+            story.append(Paragraph('Statistical Analysis', self.styles['ReportH1']))
+            
+            # Correlations
+            correlations = stat_analysis.get('correlations', [])
+            if correlations:
+                story.append(Paragraph('Correlation Analysis', self.styles['ReportH2']))
+                corr_data = [['Variable 1', 'Variable 2', 'Correlation (r)', 'Direction', 'Strength']]
+                for pair in correlations[:8]:
+                    corr_data.append([
+                        pair.get('var1', '').replace('_', ' ').title(),
+                        pair.get('var2', '').replace('_', ' ').title(),
+                        f"{pair.get('r', 0):.3f}",
+                        pair.get('direction', ''),
+                        pair.get('strength', ''),
+                    ])
+                if len(corr_data) > 1:
+                    corr_table = Table(corr_data, colWidths=[4*cm, 4*cm, 3*cm, 2.5*cm, 2.5*cm])
+                    corr_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c5282')),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, -1), 8),
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f4f8')]),
+                    ]))
+                    story.append(corr_table)
+                    story.append(Spacer(1, 0.5*cm))
+            
+            # Outliers
+            outliers = stat_analysis.get('outliers', [])
+            if outliers:
+                story.append(Paragraph('Outlier Detection (IQR Method)', self.styles['ReportH2']))
+                for ol in outliers[:5]:
+                    story.append(Paragraph(
+                        f"• <b>{ol.get('column', 'N/A')}</b>: {ol.get('n_outliers', 0)} outlier(s) "
+                        f"({ol.get('pct_outliers', 0)}% of data) — "
+                        f"bounds [{ol.get('lower_bound', 0):,.2f}, {ol.get('upper_bound', 0):,.2f}]",
+                        self.styles['ReportBullet']
+                    ))
+                story.append(Spacer(1, 0.3*cm))
+            
+            # Forecasts
+            forecasts = stat_analysis.get('forecasts', [])
+            if forecasts:
+                story.append(Paragraph('Forecast Analysis', self.styles['ReportH2']))
+                for fc in forecasts[:3]:
+                    story.append(Paragraph(
+                        f"• <b>{fc.get('column', 'N/A')}</b>: Trend = {fc.get('trend', 'N/A')}, "
+                        f"R² = {fc.get('r_squared', 0):.3f}, "
+                        f"Next period forecast: {fc.get('forecast_next', 'N/A'):,.2f}",
+                        self.styles['ReportBullet']
+                    ))
+                story.append(Spacer(1, 0.3*cm))
+            
+            story.append(PageBreak())
+        
         # ========== RISK ANALYSIS ==========
         if report_data.get('risk_analysis_text'):
             story.append(Paragraph('Risk Analysis', self.styles['ReportH1']))

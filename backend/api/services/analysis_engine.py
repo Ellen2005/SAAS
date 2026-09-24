@@ -159,6 +159,7 @@ def _explain_results(*, goal_text: str, sql: str | None, metrics: dict, sample_r
     """
     Return structured, human-friendly analysis with overview, insights,
     observations, forecasts, risk analysis, and recommendations.
+    Enhanced with real statistical analysis via statistical_engine.
     """
     row_count = metrics.get("row_count", 0)
     columns = metrics.get("columns", [])
@@ -174,9 +175,69 @@ def _explain_results(*, goal_text: str, sql: str | None, metrics: dict, sample_r
     null_total = sum(null_counts.values())
     completeness_pct = round((1 - null_total / total_cells) * 100, 1) if total_cells > 0 else 100
 
-    # Compute basic stats for numeric columns
+    # ── Enhanced statistical analysis ────────────────────────────────────────
+    stat_results = {}
+    try:
+        import pandas as _pd
+        from .statistical_engine import (
+            comprehensive_stats, compute_correlation_matrix,
+            detect_outliers_iqr, forecast_linear_trend,
+        )
+        df = _pd.DataFrame(sample_rows)
+        for col in columns:
+            vals = [r.get(col) for r in sample_rows]
+            num_vals = []
+            for v in vals:
+                try:
+                    num_vals.append(float(v))
+                except (TypeError, ValueError):
+                    continue
+            if len(num_vals) >= 3:
+                stat_results[col] = comprehensive_stats(num_vals)
+
+        # Correlations
+        numeric_cols = [c for c in columns if c in stat_results]
+        if len(numeric_cols) >= 2:
+            corr_df = df[numeric_cols].apply(_pd.to_numeric, errors="coerce")
+            corr_pairs = compute_correlation_matrix(corr_df)
+            stat_results["_correlations"] = corr_pairs.get("strong_pairs", [])
+
+        # Outlier detection
+        for col in numeric_cols:
+            vals = [r.get(col) for r in sample_rows]
+            num_vals = []
+            for v in vals:
+                try:
+                    num_vals.append(float(v))
+                except (TypeError, ValueError):
+                    continue
+            if len(num_vals) >= 4:
+                outlier_info = detect_outliers_iqr(num_vals)
+                if outlier_info.get("n_outliers", 0) > 0:
+                    stat_results[f"_outliers_{col}"] = outlier_info
+
+        # Forecasts
+        for col in numeric_cols[:3]:
+            vals = [r.get(col) for r in sample_rows]
+            num_vals = []
+            for v in vals:
+                try:
+                    num_vals.append(float(v))
+                except (TypeError, ValueError):
+                    continue
+            if len(num_vals) >= 5:
+                forecast = forecast_linear_trend(num_vals, periods=min(6, max(2, len(num_vals) // 3)))
+                if "error" not in forecast:
+                    stat_results[f"_forecast_{col}"] = forecast
+    except Exception as e:
+        logger.warning(f"Statistical analysis failed, using basic stats: {e}")
+
+    # Compute basic stats for numeric columns (fallback)
     col_stats = {}
     for col in columns:
+        if col in stat_results and not col.startswith("_"):
+            col_stats[col] = stat_results[col]
+            continue
         vals = []
         for r in sample_rows:
             v = r.get(col)
