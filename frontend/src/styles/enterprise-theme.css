@@ -860,4 +860,14 @@ body {
   .ea-content {
     padding: var(--ea-space-4);
   }
+
+  /* Bottom nav spacing */
+  .ea-kpi-card .ea-kpi-value {
+    font-size: var(--ea-text-2xl);
+  }
+
+  /* Tables scroll horizontally */
+  table {
+    font-size: 0.8rem !important;
+  }
 }
