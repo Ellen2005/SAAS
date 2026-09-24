@@ -1,23 +1,13 @@
 import React from 'react';
 import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown } from 'lucide-react';
+import SparklineChart from './SparklineChart';
 
 /**
- * Enterprise KPI Card — Power BI style.
- * @param {object} props
- * @param {string} props.title - KPI title
- * @param {number|string} props.value - KPI value
- * @param {number} [props.delta] - Percentage change
- * @param {'up'|'down'|'neutral'} [props.trend] - Trend direction
- * @param {'positive'|'negative'|'warning'|'neutral'} [props.status] - Status
- * @param {string} [props.subtitle] - Subtitle text
- * @param {React.ReactNode} [props.icon] - Icon component
- * @param {string} [props.format] - Number format (e.g., 'currency', 'percent', 'number')
- * @param {number} [props.progress] - Progress value 0-100
- * @param {function} [props.onClick] - Click handler
+ * Enterprise KPI Card — Power BI style with optional sparkline.
  */
-const KpiCard = ({ 
-  title, value, delta, trend, status = 'neutral', subtitle, icon, 
-  format = 'number', progress, onClick 
+const KpiCard = ({
+  title, value, delta, trend, status = 'neutral', subtitle, icon,
+  format = 'number', progress, onClick, sparkData, sparkColor,
 }) => {
   const fmt = (v) => {
     if (v == null || v === '—') return '—';
@@ -44,18 +34,20 @@ const KpiCard = ({
   const deltaColor = delta > 0 ? 'var(--ea-success)' : delta < 0 ? 'var(--ea-danger)' : 'var(--ea-text-muted)';
   const TrendIcon = delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : null;
 
+  const autoSparkColor = delta > 0 ? '#10b981' : delta < 0 ? '#ef4444' : '#3b82f6';
+
   return (
-    <div 
-      className="ea-kpi-card" 
+    <div
+      className="ea-kpi-card"
       onClick={onClick}
       style={{ cursor: onClick ? 'pointer' : 'default' }}
       role="region"
       aria-label={`KPI Card: ${title}`}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
+        <div style={{ minWidth: 0, flex: 1 }}>
           <div className="ea-kpi-label">{title}</div>
-          {subtitle && <div style={{ fontSize: '0.75rem', color: 'var(--ea-text-muted)', marginTop: '2px' }}>{subtitle}</div>}
+          {subtitle && <div style={{ fontSize: '0.7rem', color: 'var(--ea-text-muted)', marginTop: 2 }}>{subtitle}</div>}
         </div>
         {icon && (
           <div className="ea-kpi-icon" style={{ background: color.bg, color: color.accent }}>
@@ -63,10 +55,10 @@ const KpiCard = ({
           </div>
         )}
       </div>
-      
+
       <div className="ea-kpi-value">{fmt(value)}</div>
-      
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
         {delta != null && delta !== 0 && (
           <span className={`ea-kpi-delta ${delta > 0 ? 'positive' : 'negative'}`}>
             {delta > 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
@@ -77,9 +69,22 @@ const KpiCard = ({
           <TrendIcon size={16} style={{ color: deltaColor }} />
         )}
       </div>
-      
+
+      {/* Sparkline */}
+      {sparkData && sparkData.length > 1 && (
+        <div style={{ marginTop: 10, opacity: 0.8 }}>
+          <SparklineChart
+            data={sparkData}
+            width={180}
+            height={28}
+            color={sparkColor || autoSparkColor}
+            strokeWidth={1.5}
+          />
+        </div>
+      )}
+
       {progress != null && (
-        <div className="ea-progress" style={{ marginTop: '12px' }}>
+        <div className="ea-progress" style={{ marginTop: 12 }}>
           <div className="ea-progress-bar" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
         </div>
       )}

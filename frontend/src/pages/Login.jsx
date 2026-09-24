@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, LogIn, Lock, User, Eye, EyeOff, UserPlus, AlertCircle } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Activity, LogIn, Lock, User, Eye, EyeOff, UserPlus, ArrowRight, BarChart2, Shield, Zap } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useLang } from '../lib/i18n';
 import { useAuth } from '../lib/authContext';
+import { useOrg } from '../lib/orgContext';
 import LanguagePicker from '../components/LanguagePicker';
+import useIsMobile from '../hooks/useIsMobile';
 
 const Login = () => {
   const { t } = useLang();
   const { user } = useAuth();
+  const { org } = useOrg();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,11 +28,8 @@ const Login = () => {
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState(null);
-
   const [fieldErrors, setFieldErrors] = useState({});
   const [touched, setTouched] = useState({});
-  const errorIdRef = useRef('login-error');
-
 
   const getPasswordStrength = (pwd) => {
     if (!pwd) return { score: 0, label: '', color: '' };
@@ -44,63 +45,34 @@ const Login = () => {
     return { score: 3, label: 'Strong', color: '#10b981' };
   };
 
-  const validateEmail = (value) => {
-    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return re.test(value);
-  };
+  const validateEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
   const validateField = (field, value) => {
     switch (field) {
-      case 'email':
-        if (!value) return t('login_email') + ' is required';
-        if (!validateEmail(value)) return 'Invalid email format';
-        return null;
-      case 'password':
-        if (!value) return t('login_password') + ' is required';
-        if (value.length < 6) return 'Password must be at least 6 characters';
-        return null;
-      case 'confirmPassword':
-        if (!value) return 'Please confirm your password';
-        if (value !== password) return 'Passwords do not match';
-        return null;
-      case 'name':
-        if (isSignUp && !value) return t('login_name') + ' is required';
-        return null;
-      default:
-        return null;
+      case 'email': if (!value) return 'Email is required'; if (!validateEmail(value)) return 'Invalid email format'; return null;
+      case 'password': if (!value) return 'Password is required'; if (value.length < 6) return 'At least 6 characters'; return null;
+      case 'confirmPassword': if (!value) return 'Please confirm'; if (value !== password) return 'Passwords do not match'; return null;
+      case 'name': if (isSignUp && !value) return 'Name is required'; return null;
+      default: return null;
     }
   };
 
   const handleBlur = (field) => {
     setTouched(prev => ({ ...prev, [field]: true }));
-    const err = validateField(field, field === 'confirmPassword' ? confirmPassword : 
-      field === 'password' ? password : field === 'email' ? email : name);
-    setFieldErrors(prev => ({ ...prev, [field]: err }));
+    const val = field === 'confirmPassword' ? confirmPassword : field === 'password' ? password : field === 'email' ? email : name;
+    setFieldErrors(prev => ({ ...prev, [field]: validateField(field, val) }));
   };
 
   const handleChange = (field, value) => {
-    if (field === 'email') {
-      setEmail(value);
-
-    } else if (field === 'password') {
-      setPassword(value);
-    } else if (field === 'confirmPassword') {
-      setConfirmPassword(value);
-    } else if (field === 'name') {
-      setName(value);
-    }
+    const setter = { email: setEmail, password: setPassword, confirmPassword: setConfirmPassword, name: setName }[field];
+    if (setter) setter(value);
     if (touched[field]) {
-      const err = validateField(field, field === 'confirmPassword' ? value : 
-        field === 'password' ? value : field === 'email' ? value : name);
-      setFieldErrors(prev => ({ ...prev, [field]: err }));
+      const val = field === 'confirmPassword' ? value : field === 'password' ? value : field === 'email' ? value : name;
+      setFieldErrors(prev => ({ ...prev, [field]: validateField(field, val) }));
     }
   };
 
-  useEffect(() => {
-    if (user) {
-      navigate('/dashboard', { replace: true });
-    }
-  }, [user, navigate]);
+  useEffect(() => { if (user) navigate('/dashboard', { replace: true }); }, [user, navigate]);
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -109,33 +81,22 @@ const Login = () => {
     setResetMessage(null);
 
     if (isSignUp && password !== confirmPassword) {
-      setError(t('login_confirm_password') + ' mismatch.');
+      setError('Passwords do not match.');
       setLoading(false);
       return;
     }
-
     if (!import.meta.env.VITE_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL === 'MOCK_URL') {
-      setError('Frontend is in Mock Mode. Please set VITE_SUPABASE_URL in your .env to continue.');
+      setError('Frontend is in Mock Mode. Set VITE_SUPABASE_URL in .env to continue.');
       setLoading(false);
       return;
     }
-
     try {
       let result;
       if (isSignUp) {
         result = await supabase.auth.signUp({ email, password, options: { data: { name } } });
-        if (!result.error) {
-          setShowLangPicker(true);
-          setLoading(false);
-        }
+        if (!result.error) { setShowLangPicker(true); setLoading(false); }
       } else {
         result = await supabase.auth.signInWithPassword({ email, password });
-        // Do NOT call navigate() here — onAuthStateChange sets user state
-        // immediately now, which triggers the <Navigate to="/dashboard"> in
-        // App.jsx. Calling navigate() here as well caused a race where the
-        // route guard saw user=null and bounced back to /login.
-        // Clear loading so button returns to normal state even if navigation
-        // is slightly delayed.
         setLoading(false);
       }
       if (result.error) throw result.error;
@@ -162,134 +123,245 @@ const Login = () => {
     }
   };
 
+  const inputStyle = {
+    width: '100%', padding: '12px 14px', background: 'var(--ea-bg-card)',
+    border: '1px solid var(--ea-border)', borderRadius: 10,
+    color: 'var(--ea-text-primary)', fontSize: '0.95rem', outline: 'none',
+    transition: 'border-color 0.2s, box-shadow 0.2s',
+  };
+
+  const labelStyle = {
+    display: 'block', fontSize: '0.8rem', fontWeight: 600,
+    color: 'var(--ea-text-secondary)', marginBottom: 6,
+  };
+
   return (
     <>
       {showLangPicker && <LanguagePicker onClose={() => setShowLangPicker(false)} />}
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: 'var(--bg-color)', padding: '20px' }}>
-        <div className="glass-panel" style={{ width: '100%', maxWidth: '400px', textAlign: 'center' }}>
-          <div style={{ display: 'inline-flex', background: 'var(--primary-color)', padding: '12px', borderRadius: '12px', marginBottom: '20px' }}>
-            <Activity color="white" size={32} />
-          </div>
-          <h1 style={{ fontSize: '1.8rem', marginBottom: '10px' }}>
-            {isSignUp ? t('signup_title') : t('login_title')}
-          </h1>
-          <p style={{ marginBottom: '30px' }}>
-            {isSignUp ? t('signup_subtitle') : t('login_subtitle')}
-          </p>
+      <div style={{
+        display: 'flex', minHeight: '100vh', background: 'var(--ea-bg)',
+      }}>
+        {/* Left panel — branding (hidden on mobile) */}
+        {!isMobile && (
+          <div style={{
+            flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+            padding: '60px 60px', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            {/* Glow */}
+            <div style={{
+              position: 'absolute', width: 500, height: 500, borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%)',
+              top: '20%', left: '10%', animation: 'pulse 6s infinite alternate ease-in-out',
+            }} />
 
-          {error && (
-            <div id={errorIdRef.current} role="alert" style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--status-critical)', padding: '10px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.9rem' }}>
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleAuth}>
-            {isSignUp && (
-              <div className="form-group" style={{ textAlign: 'left' }}>
-                <label htmlFor="login-name" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <UserPlus size={16} /> {t('login_name')}
-                </label>
-                <input id="login-name" name="name" type="text" placeholder="Department or Username" required value={name} onChange={(e) => handleChange('name', e.target.value)} onBlur={() => handleBlur('name')} aria-invalid={touched.name && !!fieldErrors.name} aria-describedby={touched.name && fieldErrors.name ? 'name-error' : undefined} />
-                {touched.name && fieldErrors.name && <p id="name-error" role="alert" style={{ color: 'var(--status-critical)', fontSize: '0.8rem', marginTop: '4px' }}>{fieldErrors.name}</p>}
+            <div style={{ position: 'relative', zIndex: 1, maxWidth: 440 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 40 }}>
+                <img src={org?.logo_url || '/logo.png'} alt="" style={{ width: 44, height: 44 }} />
+                <span style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--ea-text-primary)' }}>
+                  {org?.name || 'Smart Analytics'}
+                </span>
               </div>
-            )}
 
-            <div className="form-group" style={{ textAlign: 'left' }}>
-              <label htmlFor="login-email" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <User size={16} /> {t('login_email')}
-              </label>
-              <input id="login-email" name="email" type="email" placeholder="name@company.com" required value={email} onChange={(e) => handleChange('email', e.target.value)} onBlur={() => handleBlur('email')} autoComplete="email" aria-invalid={touched.email && !!fieldErrors.email} aria-describedby={touched.email && fieldErrors.email ? 'email-error' : undefined} />
-              {touched.email && fieldErrors.email && <p id="email-error" role="alert" style={{ color: 'var(--status-critical)', fontSize: '0.8rem', marginTop: '4px' }}>{fieldErrors.email}</p>}
-            </div>
+              <h1 style={{
+                fontSize: '2.8rem', fontWeight: 800, lineHeight: 1.1, marginBottom: 20,
+                background: 'linear-gradient(135deg, #f8fafc, #94a3b8)',
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              }}>
+                Institutional Analytics Platform
+              </h1>
+              <p style={{ fontSize: '1.1rem', color: 'var(--ea-text-secondary)', lineHeight: 1.6, marginBottom: 40 }}>
+                Automated insights, anomaly detection, and professional reporting — all in one platform.
+              </p>
 
-            <div className="form-group" style={{ textAlign: 'left', position: 'relative' }}>
-              <label htmlFor="login-password" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Lock size={16} /> {t('login_password')}
-              </label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  id="login-password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  required
-                  value={password}
-                  onChange={(e) => handleChange('password', e.target.value)}
-                  onBlur={() => handleBlur('password')}
-                  style={{ paddingRight: '45px' }}
-                  autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                  aria-invalid={touched.password && !!fieldErrors.password}
-                  aria-describedby={touched.password && fieldErrors.password ? 'password-error' : undefined}
-                />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-              {touched.password && fieldErrors.password && <p id="password-error" role="alert" style={{ color: 'var(--status-critical)', fontSize: '0.8rem', marginTop: '4px' }}>{fieldErrors.password}</p>}
-              {isSignUp && password && (() => {
-                const strength = getPasswordStrength(password);
-                return (
-                  <div style={{ marginTop: '6px' }}>
-                    <div style={{ display: 'flex', gap: '3px', marginBottom: '4px' }}>
-                      {[1, 2, 3].map(i => (
-                        <div key={i} style={{ flex: 1, height: '3px', borderRadius: '2px', background: i <= strength.score ? strength.color : 'rgba(255,255,255,0.1)' }} />
-                      ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {[
+                  { icon: Zap, text: 'AI-powered executive narratives generated automatically', color: '#3b82f6' },
+                  { icon: BarChart2, text: 'Statistical analysis with regression, forecasting, and correlation', color: '#10b981' },
+                  { icon: Shield, text: 'Enterprise-grade security with role-based access control', color: '#f59e0b' },
+                ].map(({ icon: Icon, text, color }, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                      background: `${color}18`, color, display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Icon size={18} />
                     </div>
-                    <span style={{ fontSize: '0.7rem', color: strength.color }}>{strength.label}</span>
+                    <span style={{ fontSize: '0.9rem', color: 'var(--ea-text-secondary)' }}>{text}</span>
                   </div>
-                );
-              })()}
+                ))}
+              </div>
             </div>
+          </div>
+        )}
 
-            {!isSignUp && (
-              <div style={{ textAlign: 'left', marginTop: '-8px', marginBottom: '10px' }}>
-                <button type="button" onClick={() => { setResetEmail(email); setResetMessage(null); setShowReset(true); }}
-                  style={{ background: 'none', border: 'none', color: 'var(--primary-color)', fontWeight: 600, cursor: 'pointer', padding: 0 }}>
-                  {t('login_forgot')}
-                </button>
+        {/* Right panel — form */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+          padding: isMobile ? '24px 20px' : '60px 48px',
+          width: isMobile ? '100%' : 480, flexShrink: 0,
+        }}>
+          <div style={{ width: '100%', maxWidth: 380 }}>
+            {/* Mobile-only brand */}
+            {isMobile && (
+              <div style={{ textAlign: 'center', marginBottom: 32 }}>
+                <img src={org?.logo_url || '/logo.png'} alt="" style={{ width: 48, height: 48, marginBottom: 12 }} />
+                <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--ea-text-primary)' }}>
+                  {org?.name || 'Smart Analytics'}
+                </h2>
               </div>
             )}
 
-            {!isSignUp && showReset && (
-              <div style={{ textAlign: 'left', marginBottom: '14px', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)' }}>
-                <input id="reset-email" name="resetEmail" type="email" placeholder="name@company.com" required value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} style={{ marginBottom: '12px', width: '100%' }} />
-                <button type="button" className="btn btn-primary" onClick={handleResetPassword} disabled={resetLoading} style={{ width: '100%' }}>
-                  {resetLoading ? t('login_processing') : t('login_reset_send')}
-                </button>
-                {resetMessage && <div style={{ marginTop: '10px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{resetMessage}</div>}
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--ea-text-primary)', marginBottom: 6 }}>
+              {isSignUp ? 'Create your account' : 'Welcome back'}
+            </h2>
+            <p style={{ fontSize: '0.9rem', color: 'var(--ea-text-muted)', marginBottom: 28 }}>
+              {isSignUp ? 'Sign up to start your automated analytics.' : 'Sign in to access your analytics dashboard.'}
+            </p>
+
+            {error && (
+              <div role="alert" style={{
+                background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)',
+                color: '#f87171', padding: '10px 14px', borderRadius: 10, marginBottom: 20,
+                fontSize: '0.85rem',
+              }}>
+                {error}
               </div>
             )}
 
-            {isSignUp && (
-              <div className="form-group" style={{ textAlign: 'left' }}>
-                <label htmlFor="login-confirm-password" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Lock size={16} /> {t('login_confirm_password')}
-                </label>
-                <div style={{ position: 'relative' }}>
-                <input id="login-confirm-password" name="confirmPassword" type={showConfirmPassword ? 'text' : 'password'} placeholder="••••••••" required value={confirmPassword} onChange={(e) => handleChange('confirmPassword', e.target.value)} onBlur={() => handleBlur('confirmPassword')} autoComplete="new-password" aria-invalid={touched.confirmPassword && !!fieldErrors.confirmPassword} aria-describedby={touched.confirmPassword && fieldErrors.confirmPassword ? 'confirm-error' : undefined} style={{ paddingRight: '45px' }} />
-                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                  {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
+            <form onSubmit={handleAuth}>
+              {isSignUp && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={labelStyle}>Full Name</label>
+                  <input
+                    type="text" placeholder="Department or Username" required
+                    value={name} onChange={(e) => handleChange('name', e.target.value)}
+                    onBlur={() => handleBlur('name')} style={inputStyle}
+                  />
+                  {touched.name && fieldErrors.name && <p style={{ color: '#f87171', fontSize: '0.75rem', marginTop: 4 }}>{fieldErrors.name}</p>}
                 </div>
-                {touched.confirmPassword && fieldErrors.confirmPassword && <p id="confirm-error" role="alert" style={{ color: 'var(--status-critical)', fontSize: '0.8rem', marginTop: '4px' }}>{fieldErrors.confirmPassword}</p>}
+              )}
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>Email Address</label>
+                <input
+                  type="email" placeholder="name@company.com" required
+                  value={email} onChange={(e) => handleChange('email', e.target.value)}
+                  onBlur={() => handleBlur('email')} style={inputStyle} autoComplete="email"
+                />
+                {touched.email && fieldErrors.email && <p style={{ color: '#f87171', fontSize: '0.75rem', marginTop: 4 }}>{fieldErrors.email}</p>}
               </div>
-            )}
 
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px', display: 'flex', gap: '10px', justifyContent: 'center' }} disabled={loading}>
-              {loading ? t('login_processing') : isSignUp ? <><UserPlus size={18} /> {t('signup_btn')}</> : <><LogIn size={18} /> {t('login_btn')}</>}
-            </button>
-          </form>
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••" required value={password}
+                    onChange={(e) => handleChange('password', e.target.value)}
+                    onBlur={() => handleBlur('password')}
+                    style={{ ...inputStyle, paddingRight: 44 }}
+                    autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                  />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--ea-text-muted)', cursor: 'pointer', display: 'flex' }}>
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                {touched.password && fieldErrors.password && <p style={{ color: '#f87171', fontSize: '0.75rem', marginTop: 4 }}>{fieldErrors.password}</p>}
+                {isSignUp && password && (() => {
+                  const s = getPasswordStrength(password);
+                  return (
+                    <div style={{ marginTop: 6 }}>
+                      <div style={{ display: 'flex', gap: 3, marginBottom: 4 }}>
+                        {[1, 2, 3].map(i => (
+                          <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= s.score ? s.color : 'var(--ea-border)' }} />
+                        ))}
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: s.color }}>{s.label}</span>
+                    </div>
+                  );
+                })()}
+              </div>
 
-          <p style={{ marginTop: '20px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            {isSignUp ? t('login_has_account') : t('login_no_account')}
-            <button onClick={() => { setIsSignUp(!isSignUp); setError(null); setTouched({}); setFieldErrors({}); }}
-              style={{ background: 'none', border: 'none', color: 'var(--primary-color)', fontWeight: '600', cursor: 'pointer', marginLeft: '8px' }}>
-              {isSignUp ? t('login_btn') : t('signup_btn')}
-            </button>
-          </p>
+              {!isSignUp && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
+                  <button type="button" onClick={() => { setResetEmail(email); setResetMessage(null); setShowReset(true); }}
+                    style={{ background: 'none', border: 'none', color: 'var(--ea-primary)', fontWeight: 600, cursor: 'pointer', padding: 0, fontSize: '0.85rem' }}>
+                    {t('login_forgot')}
+                  </button>
+                </div>
+              )}
+
+              {!isSignUp && showReset && (
+                <div style={{ marginBottom: 16, padding: 14, borderRadius: 10, border: '1px solid var(--ea-border)', background: 'var(--ea-bg-card)' }}>
+                  <input type="email" placeholder="name@company.com" required value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }} />
+                  <button type="button" className="btn btn-primary" onClick={handleResetPassword} disabled={resetLoading} style={{ width: '100%' }}>
+                    {resetLoading ? 'Sending...' : t('login_reset_send')}
+                  </button>
+                  {resetMessage && <div style={{ marginTop: 8, color: 'var(--ea-text-secondary)', fontSize: '0.85rem' }}>{resetMessage}</div>}
+                </div>
+              )}
+
+              {isSignUp && (
+                <div style={{ marginBottom: 20 }}>
+                  <label style={labelStyle}>Confirm Password</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      placeholder="••••••••" required value={confirmPassword}
+                      onChange={(e) => handleChange('confirmPassword', e.target.value)}
+                      onBlur={() => handleBlur('confirmPassword')}
+                      style={{ ...inputStyle, paddingRight: 44 }} autoComplete="new-password"
+                    />
+                    <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--ea-text-muted)', cursor: 'pointer', display: 'flex' }}>
+                      {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  {touched.confirmPassword && fieldErrors.confirmPassword && <p style={{ color: '#f87171', fontSize: '0.75rem', marginTop: 4 }}>{fieldErrors.confirmPassword}</p>}
+                </div>
+              )}
+
+              <button type="submit" className="btn btn-primary" style={{
+                width: '100%', padding: '13px 20px', fontSize: '0.95rem',
+                display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'center',
+              }} disabled={loading}>
+                {loading ? (
+                  <div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                ) : isSignUp ? (
+                  <><UserPlus size={18} /> Create Account</>
+                ) : (
+                  <><LogIn size={18} /> Sign In</>
+                )}
+              </button>
+            </form>
+
+            <p style={{ marginTop: 24, fontSize: '0.85rem', color: 'var(--ea-text-muted)', textAlign: 'center' }}>
+              {isSignUp ? 'Already have an account?' : "Don't have an account?"}
+              <button onClick={() => { setIsSignUp(!isSignUp); setError(null); setTouched({}); setFieldErrors({}); }}
+                style={{ background: 'none', border: 'none', color: 'var(--ea-primary)', fontWeight: 600, cursor: 'pointer', marginLeft: 6 }}>
+                {isSignUp ? 'Sign In' : 'Sign Up'}
+              </button>
+            </p>
+
+            <Link to="/" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              marginTop: 20, fontSize: '0.8rem', color: 'var(--ea-text-muted)',
+              textDecoration: 'none', transition: 'color 0.15s',
+            }}>
+              ← Back to home
+            </Link>
+          </div>
         </div>
+
+        <style>{`
+          @keyframes spin { to { transform: rotate(360deg); } }
+          @keyframes pulse { from { transform: scale(0.9); opacity: 0.1; } to { transform: scale(1.1); opacity: 0.3; } }
+          input:focus { border-color: var(--ea-primary) !important; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+        `}</style>
       </div>
     </>
   );
