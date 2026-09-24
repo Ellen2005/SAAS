@@ -259,6 +259,13 @@ try:
 except Exception as e:
     logger.warning(f"Organizations router not loaded: {e}")
 
+try:
+    from .routers import demo as demo_router
+    app.include_router(demo_router.router)
+    logger.info("Demo router loaded")
+except Exception as e:
+    logger.warning(f"Demo router not loaded: {e}")
+
 
 # ── Models ────────────────────────────────────────────────────────────────────
 

@@ -79,6 +79,70 @@ RAW_COLUMNS = {
 }
 
 
+def _detect_and_clip_outliers(frame: pd.DataFrame, value_col: str = "value", method: str = "iqr", factor: float = 3.0) -> pd.DataFrame:
+    """Detect outliers and clip to bounds (don't drop — preserve data integrity)."""
+    if frame.empty or value_col not in frame.columns:
+        return frame
+    vals = frame[value_col].dropna()
+    if len(vals) < 10:
+        return frame
+    if method == "iqr":
+        q1, q3 = vals.quantile(0.25), vals.quantile(0.75)
+        iqr = q3 - q1
+        lower, upper = q1 - factor * iqr, q3 + factor * iqr
+    else:
+        mean, std = vals.mean(), vals.std()
+        lower, upper = mean - factor * std, mean + factor * std
+    n_clipped = int(((frame[value_col] < lower) | (frame[value_col] > upper)).sum())
+    if n_clipped > 0:
+        frame[value_col] = frame[value_col].clip(lower, upper)
+        print(f"[ETL] Clipped {n_clipped} outliers to [{lower:.2f}, {upper:.2f}]")
+    return frame
+
+
+def _impute_missing(frame: pd.DataFrame) -> pd.DataFrame:
+    """Smart imputation: forward-fill for time series, median for numeric, mode for categorical."""
+    if frame.empty:
+        return frame
+    # Sort by date for time-series imputation
+    if "date" in frame.columns:
+        frame = frame.sort_values("date")
+    # Numeric: forward-fill then backward-fill then median
+    num_cols = frame.select_dtypes(include=["number"]).columns
+    for col in num_cols:
+        frame[col] = frame[col].ffill().bfill()
+        if frame[col].isna().any():
+            frame[col] = frame[col].fillna(frame[col].median())
+    # Categorical: forward-fill then mode
+    cat_cols = frame.select_dtypes(include=["object", "category"]).columns
+    for col in cat_cols:
+        if col == "source_row_id":
+            continue
+        frame[col] = frame[col].ffill().bfill()
+        if frame[col].isna().any():
+            mode_val = frame[col].mode()
+            if len(mode_val) > 0:
+                frame[col] = frame[col].fillna(mode_val.iloc[0])
+    return frame
+
+
+def _deduplicate(frame: pd.DataFrame) -> pd.DataFrame:
+    """Remove exact duplicate rows, keeping the latest by date if available."""
+    if frame.empty:
+        return frame
+    before = len(frame)
+    # Drop exact duplicates (all columns)
+    frame = frame.drop_duplicates()
+    # Also drop same-date + same-kpi_name + same-value (common from re-syncs)
+    dedup_cols = [c for c in ["date", "kpi_name", "value", "record_label"] if c in frame.columns]
+    if len(dedup_cols) >= 3:
+        frame = frame.drop_duplicates(subset=dedup_cols, keep="last")
+    dropped = before - len(frame)
+    if dropped > 0:
+        print(f"[ETL] Deduplicated: {dropped} duplicate rows removed ({before} -> {len(frame)})")
+    return frame
+
+
 def finalize_extracted_frame(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["date", "kpi_name", "value", "source_row_id", "record_label", "customer_id", "report_date"])
@@ -95,6 +159,12 @@ def finalize_extracted_frame(df: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         print(f"[{datetime.now().isoformat()}] All extracted rows were invalid after date/value coercion ({before} rows dropped).")
         return pd.DataFrame(columns=["date", "kpi_name", "value", "source_row_id", "record_label", "customer_id", "report_date"])
+
+    # ── New: dedup → impute → outlier clip ──────────────────────────────────
+    frame = _deduplicate(frame)
+    frame = _impute_missing(frame)
+    frame = _detect_and_clip_outliers(frame, "value", method="iqr", factor=3.0)
+
     if "source_row_id" not in frame.columns:
         frame["source_row_id"] = [str(uuid.uuid4()) for _ in range(len(frame))]
     else:

@@ -5,6 +5,7 @@ sqlalchemy
 supabase
 pandas
 scikit-learn
+scipy>=1.11.0
 prophet
 sib-api-v3-sdk
 python-dotenv
