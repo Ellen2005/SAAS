@@ -68,7 +68,7 @@ const AdminTemplates = () => {
     if (!selectedTemplateId || !selectedDepartmentId) return;
 
     try {
-      await apiFetch('/api/templates/deploy', {
+      await apiFetch('/api/templates/instances/deploy', {
         method: 'POST',
         body: JSON.stringify({
           template_id: selectedTemplateId,

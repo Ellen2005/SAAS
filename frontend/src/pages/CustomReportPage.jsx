@@ -111,11 +111,32 @@ const CustomReportPage = () => {
   };
 
   const handleDownloadPDF = async () => {
+    if (!result?.report) return;
     try {
       const token = (await getSessionSafe())?.access_token;
-      window.open(`${API_URL}/api/reports/custom/pdf?token=${encodeURIComponent(token || '')}`, '_blank');
-    } catch {
-      window.open(`${API_URL}/api/reports/custom/pdf`, '_blank');
+      const res = await fetch(`${API_URL}/api/reports/custom/pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          narrative: result.report,
+          title: reportTitle || instruction || 'Custom Report',
+        }),
+      });
+      if (!res.ok) throw new Error('PDF generation failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(reportTitle || 'custom-report').replace(/[^a-z0-9]+/gi, '_').toLowerCase()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(`Download failed: ${err.message}`);
     }
   };
 

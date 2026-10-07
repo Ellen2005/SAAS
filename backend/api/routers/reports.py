@@ -342,6 +342,79 @@ def save_custom_report(
         raise HTTPException(status_code=500, detail="Failed to save report.")
 
 
+@router.post("/reports/custom/pdf")
+def download_custom_report_pdf(
+    body: dict,
+    context: dict = Depends(require_role(["manager", "admin"])),
+):
+    """Generate and return a PDF of a custom report narrative."""
+    from fastapi.responses import FileResponse
+    import tempfile
+
+    narrative = (body.get("narrative") or "").strip()
+    title = body.get("title") or "Custom Report"
+    if not narrative:
+        raise HTTPException(status_code=400, detail="Narrative cannot be empty.")
+
+    user_id = context["user_id"]
+    try:
+        from ..services.professional_report_service import ProfessionalReportGenerator
+        from ..core.auth import get_user_org_name
+        try:
+            _org = get_user_org_name(user_id)
+        except Exception:
+            _org = os.getenv("INSTITUTION_NAME", "Smart Analytics")
+
+        user_dir = os.path.join(tempfile.gettempdir(), f"custom_reports_{user_id}")
+        os.makedirs(user_dir, exist_ok=True)
+        pdf_path = os.path.join(user_dir, "latest_custom_report.pdf")
+
+        report_data = {
+            'title': title,
+            'report_id': f"custom-{int(datetime.now(UTC).timestamp())}",
+            'prepared_for': _org,
+            'prepared_by': f'{_org} Analytics System',
+            'date': datetime.now(UTC).strftime('%B %d, %Y'),
+            'version': '1.0',
+            'report_type': 'Custom Report',
+            'executive_summary': narrative[:2000],
+            'background': 'Custom report generated via Report Builder.',
+            'objectives': ['Provide analysis as requested by the report instruction'],
+            'data_sources': [{'name': f'{_org} Database', 'description': 'Connected institutional data source'}],
+            'methodology': 'Automated data analysis with AI-assisted narrative generation.',
+            'data_quality': 'Automated quality checks applied during extraction.',
+            'quality_metrics': [
+                {'metric': 'Sections', 'value': str(narrative.count('\n\n') + 1), 'status': '✓'},
+                {'metric': 'Words', 'value': str(len(narrative.split())), 'status': '✓'},
+            ],
+            'kpis': [],
+            'anomalies': [],
+            'time_series': [],
+            'forecasts': [],
+            'interpretation': narrative,
+            'risks': [],
+            'recommendations': [],
+            'limitations': 'Generated from user-defined report configuration.',
+            'appendices': [],
+        }
+
+        generator = ProfessionalReportGenerator(_org)
+        generator.generate_report(report_data, pdf_path, format="pdf")
+
+        if os.path.isfile(pdf_path) and os.path.getsize(pdf_path) > 100:
+            return FileResponse(
+                path=pdf_path,
+                media_type="application/pdf",
+                filename=f"{title[:60].replace(' ', '_')}.pdf",
+            )
+        raise HTTPException(status_code=500, detail="PDF generation produced no output.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Custom PDF generation error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to generate PDF.")
+
+
 @router.post("/reports/generate-professional")
 def generate_professional_report(
     body: dict,
